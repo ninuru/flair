@@ -1,0 +1,11 @@
+[package]
+name = "flair-term"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+flair-core.workspace = true
+alacritty_terminal.workspace = true
+log.workspace = true

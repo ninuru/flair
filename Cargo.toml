@@ -1,0 +1,41 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/ninuru/flair"
+
+[workspace.dependencies]
+flair-core = { path = "crates/flair-core" }
+flair-term = { path = "crates/flair-term" }
+flair-server = { path = "crates/flair-server" }
+flair-gui = { path = "crates/flair-gui" }
+
+alacritty_terminal = { version = "=0.25.1", default-features = false }
+winit = { version = "=0.30.13", default-features = false, features = ["wayland", "wayland-dlopen", "rwh_06"] }
+glutin = { version = "=0.32.3", default-features = false, features = ["egl", "wayland"] }
+glutin-winit = { version = "0.5.0", default-features = false, features = ["egl", "wayland"] }
+glow = "=0.18.0"
+crossfont = "0.8.1"
+smithay-clipboard = "=0.7.2"
+
+serde = { version = "1.0.229", features = ["derive"] }
+postcard = { version = "1.1.3", default-features = false, features = ["use-std"] }
+toml = { version = "1.2.0", default-features = false, features = ["std", "serde", "parse"] }
+lexopt = "0.3.2"
+log = "0.4.35"
+env_logger = { version = "0.11.11", default-features = false }
+
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+lto = "thin"
+codegen-units = 16
+strip = true
