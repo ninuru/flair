@@ -96,6 +96,7 @@ pub struct ColorsConfig {
 pub enum ConfigError {
     Read { path: PathBuf, error: io::Error },
     Parse(toml::de::Error),
+    NotPositive { key: &'static str, value: f32 },
 }
 
 impl fmt::Display for ConfigError {
@@ -106,6 +107,12 @@ impl fmt::Display for ConfigError {
                 write!(f, "cannot read {path}: {error}")
             }
             ConfigError::Parse(error) => write!(f, "invalid config: {error}"),
+            ConfigError::NotPositive { key, value } => {
+                write!(
+                    f,
+                    "invalid config: {key} must be a finite number greater than 0, got {value}"
+                )
+            }
         }
     }
 }
@@ -115,6 +122,7 @@ impl Error for ConfigError {
         match self {
             ConfigError::Read { error, .. } => Some(error),
             ConfigError::Parse(error) => Some(error),
+            ConfigError::NotPositive { .. } => None,
         }
     }
 }
@@ -135,7 +143,10 @@ impl Config {
     }
 
     pub fn from_toml(text: &str) -> Result<Config, ConfigError> {
-        toml::from_str(text).map_err(ConfigError::Parse)
+        let config: Config = toml::from_str(text).map_err(ConfigError::Parse)?;
+        positive("font.size", config.font.size)?;
+        positive("font.line_height", config.font.line_height)?;
+        Ok(config)
     }
 
     pub fn load(path: &Path) -> (Config, Option<ConfigError>) {
@@ -261,6 +272,14 @@ impl Default for ColorsConfig {
                 rgb(0xff, 0xff, 0xff),
             ],
         }
+    }
+}
+
+fn positive(key: &'static str, value: f32) -> Result<(), ConfigError> {
+    if value.is_finite() && value > 0.0 {
+        Ok(())
+    } else {
+        Err(ConfigError::NotPositive { key, value })
     }
 }
 

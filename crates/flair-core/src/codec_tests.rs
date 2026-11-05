@@ -45,12 +45,14 @@ fn client_messages() -> Vec<ClientMsg> {
             mods: ctrl,
             text: None,
             repeat: true,
+            keypad: false,
         })),
         ClientMsg::Input(InputEvent::Key(KeyInput {
             key: Key::Named(NamedKey::F(5)),
             mods: Mods::default(),
             text: Some("x".to_owned()),
             repeat: false,
+            keypad: true,
         })),
         ClientMsg::Input(InputEvent::Text("ä".to_owned())),
         ClientMsg::Input(InputEvent::Paste("a\nb".to_owned())),
@@ -112,7 +114,7 @@ fn round_trip<T: Serialize + DeserializeOwned + PartialEq + fmt::Debug>(msg: &T)
     let mut out = Vec::new();
     encode(msg, &mut out).unwrap();
     let mut reader = FrameReader::default();
-    reader.push(&out);
+    reader.push(&out).unwrap();
     assert_eq!(&reader.next_frame::<T>().unwrap().unwrap(), msg);
     assert!(reader.next_frame::<T>().is_none());
 }
@@ -138,10 +140,10 @@ fn byte_by_byte_feeding_yields_frame_once_complete() {
     let mut reader = FrameReader::default();
     let (last, head) = out.split_last().unwrap();
     for byte in head {
-        reader.push(&[*byte]);
+        reader.push(&[*byte]).unwrap();
         assert!(reader.next_frame::<ServerMsg>().is_none());
     }
-    reader.push(&[*last]);
+    reader.push(&[*last]).unwrap();
     assert_eq!(
         reader.next_frame::<ServerMsg>().unwrap().unwrap(),
         ServerMsg::Title("hello".to_owned())
@@ -154,7 +156,7 @@ fn two_frames_in_one_push() {
     encode(&ServerMsg::Bell, &mut out).unwrap();
     encode(&ServerMsg::Title("t".to_owned()), &mut out).unwrap();
     let mut reader = FrameReader::default();
-    reader.push(&out);
+    reader.push(&out).unwrap();
     assert_eq!(
         reader.next_frame::<ServerMsg>().unwrap().unwrap(),
         ServerMsg::Bell
@@ -174,22 +176,52 @@ fn oversize_frame_is_rejected_on_encode() {
     assert!(out.is_empty());
 }
 
+fn poisoned_reader() -> (FrameReader, usize) {
+    let mut reader = FrameReader::default();
+    let len = MAX_FRAME + 1;
+    reader
+        .push(&u32::try_from(len).unwrap().to_le_bytes())
+        .unwrap();
+    (reader, len)
+}
+
 #[test]
 fn oversize_header_is_rejected_on_decode() {
-    let mut reader = FrameReader::default();
-    let len = u32::try_from(MAX_FRAME + 1).unwrap();
-    reader.push(&len.to_le_bytes());
+    let (mut reader, len) = poisoned_reader();
     assert!(matches!(
         reader.next_frame::<ServerMsg>(),
-        Some(Err(CodecError::Oversize(_)))
+        Some(Err(CodecError::Oversize(got))) if got == len
     ));
-    assert!(reader.next_frame::<ServerMsg>().is_none());
+    assert!(matches!(
+        reader.next_frame::<ServerMsg>(),
+        Some(Err(CodecError::Oversize(got))) if got == len
+    ));
+    assert!(matches!(
+        reader.next_version(),
+        Some(Err(CodecError::Oversize(got))) if got == len
+    ));
+}
+
+#[test]
+fn oversize_poisons_the_reader_for_later_bytes() {
+    let (mut reader, len) = poisoned_reader();
+    assert!(reader.next_frame::<ServerMsg>().unwrap().is_err());
+    let mut out = Vec::new();
+    encode(&ServerMsg::Bell, &mut out).unwrap();
+    assert!(matches!(
+        reader.push(&out),
+        Err(CodecError::Oversize(got)) if got == len
+    ));
+    assert!(matches!(
+        reader.next_frame::<ServerMsg>(),
+        Some(Err(CodecError::Oversize(got))) if got == len
+    ));
 }
 
 #[test]
 fn malformed_payload_is_an_error() {
     let mut reader = FrameReader::default();
-    reader.push(&[1, 0, 0, 0, 0xff]);
+    reader.push(&[1, 0, 0, 0, 0xff]).unwrap();
     assert!(matches!(
         reader.next_frame::<ServerMsg>(),
         Some(Err(CodecError::Postcard(_)))
@@ -210,4 +242,34 @@ fn version_frame_with_wrong_length_is_rejected() {
         decode_version(&[1, 0, 0]),
         Err(CodecError::VersionFrame(3))
     ));
+}
+
+#[test]
+fn version_frame_and_messages_in_one_push() {
+    let mut out = Vec::new();
+    encode_version(&mut out);
+    encode(&ServerMsg::Bell, &mut out).unwrap();
+    encode(&ServerMsg::Title("t".to_owned()), &mut out).unwrap();
+    let mut reader = FrameReader::default();
+    reader.push(&out).unwrap();
+    assert_eq!(reader.next_version().unwrap().unwrap(), PROTOCOL);
+    assert_eq!(
+        reader.next_frame::<ServerMsg>().unwrap().unwrap(),
+        ServerMsg::Bell
+    );
+    assert_eq!(
+        reader.next_frame::<ServerMsg>().unwrap().unwrap(),
+        ServerMsg::Title("t".to_owned())
+    );
+    assert!(reader.next_frame::<ServerMsg>().is_none());
+}
+
+#[test]
+fn next_version_waits_for_four_bytes() {
+    let mut reader = FrameReader::default();
+    reader.push(&PROTOCOL.to_le_bytes()[..3]).unwrap();
+    assert!(reader.next_version().is_none());
+    reader.push(&PROTOCOL.to_le_bytes()[3..]).unwrap();
+    assert_eq!(reader.next_version().unwrap().unwrap(), PROTOCOL);
+    assert!(reader.next_version().is_none());
 }

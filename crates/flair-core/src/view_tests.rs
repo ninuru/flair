@@ -48,12 +48,18 @@ fn window_size_follows_latest_active_client() {
     let mut a = ClientView::new(SessionId(0), WindowId(0), Millis(10));
     let b = ClientView::new(SessionId(0), WindowId(0), Millis(20));
     assert_eq!(
-        window_size([(&a, SIZE_A), (&b, SIZE_B)].into_iter(), WindowId(0)),
+        window_size(
+            [(ClientId(0), &a, SIZE_A), (ClientId(1), &b, SIZE_B)].into_iter(),
+            WindowId(0)
+        ),
         Some(SIZE_B)
     );
     a.touch(Millis(30));
     assert_eq!(
-        window_size([(&a, SIZE_A), (&b, SIZE_B)].into_iter(), WindowId(0)),
+        window_size(
+            [(ClientId(0), &a, SIZE_A), (ClientId(1), &b, SIZE_B)].into_iter(),
+            WindowId(0)
+        ),
         Some(SIZE_A)
     );
 }
@@ -62,7 +68,17 @@ fn window_size_follows_latest_active_client() {
 fn window_size_ignores_clients_on_other_windows() {
     let a = ClientView::new(SessionId(0), WindowId(0), Millis(10));
     let b = ClientView::new(SessionId(0), WindowId(1), Millis(20));
-    let clients = [(&a, SIZE_A), (&b, SIZE_B)];
+    let clients = [(ClientId(0), &a, SIZE_A), (ClientId(1), &b, SIZE_B)];
     assert_eq!(window_size(clients.into_iter(), WindowId(0)), Some(SIZE_A));
     assert_eq!(window_size(clients.into_iter(), WindowId(2)), None);
+}
+
+#[test]
+fn window_size_tie_goes_to_lower_client_id() {
+    let a = ClientView::new(SessionId(0), WindowId(0), Millis(10));
+    let b = ClientView::new(SessionId(0), WindowId(0), Millis(10));
+    let forward = [(ClientId(3), &a, SIZE_A), (ClientId(7), &b, SIZE_B)];
+    let backward = [(ClientId(7), &b, SIZE_B), (ClientId(3), &a, SIZE_A)];
+    assert_eq!(window_size(forward.into_iter(), WindowId(0)), Some(SIZE_A));
+    assert_eq!(window_size(backward.into_iter(), WindowId(0)), Some(SIZE_A));
 }

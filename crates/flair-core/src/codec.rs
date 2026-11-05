@@ -69,24 +69,47 @@ pub fn encode<T: Serialize>(msg: &T, out: &mut Vec<u8>) -> Result<(), CodecError
 #[derive(Debug, Default)]
 pub struct FrameReader {
     buf: Vec<u8>,
+    poisoned: Option<usize>,
 }
 
 impl FrameReader {
-    pub fn push(&mut self, bytes: &[u8]) {
+    pub fn push(&mut self, bytes: &[u8]) -> Result<(), CodecError> {
+        self.check()?;
         self.buf.extend_from_slice(bytes);
+        Ok(())
+    }
+
+    pub fn next_version(&mut self) -> Option<Result<u32, CodecError>> {
+        if let Err(error) = self.check() {
+            return Some(Err(error));
+        }
+        let version = decode_version(self.buf.get(..HEADER)?);
+        self.buf.drain(..HEADER);
+        Some(version)
     }
 
     pub fn next_frame<T: DeserializeOwned>(&mut self) -> Option<Result<T, CodecError>> {
+        if let Err(error) = self.check() {
+            return Some(Err(error));
+        }
         let header: [u8; HEADER] = self.buf.get(..HEADER)?.try_into().ok()?;
         let len = u32::from_le_bytes(header) as usize;
         if len > MAX_FRAME {
-            self.buf.clear();
+            self.buf = Vec::new();
+            self.poisoned = Some(len);
             return Some(Err(CodecError::Oversize(len)));
         }
         let payload = self.buf.get(HEADER..HEADER + len)?;
         let msg = postcard::from_bytes(payload).map_err(CodecError::from);
         self.buf.drain(..HEADER + len);
         Some(msg)
+    }
+
+    fn check(&self) -> Result<(), CodecError> {
+        match self.poisoned {
+            Some(len) => Err(CodecError::Oversize(len)),
+            None => Ok(()),
+        }
     }
 }
 

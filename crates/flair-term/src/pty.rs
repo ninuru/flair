@@ -14,6 +14,7 @@ pub struct SpawnSpec {
 pub struct Pty {}
 
 impl Pty {
+    #[allow(unused_variables)]
     pub fn spawn(spec: &SpawnSpec) -> io::Result<Pty> {
         todo!()
     }
@@ -26,11 +27,16 @@ impl Pty {
         todo!()
     }
 
+    #[allow(unused_variables)]
     pub fn resize(&mut self, size: GridSize) {
         todo!()
     }
 
     pub fn pid(&self) -> u32 {
+        todo!()
+    }
+
+    pub fn kill(&mut self) {
         todo!()
     }
 }

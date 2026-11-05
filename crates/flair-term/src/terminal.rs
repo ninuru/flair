@@ -43,18 +43,22 @@ pub enum MouseMode {
 }
 
 impl Terminal {
+    #[allow(unused_variables)]
     pub fn new(size: GridSize, scrollback: usize) -> Terminal {
         todo!()
     }
 
+    #[allow(unused_variables)]
     pub fn advance(&mut self, bytes: &[u8]) {
         todo!()
     }
 
+    #[allow(unused_variables)]
     pub fn resize(&mut self, size: GridSize) {
         todo!()
     }
 
+    #[allow(unused_variables)]
     pub fn scroll(&mut self, lines: i32) {
         todo!()
     }
@@ -63,6 +67,7 @@ impl Terminal {
         todo!()
     }
 
+    #[allow(unused_variables)]
     pub fn set_palette(&mut self, theme: &Theme) {
         todo!()
     }

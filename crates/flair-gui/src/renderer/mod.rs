@@ -1,3 +1,5 @@
+mod context;
+
 use std::{error::Error, fmt};
 
 use flair_core::theme::Rgb;
@@ -6,6 +8,8 @@ use crate::{
     cellgrid::CellGrid,
     font::{CellMetrics, Fonts},
 };
+
+pub use context::{HeadlessContext, WindowContext};
 
 pub struct Renderer {}
 
@@ -21,14 +25,17 @@ impl fmt::Display for RenderError {
 impl Error for RenderError {}
 
 impl Renderer {
+    #[allow(unused_variables)]
     pub fn new(gl: glow::Context, metrics: CellMetrics) -> Result<Renderer, RenderError> {
         todo!()
     }
 
+    #[allow(unused_variables)]
     pub fn resize(&mut self, px: (u32, u32)) {
         todo!()
     }
 
+    #[allow(unused_variables)]
     pub fn draw(
         &mut self,
         grid: &CellGrid,

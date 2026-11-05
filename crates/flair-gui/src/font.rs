@@ -41,6 +41,7 @@ impl fmt::Display for FontError {
 impl Error for FontError {}
 
 impl Fonts {
+    #[allow(unused_variables)]
     pub fn load(config: &FontConfig, scale: f64) -> Result<Fonts, FontError> {
         todo!()
     }
@@ -49,6 +50,7 @@ impl Fonts {
         todo!()
     }
 
+    #[allow(unused_variables)]
     pub fn rasterize(&mut self, c: char, style: Style) -> Option<RasterGlyph> {
         todo!()
     }

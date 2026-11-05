@@ -1,6 +1,8 @@
+use std::cmp::Reverse;
+
 use crate::{
     geom::GridSize,
-    ids::{SessionId, WindowId},
+    ids::{ClientId, SessionId, WindowId},
     time::Millis,
 };
 
@@ -48,13 +50,13 @@ impl ClientView {
 }
 
 pub fn window_size<'a>(
-    clients: impl Iterator<Item = (&'a ClientView, GridSize)>,
+    clients: impl Iterator<Item = (ClientId, &'a ClientView, GridSize)>,
     window: WindowId,
 ) -> Option<GridSize> {
     clients
-        .filter(|(view, _)| view.window == window)
-        .max_by_key(|(view, _)| view.last_active)
-        .map(|(_, size)| size)
+        .filter(|(_, view, _)| view.window == window)
+        .max_by_key(|(id, view, _)| (view.last_active, Reverse(*id)))
+        .map(|(_, _, size)| size)
 }
 
 #[cfg(test)]

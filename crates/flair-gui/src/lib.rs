@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-
 mod app;
 pub mod atlas;
 pub mod cellgrid;
@@ -9,7 +7,7 @@ mod font;
 pub mod input;
 pub mod mirror;
 pub mod mouse;
-mod probe;
+pub mod probe;
 pub mod renderer;
 
 pub use app::{GuiError, run};

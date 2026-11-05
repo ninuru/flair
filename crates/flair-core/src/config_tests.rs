@@ -120,3 +120,39 @@ fn theme_copies_colors() {
 fn default_path_ends_in_flair_toml() {
     assert!(Config::default_path().ends_with("flair/flair.toml"));
 }
+
+#[test]
+fn font_size_must_be_finite_and_positive() {
+    for value in ["0", "-1", "nan", "inf"] {
+        let error = Config::from_toml(&format!("[font]\nsize = {value}\n")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConfigError::NotPositive {
+                    key: "font.size",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+        assert!(error.to_string().contains("font.size"), "{error}");
+    }
+}
+
+#[test]
+fn line_height_must_be_finite_and_positive() {
+    for value in ["0.0", "-0.5", "nan", "-inf"] {
+        let error = Config::from_toml(&format!("[font]\nline_height = {value}\n")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConfigError::NotPositive {
+                    key: "font.line_height",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+        assert!(error.to_string().contains("font.line_height"), "{error}");
+    }
+}

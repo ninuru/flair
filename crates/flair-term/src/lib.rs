@@ -1,5 +1,3 @@
-#![allow(unused_variables)]
-
 pub mod encode;
 mod listener;
 mod osc;

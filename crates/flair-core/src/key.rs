@@ -8,6 +8,7 @@ pub struct KeyInput {
     pub mods: Mods,
     pub text: Option<String>,
     pub repeat: bool,
+    pub keypad: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -22,7 +23,6 @@ pub enum NamedKey {
     Tab,
     Backspace,
     Escape,
-    Space,
     Up,
     Down,
     Left,

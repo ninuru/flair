@@ -15,6 +15,12 @@ pub struct Session {
     pub windows: Vec<Window>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Removed {
+    pub window: Option<WindowId>,
+    pub session: Option<SessionId>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Window {
     pub id: WindowId,
@@ -56,22 +62,34 @@ impl Tree {
             .map(|found| found.active_pane)
     }
 
-    pub fn remove_pane(&mut self, pane: PaneId) -> bool {
+    pub fn remove_pane(&mut self, pane: PaneId) -> Removed {
+        let mut removed = Removed::default();
         for session in &mut self.sessions {
-            for window in &mut session.windows {
-                window.remove_pane(pane);
+            let Some(window) = session
+                .windows
+                .iter_mut()
+                .find_map(|window| window.remove_pane(pane).then_some(window))
+            else {
+                continue;
+            };
+            if window.panes.is_empty() {
+                removed.window = Some(window.id);
+                session.windows.retain(|window| !window.panes.is_empty());
             }
-            session.windows.retain(|window| !window.panes.is_empty());
+            if session.windows.is_empty() {
+                removed.session = Some(session.id);
+            }
+            break;
         }
         self.sessions.retain(|session| !session.windows.is_empty());
-        self.sessions.is_empty()
+        removed
     }
 }
 
 impl Window {
-    fn remove_pane(&mut self, pane: PaneId) {
+    fn remove_pane(&mut self, pane: PaneId) -> bool {
         let Some(index) = self.panes.iter().position(|candidate| *candidate == pane) else {
-            return;
+            return false;
         };
         self.panes.remove(index);
         if self.active_pane == pane
@@ -79,6 +97,7 @@ impl Window {
         {
             self.active_pane = *next;
         }
+        true
     }
 }
 

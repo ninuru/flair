@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::{error::Error, fmt, time::Instant};
 
 use flair_core::{config::Config, link::ClientLink};
 
@@ -13,6 +13,7 @@ impl fmt::Display for GuiError {
 
 impl Error for GuiError {}
 
-pub fn run(config: Config, link: ClientLink, probe: bool) -> Result<(), GuiError> {
+#[allow(unused_variables)]
+pub fn run(config: Config, link: ClientLink, probe: Option<Instant>) -> Result<(), GuiError> {
     todo!()
 }
