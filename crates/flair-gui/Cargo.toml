@@ -1,0 +1,16 @@
+[package]
+name = "flair-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+flair-core.workspace = true
+winit.workspace = true
+glutin.workspace = true
+glutin-winit.workspace = true
+glow.workspace = true
+crossfont.workspace = true
+smithay-clipboard.workspace = true
+log.workspace = true
