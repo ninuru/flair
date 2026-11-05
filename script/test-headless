@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+cd "$(dirname "$0")/.."
+cargo build -p flair
+proof_dir=$(mktemp -d "${TMPDIR:-/tmp}/flair-proof.XXXXXX")
+for scenario in basic resize input stress; do
+    env -u DISPLAY -u WAYLAND_DISPLAY target/debug/flair test-headless --scenario "tests/scenarios/$scenario.toml" --output "$proof_dir/$scenario"
+done
+if env -u DISPLAY -u WAYLAND_DISPLAY target/debug/flair test-headless --scenario tests/scenarios/timeout.toml --output "$proof_dir/timeout" --timeout-ms 200; then
+    echo "timeout fixture unexpectedly passed" >&2
+    exit 1
+fi
+if ! rg -q 'scenario deadline exceeded' "$proof_dir/timeout/result.toml"; then
+    echo "timeout fixture failed for an unexpected reason" >&2
+    exit 1
+fi
+printf 'Headless proof: %s\n' "$proof_dir"

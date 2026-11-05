@@ -1,6 +1,14 @@
-use std::{fs::File, io, path::PathBuf};
-
+use alacritty_terminal::{
+    event::{OnResize, WindowSize},
+    tty::{self, Options, Shell},
+};
 use flair_core::geom::GridSize;
+use std::{
+    fs::File,
+    io,
+    os::fd::{AsRawFd, FromRawFd, OwnedFd},
+    path::PathBuf,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SpawnSpec {
@@ -10,33 +18,147 @@ pub struct SpawnSpec {
     pub env: Vec<(String, String)>,
     pub size: GridSize,
 }
-
-pub struct Pty {}
-
+pub struct Pty {
+    inner: Option<tty::Pty>,
+    pid: u32,
+    status: Option<i32>,
+}
 impl Pty {
-    #[allow(unused_variables)]
     pub fn spawn(spec: &SpawnSpec) -> io::Result<Pty> {
-        todo!()
+        if spec.size.cols == 0 || spec.size.rows == 0 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "PTY dimensions must be nonzero",
+            ));
+        }
+        let config = Options {
+            shell: Some(Shell::new(spec.program.clone(), spec.args.clone())),
+            working_directory: Some(spec.cwd.clone()),
+            drain_on_exit: true,
+            env: spec
+                .env
+                .iter()
+                .cloned()
+                .chain([("TERM_PROGRAM".to_owned(), "flair".to_owned())])
+                .collect(),
+        };
+        let inner = tty::new(&config, window_size(spec.size), 0)?;
+        let pid = inner.child().id();
+        Ok(Pty {
+            inner: Some(inner),
+            pid,
+            status: None,
+        })
     }
-
     pub fn reader(&self) -> io::Result<File> {
-        todo!()
+        self.file()?.try_clone()
     }
-
     pub fn writer(&self) -> io::Result<File> {
-        todo!()
+        self.file()?.try_clone()
     }
-
-    #[allow(unused_variables)]
+    fn file(&self) -> io::Result<&File> {
+        self.inner
+            .as_ref()
+            .map(|p| p.file())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "PTY has exited"))
+    }
     pub fn resize(&mut self, size: GridSize) {
-        todo!()
+        if let Some(pty) = &mut self.inner {
+            pty.on_resize(window_size(size));
+        }
     }
-
     pub fn pid(&self) -> u32 {
-        todo!()
+        self.pid
     }
-
+    pub fn try_wait(&mut self) -> io::Result<Option<i32>> {
+        if self.status.is_none() && self.inner.is_some() {
+            let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();
+            let result = unsafe {
+                libc::waitid(
+                    libc::P_PID,
+                    self.pid,
+                    info.as_mut_ptr(),
+                    libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+                )
+            };
+            if result < 0 {
+                return Err(io::Error::last_os_error());
+            }
+            let info = unsafe { info.assume_init() };
+            if unsafe { info.si_pid() } != 0 {
+                self.status = Some(if info.si_code == libc::CLD_EXITED {
+                    unsafe { info.si_status() }
+                } else {
+                    -1
+                });
+            }
+        }
+        Ok(self.status)
+    }
     pub fn kill(&mut self) {
-        todo!()
+        if let Some(pty) = self.inner.take() {
+            match std::fs::read_dir("/proc") {
+                Ok(processes) => {
+                    for entry in processes.filter_map(Result::ok) {
+                        let Some(pid) = entry
+                            .file_name()
+                            .to_str()
+                            .and_then(|name| name.parse::<i32>().ok())
+                        else {
+                            continue;
+                        };
+                        if pid == self.pid as i32 || unsafe { libc::getsid(pid) } != self.pid as i32
+                        {
+                            continue;
+                        }
+                        let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, pid, 0) };
+                        if fd < 0 {
+                            let error = io::Error::last_os_error();
+                            if error.raw_os_error() != Some(libc::ESRCH) {
+                                log::warn!("Could not open PTY session process handle: {error}");
+                            }
+                            continue;
+                        }
+                        let fd = unsafe { OwnedFd::from_raw_fd(fd as i32) };
+                        if unsafe { libc::getsid(pid) } == self.pid as i32 {
+                            unsafe {
+                                libc::syscall(
+                                    libc::SYS_pidfd_send_signal,
+                                    fd.as_raw_fd(),
+                                    libc::SIGKILL,
+                                    std::ptr::null::<libc::siginfo_t>(),
+                                    0,
+                                );
+                            }
+                        }
+                    }
+                }
+                Err(error) => log::warn!("Could not enumerate PTY session processes: {error}"),
+            }
+            unsafe {
+                libc::kill(-(self.pid as i32), libc::SIGKILL);
+                if self.status.is_none() {
+                    libc::kill(self.pid as i32, libc::SIGKILL);
+                }
+            }
+            drop(pty);
+        }
     }
 }
+impl Drop for Pty {
+    fn drop(&mut self) {
+        self.kill();
+    }
+}
+fn window_size(size: GridSize) -> WindowSize {
+    WindowSize {
+        num_cols: size.cols.max(1),
+        num_lines: size.rows.max(1),
+        cell_width: 1,
+        cell_height: 1,
+    }
+}
+
+#[cfg(test)]
+#[path = "pty_tests.rs"]
+mod tests;

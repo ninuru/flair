@@ -429,6 +429,8 @@ dependencies = [
  "flair-server",
  "lexopt",
  "log",
+ "serde",
+ "toml",
 ]
 
 [[package]]
@@ -469,6 +471,7 @@ version = "0.1.0"
 dependencies = [
  "alacritty_terminal",
  "flair-core",
+ "libc",
  "log",
 ]
 

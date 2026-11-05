@@ -1,0 +1,18 @@
+program = "/bin/sh"
+args = ["-c", "printf ready; read x; printf 'paste:%s' \"$x\"; read hold"]
+
+[[steps]]
+action = "wait"
+text = "ready"
+
+[[steps]]
+action = "paste"
+text = "hello world"
+
+[[steps]]
+action = "key"
+key = "Enter"
+
+[[steps]]
+action = "wait"
+text = "paste:hello world"

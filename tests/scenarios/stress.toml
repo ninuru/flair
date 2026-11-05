@@ -1,0 +1,33 @@
+program = "/bin/sh"
+args = ["-i"]
+cols = 80
+rows = 24
+
+[[steps]]
+action = "text"
+text = "stty -echo; printf '\\nREADY\\n'\n"
+
+[[steps]]
+action = "wait"
+text = "READY"
+
+[[steps]]
+action = "text"
+text = "head -c 209715200 /dev/zero | tr '\\000' x; printf '\\nDONE\\n'\n"
+
+[[steps]]
+action = "wait"
+text = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+
+[[steps]]
+action = "key"
+key = "c"
+ctrl = true
+
+[[steps]]
+action = "text"
+text = "printf '\\nINTERRUPTED\\n'\n"
+
+[[steps]]
+action = "wait"
+text = "INTERRUPTED"
