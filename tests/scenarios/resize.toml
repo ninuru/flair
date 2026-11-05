@@ -1,0 +1,19 @@
+program = "/bin/sh"
+args = ["-c", "printf ready; read x; stty size; read hold"]
+
+[[steps]]
+action = "wait"
+text = "ready"
+
+[[steps]]
+action = "resize"
+cols = 100
+rows = 30
+
+[[steps]]
+action = "key"
+key = "Enter"
+
+[[steps]]
+action = "wait"
+text = "30 100"

@@ -1,0 +1,24 @@
+program = "/bin/sh"
+args = ["-c", "printf ready; read x; printf '\\r\\ngot:%s\\r\\n' \"$x\"; read hold" ]
+cols = 80
+rows = 24
+
+[[steps]]
+action = "wait"
+text = "ready"
+
+[[steps]]
+action = "key"
+key = "o"
+
+[[steps]]
+action = "key"
+key = "k"
+
+[[steps]]
+action = "key"
+key = "Enter"
+
+[[steps]]
+action = "wait"
+text = "got:ok"

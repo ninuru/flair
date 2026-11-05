@@ -1,0 +1,6 @@
+program = "/bin/sh"
+args = ["-c", "printf waiting; sleep 30"]
+
+[[steps]]
+action = "wait"
+text = "never-arrives"

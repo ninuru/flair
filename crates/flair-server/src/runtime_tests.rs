@@ -1,0 +1,152 @@
+use super::spawn_in_process;
+use crate::ServerConfig;
+use flair_core::{
+    config::Config,
+    geom::GridSize,
+    key::{InputEvent, Key, KeyInput, Mods, NamedKey},
+    link::channel_pair,
+    proto::{ClientKind, ClientMsg, ExitReason, PROTOCOL, ServerMsg, Target},
+};
+use std::{
+    path::Path,
+    sync::mpsc::RecvTimeoutError,
+    time::{Duration, Instant},
+};
+
+fn start(script: &str) -> Option<(flair_core::link::ClientLink, std::thread::JoinHandle<()>)> {
+    if !Path::new("/bin/sh").exists() {
+        eprintln!("skipping real PTY test: /bin/sh unavailable");
+        return None;
+    }
+    let mut config = ServerConfig::from_config(&Config::default());
+    config.program = "/bin/sh".into();
+    config.args = vec!["-c".into(), script.into()];
+    let (client, server) = channel_pair();
+    let handle = spawn_in_process(config, server).unwrap();
+    client
+        .tx
+        .send(ClientMsg::Hello {
+            protocol: PROTOCOL,
+            kind: ClientKind::Gui,
+            size: GridSize { cols: 40, rows: 6 },
+            palette: Config::default().theme(),
+            env: vec![],
+            target: Target::Main,
+        })
+        .unwrap();
+    Some((client, handle))
+}
+
+fn wait_text(client: &flair_core::link::ClientLink, text: &str) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let message = client
+            .rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap();
+        match message {
+            ServerMsg::Frame { seq, panes } => {
+                let screen: String = panes
+                    .iter()
+                    .flat_map(|pane| pane.rows.iter())
+                    .flat_map(|(_, row)| row.iter().map(|cell| cell.c))
+                    .collect();
+                client.tx.send(ClientMsg::FrameAck { seq }).unwrap();
+                if screen.contains(text) {
+                    return;
+                }
+            }
+            ServerMsg::Error(error) => panic!("server error: {error}"),
+            ServerMsg::Exit(reason) => panic!("shell exited before expected text: {reason:?}"),
+            ServerMsg::Welcome { .. } | ServerMsg::Title(_) | ServerMsg::Bell => {}
+        }
+    }
+}
+
+#[test]
+fn real_pty_round_trip_delivers_final_output_before_exit() {
+    let Some((client, handle)) = start(r#"printf ready; read x; printf 'answer:%s' "$x""#) else {
+        return;
+    };
+    wait_text(&client, "ready");
+    for key in [Key::Char('o'), Key::Char('k'), Key::Named(NamedKey::Enter)] {
+        client
+            .tx
+            .send(ClientMsg::Input(InputEvent::Key(KeyInput {
+                key,
+                mods: Mods::default(),
+                text: None,
+                repeat: false,
+                keypad: false,
+            })))
+            .unwrap();
+    }
+    wait_text(&client, "answer:ok");
+    assert!(matches!(
+        client.rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        ServerMsg::Exit(ExitReason::SessionEnded)
+    ));
+    handle.join().unwrap();
+}
+
+#[test]
+fn detach_terminates_a_shell_with_descendants_without_hanging() {
+    let Some((client, handle)) = start("sleep 100 & printf ready; wait") else {
+        return;
+    };
+    wait_text(&client, "ready");
+    client.tx.send(ClientMsg::Detach).unwrap();
+    assert!(matches!(
+        client.rx.recv_timeout(Duration::from_secs(5)).unwrap(),
+        ServerMsg::Exit(ExitReason::Detached)
+    ));
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !handle.is_finished() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(handle.is_finished(), "runtime must finish bounded shutdown");
+    handle.join().unwrap();
+}
+
+#[test]
+fn dropping_the_client_shuts_down_the_owned_runtime() {
+    let Some((client, handle)) = start("printf ready; read x") else {
+        return;
+    };
+    wait_text(&client, "ready");
+    drop(client);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !handle.is_finished() && Instant::now() < deadline {
+        std::thread::yield_now();
+    }
+    assert!(handle.is_finished());
+    handle.join().unwrap();
+}
+
+#[test]
+fn spawn_failure_is_reported_to_the_client() {
+    let mut config = ServerConfig::from_config(&Config::default());
+    config.program = "/flair-missing-shell".into();
+    let (client, server) = channel_pair();
+    let handle = spawn_in_process(config, server).unwrap();
+    client
+        .tx
+        .send(ClientMsg::Hello {
+            protocol: PROTOCOL,
+            kind: ClientKind::Gui,
+            size: GridSize { cols: 40, rows: 6 },
+            palette: Config::default().theme(),
+            env: vec![],
+            target: Target::Main,
+        })
+        .unwrap();
+    loop {
+        match client.rx.recv_timeout(Duration::from_secs(5)) {
+            Ok(ServerMsg::Error(_)) => break,
+            Ok(_) => {}
+            Err(RecvTimeoutError::Timeout) => panic!("spawn failure was not reported"),
+            Err(RecvTimeoutError::Disconnected) => panic!("server disconnected without an error"),
+        }
+    }
+    handle.join().unwrap();
+}

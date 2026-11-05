@@ -158,6 +158,7 @@ pub struct PaneFlags {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientKind {
     Gui,
+    Headless,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

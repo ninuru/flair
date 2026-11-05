@@ -273,3 +273,15 @@ fn next_version_waits_for_four_bytes() {
     assert_eq!(reader.next_version().unwrap().unwrap(), PROTOCOL);
     assert!(reader.next_version().is_none());
 }
+
+#[test]
+fn headless_client_kind_round_trips() {
+    let mut bytes = Vec::new();
+    encode(&ClientKind::Headless, &mut bytes).unwrap();
+    let mut reader = FrameReader::default();
+    reader.push(&bytes).unwrap();
+    assert_eq!(
+        reader.next_frame::<ClientKind>().unwrap().unwrap(),
+        ClientKind::Headless
+    );
+}
