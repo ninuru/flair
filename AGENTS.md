@@ -91,6 +91,11 @@ flair ──> flair-gui ──────────────> flair-core
 
 - Tests are hermetic: synthetic key events, fake PTYs or effects-only server tests
   (`Server::handle` in, `Effect`s out, no threads, no clock), render-to-cells for the UI.
+- Every test run or manual app verification that starts or connects to a daemon must set a unique
+  `FLAIR_SOCKET` path inside a private temporary directory (mode 0700). Allocate a fresh path per
+  worktree and concurrent test run, and pass it to every related client, daemon and cleanup command.
+  Use only that socket for teardown; never test against the user's regular daemon or inherited
+  `FLAIR` socket. Stop the test daemon and remove its temporary directory when finished.
 - Never inject keys through the compositor.
 - Tests that need a GPU, EGL device or shell say so and skip cleanly with a log line.
 - No coverage percentage target.

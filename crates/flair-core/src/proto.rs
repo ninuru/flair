@@ -13,7 +13,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -33,14 +33,31 @@ pub enum ClientMsg {
     },
     Command(Command),
     Detach,
+    Control(Control),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ServerMsg {
-    Welcome { client: ClientId },
-    Frame { seq: u64, panes: Vec<PaneUpdate> },
+    Welcome {
+        client: ClientId,
+    },
+    Frame {
+        seq: u64,
+        panes: Vec<PaneUpdate>,
+    },
     Title(String),
     Bell,
+    SetClipboard {
+        text: String,
+        primary: bool,
+    },
+    Sessionizer {
+        sessions: Vec<SessionInfo>,
+        current: String,
+        last: Option<Target>,
+    },
+    Sessions(Vec<SessionInfo>),
+    Done,
     Error(String),
     Exit(ExitReason),
 }
@@ -53,6 +70,7 @@ pub struct PaneUpdate {
     pub rows: Vec<(u16, Vec<Cell>)>,
     pub cursor: Cursor,
     pub flags: PaneFlags,
+    pub selection: Vec<SelectionSpan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -152,6 +170,7 @@ pub enum CursorShape {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PaneFlags {
     pub alt_screen: bool,
+    pub mouse_reporting: bool,
     pub display_offset: u32,
 }
 
@@ -167,6 +186,7 @@ pub enum Target {
     New,
     Name(String),
     Path(PathBuf),
+    Create { name: Option<String>, root: PathBuf },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -174,4 +194,33 @@ pub enum ExitReason {
     Detached,
     SessionEnded,
     ServerExited,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Control {
+    List,
+    KillServer,
+    Create {
+        target: Target,
+        env: Vec<(String, String)>,
+    },
+    Switch {
+        target: Target,
+        pane: Option<PaneId>,
+        env: Vec<(String, String)>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionInfo {
+    pub name: String,
+    pub root: PathBuf,
+    pub windows: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectionSpan {
+    pub row: u16,
+    pub start: u16,
+    pub end: u16,
 }

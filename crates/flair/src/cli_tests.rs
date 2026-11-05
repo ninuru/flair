@@ -27,3 +27,19 @@ fn help_and_headless_options_parse() {
     );
     assert!(Args::parse_from(["--typo"]).is_err());
 }
+
+#[test]
+fn daemon_commands_parse_and_reject_missing_targets() {
+    assert_eq!(Args::parse_from(["ls"]).unwrap(), Args::List);
+    assert_eq!(Args::parse_from(["kill-server"]).unwrap(), Args::KillServer);
+    assert!(
+        matches!(Args::parse_from(["new", "-d", "-s", "H", "-c", "/tmp"]).unwrap(), Args::Create { target: Target::Create { name: Some(name), .. }, .. } if name == "H")
+    );
+    assert!(
+        matches!(Args::parse_from(["attach", "-t", "main"]).unwrap(), Args::Gui { target: Target::Name(name), standalone: false, .. } if name == "main")
+    );
+    assert!(Args::parse_from(["attach"]).is_err());
+    assert!(Args::parse_from(["switch"]).is_err());
+    assert!(Args::parse_from(["--standalone", "new"]).is_err());
+    assert!(Args::parse_from(["ls", "-d"]).is_err());
+}

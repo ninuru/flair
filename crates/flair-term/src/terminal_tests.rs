@@ -163,3 +163,78 @@ fn queries_titles_bells_and_modes_are_exposed_to_server() {
     assert_eq!(modes.mouse, MouseMode::Drag);
     assert_eq!(modes.kitty_flags, 1);
 }
+
+#[test]
+fn drag_selection_has_text_and_viewport_spans_and_clears() {
+    let mut term = Terminal::new(GridSize { cols: 12, rows: 3 }, 100);
+    term.advance(b"hello world");
+    term.select_start(CellPoint { col: 0, row: 0 }, 1);
+    assert_eq!(term.selection_text(), None);
+    term.select_update(CellPoint { col: 4, row: 0 });
+    assert_eq!(term.selection_text().as_deref(), Some("hello"));
+    let frame = term.snapshot(PaneId(1), false).unwrap();
+    assert_eq!(
+        frame.selection,
+        vec![flair_core::proto::SelectionSpan {
+            row: 0,
+            start: 0,
+            end: 4
+        }]
+    );
+    term.clear_selection();
+    let frame = term.snapshot(PaneId(1), false).unwrap();
+    assert!(frame.selection.is_empty());
+    assert!(frame.rows.is_empty());
+    term.select_start(CellPoint { col: 4, row: 0 }, 1);
+    term.select_update(CellPoint { col: 0, row: 0 });
+    assert_eq!(term.selection_text().as_deref(), Some("hello"));
+}
+
+#[test]
+fn semantic_and_line_selection_use_terminal_boundaries() {
+    let mut term = Terminal::new(GridSize { cols: 20, rows: 3 }, 100);
+    term.advance(b"hello world\r\nnext");
+    term.select_start(CellPoint { col: 7, row: 0 }, 2);
+    assert_eq!(term.selection_text().as_deref(), Some("world"));
+    term.select_start(CellPoint { col: 7, row: 0 }, 3);
+    assert_eq!(term.selection_text().as_deref(), Some("hello world\n"));
+    term.resize(GridSize { cols: 21, rows: 3 });
+    assert_eq!(term.selection_text(), None);
+    term.select_start(CellPoint { col: 1, row: 0 }, 2);
+    term.advance(b"\x1b[2J");
+    assert_eq!(term.selection_text(), None);
+}
+
+#[test]
+fn selection_follows_scrollback_and_includes_wide_combining_text() {
+    let mut term = Terminal::new(GridSize { cols: 10, rows: 2 }, 100);
+    term.advance("界e\u{301}\r\ntwo\r\nthree".as_bytes());
+    term.scroll(1);
+    term.select_start(CellPoint { col: 0, row: 0 }, 1);
+    term.select_update(CellPoint { col: 2, row: 0 });
+    assert_eq!(term.selection_text().as_deref(), Some("界e\u{301}"));
+    let frame = term.snapshot(PaneId(1), true).unwrap();
+    assert_eq!(
+        frame.selection,
+        vec![flair_core::proto::SelectionSpan {
+            row: 0,
+            start: 0,
+            end: 2
+        }]
+    );
+    term.scroll_to_bottom();
+    assert!(term.snapshot(PaneId(1), true).unwrap().selection.is_empty());
+}
+
+#[test]
+fn drag_selection_keeps_rotated_anchor_when_output_scrolls() {
+    let mut term = Terminal::new(GridSize { cols: 10, rows: 3 }, 100);
+    term.advance(b"alpha\r\nbeta\r\ngamma");
+    term.select_start(CellPoint { col: 0, row: 1 }, 1);
+    term.select_update(CellPoint { col: 3, row: 1 });
+    assert_eq!(term.selection_text().as_deref(), Some("beta"));
+    term.advance(b"\r\ndelta");
+    assert_eq!(term.selection_text().as_deref(), Some("beta"));
+    term.select_update(CellPoint { col: 3, row: 0 });
+    assert_eq!(term.selection_text().as_deref(), Some("beta"));
+}

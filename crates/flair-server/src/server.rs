@@ -1,63 +1,104 @@
+use std::collections::BTreeMap;
+
 use flair_core::{
-    command::Command,
+    geom::GridSize,
     ids::{ClientId, PaneId, SessionId, WindowId},
-    key::{InputEvent, MouseAction, MouseButton},
-    proto::{ClientMsg, ExitReason, PROTOCOL, ServerMsg, Target},
+    proto::{ClientKind, ClientMsg, Control, ExitReason, PROTOCOL, ServerMsg, Target},
     time::Millis,
+    tree::Tree,
     view::ClientView,
 };
-use flair_term::{
-    TermEvent, Terminal,
-    encode::{encode_focus, encode_key, encode_mouse, encode_paste, encode_text},
-    pty::SpawnSpec,
-    terminal::MouseMode,
-};
+use flair_term::{TermEvent, encode::encode_focus};
 
 use crate::{client::ClientState, config::ServerConfig, effect::Effect, event::Event, pane::Pane};
 
+#[path = "server_input.rs"]
+mod input;
+#[path = "server_sessions.rs"]
+mod sessions;
+
 pub struct Server {
     config: ServerConfig,
-    pane: Option<Pane>,
-    client: Option<ClientState>,
-    exited: bool,
+    tree: Tree,
+    panes: BTreeMap<PaneId, Pane>,
+    clients: BTreeMap<ClientId, ClientState>,
+    next_id: u32,
+    activity: u64,
+    stopping: bool,
 }
 
 impl Server {
     pub fn new(config: ServerConfig) -> Server {
         Server {
             config,
-            pane: None,
-            client: None,
-            exited: false,
+            tree: Tree { sessions: vec![] },
+            panes: BTreeMap::new(),
+            clients: BTreeMap::new(),
+            next_id: 1,
+            activity: 0,
+            stopping: false,
         }
     }
 
     pub fn handle(&mut self, now: Millis, event: Event, out: &mut Vec<Effect>) {
+        if self.stopping {
+            return;
+        }
         match event {
             Event::ClientConnected(_) => {}
             Event::Client(id, message) => self.client_message(now, id, message, out),
             Event::ClientGone(id) => {
-                if self.client.as_ref().is_some_and(|client| client.id == id) {
-                    self.client = None;
-                }
+                self.clients.remove(&id);
             }
             Event::PtyOutput(id, bytes) => {
-                if id == PaneId(1) {
-                    if let Some(pane) = &mut self.pane {
-                        pane.terminal.advance(&bytes);
-                        pane.dirty = true;
+                if let Some(pane) = self.panes.get_mut(&id) {
+                    pane.terminal.advance(&bytes);
+                    pane.dirty = true;
+                    self.terminal_events(id, out);
+                }
+            }
+            Event::PtySpawnFailed(id) => {
+                for (client_id, client) in &mut self.clients {
+                    if self.tree.active_pane(client.view.window) == Some(id) {
+                        client.awaiting_ack = None;
+                        client.previous = None;
+                        out.push(Effect::Send(
+                            *client_id,
+                            ServerMsg::Error("could not start shell".into()),
+                        ));
                     }
-                    self.terminal_events(out);
+                }
+                if let Some(pane) = self.panes.get_mut(&id) {
+                    pane.exited = true;
+                    pane.dirty = false;
+                    pane.cached = None;
                 }
             }
             Event::PtyExited(id) => {
-                if id == PaneId(1) {
-                    self.exited = true;
+                if let Some(pane) = self.panes.get_mut(&id) {
+                    pane.exited = true;
                 }
             }
-            Event::Timer(_) => {}
+            Event::Timer(timer) => {
+                if let Ok(id) = u32::try_from(timer) {
+                    let id = ClientId(id);
+                    if self
+                        .clients
+                        .get(&id)
+                        .and_then(|c| c.prefix_until)
+                        .is_some_and(|until| now >= until)
+                    {
+                        self.clients.get_mut(&id).unwrap().prefix_until = None;
+                        self.send_title(id, out);
+                    }
+                }
+            }
         }
-        self.flush(out);
+        if !self.stopping {
+            self.flush_frames(out);
+            self.reap_sessions(now, out);
+            self.flush_frames(out);
+        }
     }
 
     fn client_message(
@@ -67,253 +108,311 @@ impl Server {
         message: ClientMsg,
         out: &mut Vec<Effect>,
     ) {
-        if let ClientMsg::Hello {
-            protocol,
-            kind: _,
-            size,
-            palette,
-            env,
-            target,
-        } = message
-        {
-            if protocol != PROTOCOL || size.cols == 0 || size.rows == 0 {
-                out.push(Effect::Send(
-                    id,
-                    ServerMsg::Error("incompatible protocol or invalid grid size".into()),
-                ));
-                return;
-            }
-            if self.client.is_some() {
-                out.push(Effect::Send(
-                    id,
-                    ServerMsg::Error("M0 supports one attached client".into()),
-                ));
-                return;
-            }
-            if self.pane.is_none() {
-                let mut terminal = Terminal::new(size, self.config.scrollback);
-                terminal.set_palette(&palette);
-                self.pane = Some(Pane {
-                    terminal,
-                    size,
-                    dirty: true,
-                    full: true,
-                });
-                let cwd = match target {
-                    Target::Path(path) => path,
-                    Target::Main | Target::New | Target::Name(_) => self.config.cwd.clone(),
-                };
-                let mut pane_env = self.config.env.clone();
-                for (key, value) in env {
-                    if let Some(existing) = pane_env.iter_mut().find(|(name, _)| name == &key) {
-                        existing.1 = value;
-                    } else {
-                        pane_env.push((key, value));
-                    }
-                }
-                out.push(Effect::Spawn(
-                    PaneId(1),
-                    SpawnSpec {
-                        program: self.config.program.clone(),
-                        args: self.config.args.clone(),
-                        cwd,
-                        env: pane_env,
-                        size,
-                    },
-                ));
-            }
-            self.client = Some(ClientState {
-                id,
-                view: ClientView::new(SessionId(1), WindowId(1), now),
-                size,
-                awaiting_ack: None,
-                next_seq: 1,
-            });
-            if let Some(pane) = &mut self.pane {
-                pane.full = true;
-                pane.dirty = true;
-            }
-            out.push(Effect::Send(id, ServerMsg::Welcome { client: id }));
-            return;
-        }
-        if !self.client.as_ref().is_some_and(|client| client.id == id) {
-            return;
-        }
         match message {
-            ClientMsg::Hello { .. } => unreachable!(),
-            ClientMsg::Resize(size) => {
-                if size.cols == 0 || size.rows == 0 {
+            ClientMsg::Hello {
+                protocol,
+                kind,
+                size,
+                palette,
+                env,
+                target,
+            } => {
+                if protocol != PROTOCOL || !valid_size(size) || self.clients.contains_key(&id) {
+                    out.push(Effect::Send(
+                        id,
+                        ServerMsg::Error(
+                            "incompatible protocol, invalid grid size, or repeated hello".into(),
+                        ),
+                    ));
                     return;
                 }
-                if let Some(client) = &mut self.client {
-                    client.size = size;
+                let session = match self.resolve_target(target, size, &palette, &env, out) {
+                    Ok(session) => session,
+                    Err(error) => {
+                        out.push(Effect::Send(id, ServerMsg::Error(error)));
+                        return;
+                    }
+                };
+                let window = self.tree.session(session).unwrap().windows[0].id;
+                self.activity += 1;
+                self.clients.insert(
+                    id,
+                    ClientState {
+                        view: ClientView::new(session, window, now),
+                        kind,
+                        size,
+                        awaiting_ack: None,
+                        next_seq: 1,
+                        activity: self.activity,
+                        focused: false,
+                        full: true,
+                        previous: None,
+                        env,
+                        palette,
+                        prefix_until: None,
+                        last_click: None,
+                        selecting: false,
+                    },
+                );
+                out.push(Effect::Send(id, ServerMsg::Welcome { client: id }));
+                self.resize_window(window, out);
+                self.send_title(id, out);
+            }
+            ClientMsg::Control(control) => self.control(now, id, control, out),
+            message => {
+                if !self.clients.contains_key(&id) {
+                    out.push(Effect::Send(
+                        id,
+                        ServerMsg::Error("send Hello before client messages".into()),
+                    ));
+                    return;
                 }
-                if let Some(pane) = &mut self.pane {
-                    pane.size = size;
-                    pane.terminal.resize(size);
-                    pane.full = true;
-                    pane.dirty = true;
-                    out.push(Effect::ResizePty(PaneId(1), size));
+                self.attached_message(now, id, message, out);
+            }
+        }
+    }
+
+    fn attached_message(
+        &mut self,
+        now: Millis,
+        id: ClientId,
+        message: ClientMsg,
+        out: &mut Vec<Effect>,
+    ) {
+        match message {
+            ClientMsg::Resize(size) => {
+                if valid_size(size) {
+                    let client = self.clients.get_mut(&id).unwrap();
+                    client.size = size;
+                    let window = client.view.window;
+                    self.resize_window(window, out);
                 }
             }
             ClientMsg::Input(input) => {
-                if let Some(client) = &mut self.client {
-                    client.view.touch(now);
-                }
-                self.input(input, out);
+                self.touch(now, id, out);
+                self.input(now, id, input, out);
             }
             ClientMsg::Focus(focused) => {
-                if let Some(client) = &mut self.client
-                    && focused
-                {
-                    client.view.touch(now);
+                self.clients.get_mut(&id).unwrap().focused = focused;
+                if focused {
+                    self.touch(now, id, out);
                 }
-                if let Some(pane) = &self.pane
-                    && let Some(bytes) = encode_focus(focused, &pane.terminal.modes())
+                if let Some(pane) = self.client_pane(id)
+                    && let Some(bytes) = encode_focus(focused, &self.panes[&pane].terminal.modes())
                 {
-                    out.push(Effect::WritePty(PaneId(1), bytes));
+                    out.push(Effect::WritePty(pane, bytes));
                 }
             }
             ClientMsg::FrameAck { seq } => {
-                if let Some(client) = &mut self.client
-                    && client.awaiting_ack == Some(seq)
-                {
+                let client = self.clients.get_mut(&id).unwrap();
+                if client.awaiting_ack == Some(seq) {
                     client.awaiting_ack = None;
                 }
             }
-            ClientMsg::Command(command) => {
-                if let Some(pane) = &mut self.pane {
-                    match command {
-                        Command::ScrollLines(lines) => pane.terminal.scroll(lines),
-                        Command::ScrollPages(pages) => pane
-                            .terminal
-                            .scroll(pages.saturating_mul(i32::from(pane.size.rows))),
-                        Command::ScrollToBottom => pane.terminal.scroll_to_bottom(),
-                    }
-                    pane.dirty = true;
-                    pane.full = true;
-                }
-            }
+            ClientMsg::Command(command) => self.command(now, id, command, out),
             ClientMsg::Detach => {
-                self.client = None;
+                self.clients.remove(&id);
                 out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::Detached)));
-                out.push(Effect::KillPty(PaneId(1)));
-                out.push(Effect::Shutdown);
             }
+            ClientMsg::Hello { .. } | ClientMsg::Control(_) => unreachable!(),
         }
     }
 
-    fn input(&mut self, input: InputEvent, out: &mut Vec<Effect>) {
-        let Some(pane) = &mut self.pane else {
+    fn touch(&mut self, now: Millis, id: ClientId, out: &mut Vec<Effect>) {
+        self.activity += 1;
+        let client = self.clients.get_mut(&id).unwrap();
+        client.view.touch(now);
+        client.activity = self.activity;
+        let window = client.view.window;
+        self.resize_window(window, out);
+    }
+
+    fn client_pane(&self, id: ClientId) -> Option<PaneId> {
+        self.clients
+            .get(&id)
+            .and_then(|client| self.tree.active_pane(client.view.window))
+    }
+
+    fn resize_window(&mut self, window: WindowId, out: &mut Vec<Effect>) {
+        let Some(size) = self
+            .clients
+            .values()
+            .filter(|client| client.view.window == window)
+            .max_by_key(|client| client.activity)
+            .map(|client| client.size)
+        else {
             return;
         };
-        let modes = pane.terminal.modes();
-        let bytes = match input {
-            InputEvent::Key(key) => {
-                pane.terminal.scroll_to_bottom();
-                pane.full = true;
-                pane.dirty = true;
-                encode_key(&key, &modes)
-            }
-            InputEvent::Text(text) => {
-                pane.terminal.scroll_to_bottom();
-                pane.full = true;
-                pane.dirty = true;
-                Some(encode_text(&text))
-            }
-            InputEvent::Paste(text) => {
-                pane.terminal.scroll_to_bottom();
-                pane.full = true;
-                pane.dirty = true;
-                Some(encode_paste(&text, &modes))
-            }
-            InputEvent::Mouse(mouse) => {
-                if modes.mouse == MouseMode::Off && mouse.action == MouseAction::Press {
-                    let lines = match mouse.button {
-                        MouseButton::WheelUp => 3,
-                        MouseButton::WheelDown => -3,
-                        MouseButton::Left
-                        | MouseButton::Middle
-                        | MouseButton::Right
-                        | MouseButton::WheelLeft
-                        | MouseButton::WheelRight
-                        | MouseButton::NoButton => 0,
-                    };
-                    if lines != 0 {
-                        pane.terminal.scroll(lines);
-                        pane.full = true;
-                        pane.dirty = true;
-                    }
-                    None
-                } else {
-                    encode_mouse(&mouse, &modes)
-                }
-            }
+        let Some(id) = self.tree.active_pane(window) else {
+            return;
         };
-        if let Some(bytes) = bytes
-            && !bytes.is_empty()
-        {
-            out.push(Effect::WritePty(PaneId(1), bytes));
+        let pane = self.panes.get_mut(&id).unwrap();
+        if pane.size != size {
+            pane.size = size;
+            pane.terminal.resize(size);
+            pane.dirty = true;
+            for client in self
+                .clients
+                .values_mut()
+                .filter(|client| client.view.window == window)
+            {
+                client.full = true;
+            }
+            out.push(Effect::ResizePty(id, size));
         }
     }
 
-    fn terminal_events(&mut self, out: &mut Vec<Effect>) {
-        let Some(pane) = &mut self.pane else {
-            return;
-        };
-        for event in pane.terminal.take_events() {
+    fn terminal_events(&mut self, pane: PaneId, out: &mut Vec<Effect>) {
+        let events = self.panes.get_mut(&pane).unwrap().terminal.take_events();
+        for event in events {
             match event {
-                TermEvent::PtyWrite(bytes) => out.push(Effect::WritePty(PaneId(1), bytes)),
-                TermEvent::Title(title) => {
-                    if let Some(client) = &self.client {
-                        out.push(Effect::Send(client.id, ServerMsg::Title(title)));
+                TermEvent::PtyWrite(bytes) => out.push(Effect::WritePty(pane, bytes)),
+                TermEvent::Title(_) => {
+                    let clients: Vec<_> = self
+                        .clients
+                        .keys()
+                        .copied()
+                        .filter(|id| self.client_pane(*id) == Some(pane))
+                        .collect();
+                    for id in clients {
+                        self.send_title(id, out);
                     }
                 }
                 TermEvent::Bell => {
-                    if let Some(client) = &self.client {
-                        out.push(Effect::Send(client.id, ServerMsg::Bell));
+                    for id in self
+                        .clients
+                        .keys()
+                        .copied()
+                        .filter(|id| self.client_pane(*id) == Some(pane))
+                    {
+                        out.push(Effect::Send(id, ServerMsg::Bell));
                     }
                 }
-                TermEvent::Cwd(path) => log::debug!("terminal cwd: {}", path.display()),
-                TermEvent::Mark(kind, status) => log::debug!("terminal mark: {kind:?} {status:?}"),
+                TermEvent::Cwd(_) | TermEvent::Mark(_, _) => {}
             }
         }
     }
 
-    fn flush(&mut self, out: &mut Vec<Effect>) {
-        let Some(client) = &mut self.client else {
-            return;
+    fn send_title(&self, id: ClientId, out: &mut Vec<Effect>) {
+        let client = &self.clients[&id];
+        let title = self
+            .client_pane(id)
+            .and_then(|pane| self.panes[&pane].terminal.title())
+            .unwrap_or_else(|| {
+                self.tree
+                    .session(client.view.session)
+                    .map_or("flair", |session| session.name.as_str())
+            });
+        let title = if client.prefix_until.is_some() {
+            format!("{title} ^A")
+        } else {
+            title.to_owned()
         };
-        if client.awaiting_ack.is_some() {
-            return;
-        }
-        if let Some(pane) = &mut self.pane
-            && pane.dirty
-        {
-            if let Some(update) = pane.terminal.snapshot(PaneId(1), pane.full) {
-                let seq = client.next_seq;
-                client.next_seq = client.next_seq.saturating_add(1);
-                client.awaiting_ack = Some(seq);
-                out.push(Effect::Send(
-                    client.id,
-                    ServerMsg::Frame {
-                        seq,
-                        panes: vec![update],
-                    },
-                ));
+        out.push(Effect::Send(id, ServerMsg::Title(title)));
+    }
+
+    fn flush_frames(&mut self, out: &mut Vec<Effect>) {
+        for (id, pane) in &mut self.panes {
+            if pane.dirty {
+                pane.cached = pane.terminal.snapshot(*id, true);
+                pane.dirty = false;
             }
-            pane.dirty = false;
-            pane.full = false;
         }
-        if self.exited && client.awaiting_ack.is_none() {
+        for (id, client) in &mut self.clients {
+            if client.awaiting_ack.is_some() {
+                continue;
+            }
+            let Some(pane) = self
+                .tree
+                .active_pane(client.view.window)
+                .and_then(|pane| self.panes.get(&pane))
+            else {
+                continue;
+            };
+            let Some(current) = &pane.cached else {
+                continue;
+            };
+            if !client.full && client.previous.as_ref() == Some(current) {
+                continue;
+            }
+            let mut update = current.clone();
+            if !client.full
+                && let Some(previous) = &client.previous
+                && previous.pane == current.pane
+                && previous.size == current.size
+                && previous.flags == current.flags
+            {
+                update.full = false;
+                update
+                    .rows
+                    .retain(|(row, cells)| previous.rows[usize::from(*row)].1 != *cells);
+            }
+            client.previous = Some(current.clone());
+            client.full = false;
+            let seq = client.next_seq;
+            client.next_seq += 1;
+            client.awaiting_ack = Some(seq);
             out.push(Effect::Send(
-                client.id,
-                ServerMsg::Exit(ExitReason::SessionEnded),
+                *id,
+                ServerMsg::Frame {
+                    seq,
+                    panes: vec![update],
+                },
             ));
-            out.push(Effect::Shutdown);
-            self.client = None;
         }
     }
+
+    fn reap_sessions(&mut self, now: Millis, out: &mut Vec<Effect>) {
+        let finished: Vec<_> = self
+            .panes
+            .iter()
+            .filter(|(pane_id, pane)| {
+                pane.exited
+                    && self
+                        .clients
+                        .iter()
+                        .filter(|(id, _)| self.client_pane(**id) == Some(**pane_id))
+                        .all(|(_, client)| {
+                            client.awaiting_ack.is_none()
+                                && client.previous.as_ref() == pane.cached.as_ref()
+                        })
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        for pane in finished {
+            self.panes.remove(&pane);
+            out.push(Effect::KillPty(pane));
+            let removed = self.tree.remove_pane(pane);
+            if let Some(session) = removed.session {
+                let affected: Vec<_> = self
+                    .clients
+                    .iter()
+                    .filter(|(_, client)| client.view.session == session)
+                    .map(|(id, _)| *id)
+                    .collect();
+                for id in affected {
+                    let last = self.clients[&id]
+                        .view
+                        .last_session
+                        .filter(|last| self.tree.session(*last).is_some());
+                    if let Some(last) = last {
+                        self.switch_to(now, id, last, out);
+                    } else {
+                        self.clients.remove(&id);
+                        out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::SessionEnded)));
+                    }
+                }
+            }
+        }
+        if self.next_id > 1 && self.tree.sessions.is_empty() {
+            self.stopping = true;
+            out.push(Effect::Shutdown);
+        }
+    }
+}
+
+fn valid_size(size: GridSize) -> bool {
+    size.cols > 0 && size.rows > 0 && u32::from(size.cols) * u32::from(size.rows) <= 1_000_000
 }
 
 #[cfg(test)]

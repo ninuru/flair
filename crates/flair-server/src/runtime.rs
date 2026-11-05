@@ -19,9 +19,170 @@ use std::{
 };
 
 pub fn spawn_in_process(config: ServerConfig, link: ServerLink) -> io::Result<JoinHandle<()>> {
+    let (events, rx) = mpsc::sync_channel(128);
+    let (output, outgoing) = mpsc::sync_channel(32);
+    let input_events = events.clone();
+    thread::Builder::new()
+        .name("flair-local-input".into())
+        .spawn(move || {
+            for message in link.rx {
+                if input_events
+                    .send(RuntimeEvent::State(Event::Client(ClientId(1), message)))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            let _ = input_events.send(RuntimeEvent::Stop);
+        })?;
+    thread::Builder::new()
+        .name("flair-local-output".into())
+        .spawn(move || {
+            for message in outgoing {
+                if link.tx.send(message).is_err() {
+                    break;
+                }
+            }
+        })?;
+    events
+        .send(RuntimeEvent::Connect(ClientId(1), output))
+        .map_err(io::Error::other)?;
     thread::Builder::new()
         .name("flair-state".into())
-        .spawn(move || run(config, link))
+        .spawn(move || run(config, events, rx, true))
+}
+
+enum RuntimeEvent {
+    State(Event),
+    Connect(ClientId, SyncSender<ServerMsg>),
+    Stop,
+}
+
+static TERMINATED: AtomicBool = AtomicBool::new(false);
+extern "C" fn terminate(_: libc::c_int) {
+    TERMINATED.store(true, Ordering::Release);
+}
+
+pub fn serve(config: ServerConfig, path: &std::path::Path) -> io::Result<()> {
+    use std::os::unix::{
+        fs::{FileTypeExt, MetadataExt, PermissionsExt},
+        net::UnixListener,
+    };
+    crate::socket::private_parent(path)?;
+    if path.exists() {
+        if std::os::unix::net::UnixStream::connect(path).is_ok() {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                "server already running",
+            ));
+        }
+        let meta = std::fs::symlink_metadata(path)?;
+        if !meta.file_type().is_socket() || meta.uid() != unsafe { libc::geteuid() } {
+            return Err(io::Error::other(
+                "refusing to replace non-socket or foreign path",
+            ));
+        }
+        std::fs::remove_file(path)?;
+    }
+    let listener = UnixListener::bind(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    listener.set_nonblocking(true)?;
+    TERMINATED.store(false, Ordering::Release);
+    unsafe {
+        libc::signal(libc::SIGTERM, terminate as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGINT, terminate as *const () as libc::sighandler_t);
+    }
+    let (events, rx) = mpsc::sync_channel(128);
+    let stop = Arc::new(AtomicBool::new(false));
+    let listener_stop = stop.clone();
+    let listener_events = events.clone();
+    let acceptor = thread::Builder::new()
+        .name("flair-listener".into())
+        .spawn(move || {
+            let mut next = 1u32;
+            while !listener_stop.load(Ordering::Acquire) {
+                match listener.accept() {
+                    Ok((stream, _)) => {
+                        let id = ClientId(next);
+                        let Some(value) = next.checked_add(1) else {
+                            break;
+                        };
+                        next = value;
+                        let events = listener_events.clone();
+                        if let Err(error) = thread::Builder::new()
+                            .name("flair-socket".into())
+                            .spawn(move || {
+                                socket_client(id, stream, events);
+                            })
+                        {
+                            log::error!("could not accept client: {error}");
+                        }
+                    }
+                    Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(2))
+                    }
+                    Err(error) => {
+                        log::error!("socket accept failed: {error}");
+                        break;
+                    }
+                }
+            }
+        })?;
+    run(config, events, rx, false);
+    stop.store(true, Ordering::Release);
+    if acceptor.join().is_err() {
+        log::error!("socket listener panicked");
+    }
+    std::fs::remove_file(path)
+}
+
+fn socket_client(
+    id: ClientId,
+    mut stream: std::os::unix::net::UnixStream,
+    events: SyncSender<RuntimeEvent>,
+) {
+    if crate::socket::handshake(&mut stream).is_err() {
+        return;
+    }
+    let Ok(mut writer) = stream.try_clone() else {
+        return;
+    };
+    if writer
+        .set_write_timeout(Some(Duration::from_secs(2)))
+        .is_err()
+    {
+        return;
+    }
+    let (tx, rx) = mpsc::sync_channel(32);
+    if events.send(RuntimeEvent::Connect(id, tx)).is_err() {
+        return;
+    }
+    let writer_events = events.clone();
+    let output = thread::Builder::new()
+        .name("flair-socket-writer".into())
+        .spawn(move || {
+            for message in rx {
+                if crate::socket::write_message(&mut writer, &message).is_err() {
+                    break;
+                }
+            }
+            let _ = writer.shutdown(std::net::Shutdown::Both);
+            let _ = writer_events.send(RuntimeEvent::State(Event::ClientGone(id)));
+        });
+    if output.is_err() {
+        let _ = events.send(RuntimeEvent::State(Event::ClientGone(id)));
+        return;
+    }
+    while let Ok(message) = crate::socket::read_message(&mut stream) {
+        if events
+            .send(RuntimeEvent::State(Event::Client(id, message)))
+            .is_err()
+        {
+            break;
+        }
+    }
+    let _ = events.send(RuntimeEvent::State(Event::ClientGone(id)));
+    let _ = stream.shutdown(std::net::Shutdown::Both);
 }
 
 struct PtyWorker {
@@ -34,7 +195,7 @@ struct PtyWorker {
 }
 
 impl PtyWorker {
-    fn spawn(id: PaneId, spec: &SpawnSpec, events: SyncSender<Event>) -> io::Result<Self> {
+    fn spawn(id: PaneId, spec: &SpawnSpec, events: SyncSender<RuntimeEvent>) -> io::Result<Self> {
         let mut pty = Pty::spawn(spec)?;
         let reader = pty.reader()?;
         let writer = pty.writer()?;
@@ -106,7 +267,7 @@ impl Drop for PtyWorker {
 fn read_pty(
     id: PaneId,
     mut reader: File,
-    events: SyncSender<Event>,
+    events: SyncSender<RuntimeEvent>,
     stop: Arc<AtomicBool>,
     child_exited: Arc<AtomicBool>,
 ) {
@@ -137,12 +298,16 @@ fn read_pty(
     send_event(&events, &stop, Event::PtyExited(id));
 }
 
-fn send_event(events: &SyncSender<Event>, stop: &AtomicBool, mut event: Event) -> bool {
+fn send_event(events: &SyncSender<RuntimeEvent>, stop: &AtomicBool, mut event: Event) -> bool {
     while !stop.load(Ordering::Acquire) {
-        match events.try_send(event) {
+        match events.try_send(RuntimeEvent::State(event)) {
             Ok(()) => return true,
             Err(TrySendError::Full(pending)) => {
-                event = pending;
+                if let RuntimeEvent::State(pending) = pending {
+                    event = pending;
+                } else {
+                    return false;
+                }
                 thread::sleep(Duration::from_millis(1));
             }
             Err(TrySendError::Disconnected(_)) => return false,
@@ -176,32 +341,58 @@ fn write_pty(mut writer: File, queue: Receiver<Vec<u8>>, stop: Arc<AtomicBool>) 
     }
 }
 
-fn run(config: ServerConfig, link: ServerLink) {
+fn run(
+    config: ServerConfig,
+    event_tx: SyncSender<RuntimeEvent>,
+    event_rx: Receiver<RuntimeEvent>,
+    owned: bool,
+) {
+    use std::collections::HashMap;
     let started = Instant::now();
     let mut server = Server::new(config);
-    let (event_tx, event_rx) = mpsc::sync_channel(32);
-    let mut worker: Option<PtyWorker> = None;
+    let mut workers: HashMap<PaneId, PtyWorker> = HashMap::new();
+    let mut clients: HashMap<ClientId, SyncSender<ServerMsg>> = HashMap::new();
     let mut timers = Vec::new();
     let mut shutdown = false;
-    while !shutdown {
+    let mut pending_effects = Vec::new();
+    while !shutdown && (owned || !TERMINATED.load(Ordering::Acquire)) {
         let now = Millis(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
-        let mut effects = Vec::new();
-        for _ in 0..64 {
-            match link.rx.try_recv() {
-                Ok(message) => {
-                    server.handle(now, Event::Client(ClientId(1), message), &mut effects)
+        let mut effects = std::mem::take(&mut pending_effects);
+        let mut spawn_owners = HashMap::new();
+        for _ in 0..128 {
+            match event_rx.try_recv() {
+                Ok(RuntimeEvent::Connect(id, sender)) => {
+                    clients.insert(id, sender);
+                    server.handle(now, Event::ClientConnected(id), &mut effects);
+                }
+                Ok(RuntimeEvent::State(event)) => {
+                    if let Event::ClientGone(id) = &event {
+                        clients.remove(id);
+                    }
+                    let owner = if let Event::Client(id, _) = &event {
+                        Some(*id)
+                    } else {
+                        None
+                    };
+                    let first = effects.len();
+                    server.handle(now, event, &mut effects);
+                    if let Some(owner) = owner {
+                        for effect in &effects[first..] {
+                            if let Effect::Spawn(pane, _) = effect {
+                                spawn_owners.insert(*pane, owner);
+                            }
+                        }
+                    }
+                }
+                Ok(RuntimeEvent::Stop) => {
+                    shutdown = true;
+                    break;
                 }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => {
                     shutdown = true;
                     break;
                 }
-            }
-        }
-        for _ in 0..64 {
-            match event_rx.try_recv() {
-                Ok(event) => server.handle(now, event, &mut effects),
-                Err(TryRecvError::Empty | TryRecvError::Disconnected) => break,
             }
         }
         let mut pending_timers = Vec::new();
@@ -213,46 +404,66 @@ fn run(config: ServerConfig, link: ServerLink) {
             }
         }
         timers = pending_timers;
+        let mut gone = Vec::new();
+        let mut failed = Vec::new();
         for effect in effects {
             match effect {
                 Effect::Spawn(id, spec) => match PtyWorker::spawn(id, &spec, event_tx.clone()) {
-                    Ok(pty) => worker = Some(pty),
+                    Ok(pty) => {
+                        workers.insert(id, pty);
+                    }
                     Err(error) => {
-                        let _ = link
-                            .tx
-                            .send(ServerMsg::Error(format!("could not start shell: {error}")));
-                        let _ = link.tx.send(ServerMsg::Exit(ExitReason::ServerExited));
-                        shutdown = true;
+                        if let Some(sender) =
+                            spawn_owners.get(&id).and_then(|owner| clients.get(owner))
+                        {
+                            let _ = sender.try_send(ServerMsg::Error(format!(
+                                "could not start shell: {error}"
+                            )));
+                        }
+                        failed.push(id);
                     }
                 },
-                Effect::WritePty(_, bytes) => {
-                    if let Some(worker) = &worker
-                        && worker.writer.send(bytes).is_err()
-                    {
-                        shutdown = true;
+                Effect::WritePty(id, bytes) => {
+                    if let Some(worker) = workers.get(&id) {
+                        let _ = worker.writer.send(bytes);
                     }
                 }
-                Effect::ResizePty(_, size) => {
-                    if let Some(worker) = &mut worker {
+                Effect::ResizePty(id, size) => {
+                    if let Some(worker) = workers.get_mut(&id) {
                         worker.pty.resize(size);
                     }
                 }
-                Effect::KillPty(_) => worker = None,
-                Effect::Send(_, message) => {
-                    if link.tx.send(message).is_err() {
-                        shutdown = true;
+                Effect::KillPty(id) => {
+                    workers.remove(&id);
+                }
+                Effect::Send(id, message) => {
+                    let exit = matches!(message, ServerMsg::Exit(_));
+                    if let Some(sender) = clients.get(&id)
+                        && (sender.try_send(message).is_err() || exit)
+                    {
+                        gone.push(id);
                     }
                 }
                 Effect::SetTimer(id, when) => timers.push((id, when)),
                 Effect::Shutdown => shutdown = true,
             }
         }
-        if let Some(worker) = &mut worker {
+        for id in gone {
+            clients.remove(&id);
+            server.handle(now, Event::ClientGone(id), &mut pending_effects);
+        }
+        for id in failed {
+            server.handle(now, Event::PtySpawnFailed(id), &mut pending_effects);
+        }
+        for worker in workers.values_mut() {
             worker.poll_exit();
         }
         if !shutdown {
             thread::sleep(Duration::from_millis(1));
         }
+    }
+    for sender in clients.values() {
+        let _ = sender.try_send(ServerMsg::Exit(ExitReason::ServerExited));
     }
 }
 

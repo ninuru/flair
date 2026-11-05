@@ -25,6 +25,7 @@ fn update(full: bool) -> PaneUpdate {
             visible: true,
         },
         flags: PaneFlags::default(),
+        selection: vec![],
     }
 }
 

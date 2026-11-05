@@ -4,6 +4,7 @@ use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey as 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalAction {
     Paste,
+    Copy,
     ScrollPageUp,
     ScrollPageDown,
 }
@@ -78,6 +79,14 @@ fn modifiers(mods: ModifiersState) -> Mods {
 }
 
 pub fn local_action(key: &KeyInput) -> Option<LocalAction> {
+    if key.mods.ctrl
+        && key.mods.shift
+        && !key.mods.alt
+        && !key.mods.super_
+        && matches!(key.key, Key::Char('c' | 'C'))
+    {
+        return Some(LocalAction::Copy);
+    }
     if key.mods.ctrl
         && key.mods.shift
         && !key.mods.alt

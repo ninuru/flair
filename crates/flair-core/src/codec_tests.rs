@@ -95,9 +95,11 @@ fn server_messages() -> Vec<ServerMsg> {
                     shape: CursorShape::Beam,
                     visible: true,
                 },
+                selection: Vec::new(),
                 flags: PaneFlags {
                     alt_screen: true,
                     display_offset: 12,
+                    mouse_reporting: false,
                 },
             }],
         },

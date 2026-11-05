@@ -10,5 +10,6 @@ pub enum Event {
     ClientGone(ClientId),
     PtyOutput(PaneId, Vec<u8>),
     PtyExited(PaneId),
+    PtySpawnFailed(PaneId),
     Timer(u64),
 }

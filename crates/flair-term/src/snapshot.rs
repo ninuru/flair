@@ -7,10 +7,44 @@ use alacritty_terminal::{
 use flair_core::{
     geom::CellPoint,
     ids::PaneId,
-    proto::{Cell, CellFlags, Color, Cursor, CursorShape, PaneFlags, PaneUpdate},
+    proto::{Cell, CellFlags, Color, Cursor, CursorShape, PaneFlags, PaneUpdate, SelectionSpan},
 };
 
 impl Terminal {
+    fn selection_spans(&self) -> Vec<SelectionSpan> {
+        let Some(range) = self
+            .term
+            .selection
+            .as_ref()
+            .and_then(|selection| selection.to_range(&self.term))
+        else {
+            return Vec::new();
+        };
+        let offset = self.term.grid().display_offset() as i32;
+        (0..self.size.rows)
+            .filter_map(|row| {
+                let line = Line(i32::from(row) - offset);
+                if line < range.start.line || line > range.end.line {
+                    return None;
+                }
+                let start = if line == range.start.line {
+                    range.start.column.0
+                } else {
+                    0
+                };
+                let end = if line == range.end.line {
+                    range.end.column.0
+                } else {
+                    usize::from(self.size.cols - 1)
+                };
+                Some(SelectionSpan {
+                    row,
+                    start: start as u16,
+                    end: end.min(usize::from(self.size.cols - 1)) as u16,
+                })
+            })
+            .collect()
+    }
     pub fn snapshot(&mut self, pane: PaneId, full: bool) -> Option<PaneUpdate> {
         let offset = self.term.grid().display_offset();
         let rows = (0..self.size.rows)
@@ -72,9 +106,11 @@ impl Terminal {
                 visible: cursor.shape != AnsiCursor::Hidden
                     && cursor.point.line.0 + (offset as i32) < self.size.rows as i32,
             },
+            selection: self.selection_spans(),
             flags: PaneFlags {
                 alt_screen: self.modes().alt_screen,
                 display_offset: offset.min(u32::MAX as usize) as u32,
+                mouse_reporting: self.modes().mouse != crate::terminal::MouseMode::Off,
             },
         };
         let force = full

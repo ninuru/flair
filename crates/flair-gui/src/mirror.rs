@@ -1,7 +1,7 @@
 use flair_core::{
     geom::GridSize,
     ids::PaneId,
-    proto::{Cell, Cursor, PaneFlags, PaneUpdate},
+    proto::{Cell, Cursor, PaneFlags, PaneUpdate, SelectionSpan},
 };
 use std::collections::HashMap;
 
@@ -15,6 +15,7 @@ pub struct PaneMirror {
     pub rows: Vec<Vec<Cell>>,
     pub cursor: Cursor,
     pub flags: PaneFlags,
+    pub selection: Vec<SelectionSpan>,
 }
 
 impl Mirror {
@@ -35,6 +36,7 @@ impl Mirror {
                         ],
                         cursor: update.cursor,
                         flags: update.flags,
+                        selection: update.selection.clone(),
                     },
                 );
             }
@@ -54,6 +56,7 @@ impl Mirror {
             }
             pane.cursor = update.cursor;
             pane.flags = update.flags;
+            pane.selection = update.selection.clone();
             changed = true;
         }
         changed
