@@ -10,6 +10,7 @@ fn spec(script: &str) -> SpawnSpec {
         program: "/bin/sh".into(),
         args: vec!["-c".into(), script.into()],
         cwd: PathBuf::from("/tmp"),
+        unset_env: Vec::new(),
         env: vec![("TERM".into(), "xterm-256color".into())],
         size: GridSize { cols: 80, rows: 24 },
     }
@@ -119,4 +120,37 @@ fn cleanup_terminates_job_control_background_processes() {
         }
         thread::sleep(Duration::from_millis(2));
     }
+}
+
+#[test]
+fn unset_environment_removes_inherited_history() {
+    if std::env::var_os("FLAIR_TEST_UNSET_ENV").is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "pty::tests::unset_environment_removes_inherited_history",
+                "--nocapture",
+            ])
+            .env("FLAIR_TEST_UNSET_ENV", "1")
+            .env("HISTFILE", "/tmp/flair-history-must-not-be-used")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let mut spawn = spec("printf 'history=%s\n' \"${HISTFILE+set}\"; read x");
+    spawn
+        .env
+        .push(("HISTFILE".into(), "configured-history".into()));
+    spawn.unset_env.push("HISTFILE".into());
+    let mut pty = Pty::spawn(&spawn).unwrap();
+    let text = read_until(&mut pty.reader().unwrap(), "\n");
+    assert!(text.contains("history=\r\n"), "{text:?}");
+    assert!(!text.contains("history=set"), "{text:?}");
+    pty.kill();
 }

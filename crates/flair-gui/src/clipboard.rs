@@ -14,4 +14,16 @@ impl Clipboard {
     pub fn load(&self) -> Option<String> {
         self.0.as_ref()?.load().ok()
     }
+    pub fn load_primary(&self) -> Option<String> {
+        self.0.as_ref()?.load_primary().ok()
+    }
+    pub fn store(&self, text: String, primary: bool) {
+        if let Some(clipboard) = &self.0 {
+            if primary {
+                clipboard.store_primary(text);
+            } else {
+                clipboard.store(text);
+            }
+        }
+    }
 }

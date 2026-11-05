@@ -9,3 +9,5 @@ repository.workspace = true
 flair-core.workspace = true
 flair-term.workspace = true
 log.workspace = true
+libc = "0.2"
+serde.workspace = true

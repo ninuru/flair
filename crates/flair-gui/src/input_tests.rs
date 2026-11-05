@@ -60,3 +60,27 @@ fn genuine_control_alt_chord_preserves_both_modifiers() {
     .unwrap();
     assert!(input.mods.ctrl && input.mods.alt);
 }
+
+#[test]
+fn control_shift_c_copies_without_forwarding_to_the_shell() {
+    let key = KeyInput {
+        key: Key::Char('C'),
+        mods: Mods {
+            ctrl: true,
+            shift: true,
+            ..Mods::default()
+        },
+        text: None,
+        repeat: false,
+        keypad: false,
+    };
+    assert_eq!(local_action(&key), Some(LocalAction::Copy));
+    let key = KeyInput {
+        mods: Mods {
+            ctrl: true,
+            ..Mods::default()
+        },
+        ..key
+    };
+    assert_eq!(local_action(&key), None);
+}

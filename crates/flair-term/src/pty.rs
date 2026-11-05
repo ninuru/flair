@@ -7,6 +7,7 @@ use std::{
     fs::File,
     io,
     os::fd::{AsRawFd, FromRawFd, OwnedFd},
+    os::unix::fs::PermissionsExt,
     path::PathBuf,
 };
 
@@ -16,6 +17,7 @@ pub struct SpawnSpec {
     pub args: Vec<String>,
     pub cwd: PathBuf,
     pub env: Vec<(String, String)>,
+    pub unset_env: Vec<String>,
     pub size: GridSize,
 }
 pub struct Pty {
@@ -31,8 +33,52 @@ impl Pty {
                 "PTY dimensions must be nonzero",
             ));
         }
+        let shell = if spec.unset_env.is_empty() {
+            Shell::new(spec.program.clone(), spec.args.clone())
+        } else {
+            let program = std::path::Path::new(&spec.program);
+            let candidates = if program.components().count() > 1 || program.is_absolute() {
+                vec![spec.cwd.join(program)]
+            } else {
+                let path = spec
+                    .env
+                    .iter()
+                    .rev()
+                    .find(|(key, _)| key == "PATH")
+                    .map(|(_, value)| std::ffi::OsString::from(value))
+                    .or_else(|| std::env::var_os("PATH"))
+                    .unwrap_or_else(|| "/bin:/usr/bin".into());
+                std::env::split_paths(&path)
+                    .map(|path| spec.cwd.join(path).join(program))
+                    .collect()
+            };
+            if !candidates.iter().any(|path| {
+                path.metadata().is_ok_and(|metadata| {
+                    metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+                })
+            }) {
+                return Err(io::Error::new(
+                    io::ErrorKind::NotFound,
+                    format!("shell is not executable: {}", spec.program),
+                ));
+            }
+            let args = spec
+                .unset_env
+                .iter()
+                .flat_map(|name| ["-u".to_owned(), name.clone()])
+                .chain(["--".to_owned(), spec.program.clone()])
+                .chain(spec.args.iter().cloned())
+                .collect();
+            Shell::new("/usr/bin/env".to_owned(), args)
+        };
+        if !spec.cwd.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("session directory does not exist: {}", spec.cwd.display()),
+            ));
+        }
         let config = Options {
-            shell: Some(Shell::new(spec.program.clone(), spec.args.clone())),
+            shell: Some(shell),
             working_directory: Some(spec.cwd.clone()),
             drain_on_exit: true,
             env: spec

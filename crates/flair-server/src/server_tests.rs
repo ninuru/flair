@@ -1,8 +1,9 @@
 use super::*;
 use flair_core::{
+    command::Command,
     config::Config,
     geom::{CellPoint, GridSize},
-    key::{Key, KeyInput, Mods},
+    key::{InputEvent, Key, KeyInput, Mods, MouseAction, MouseButton},
     proto::ClientKind,
 };
 
@@ -46,7 +47,7 @@ fn hello_spawns_configured_shell_and_welcomes_client() {
         out.iter()
             .any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::Welcome { .. })))
     );
-    assert!(server.pane.is_some());
+    assert!(!server.panes.is_empty());
 }
 
 #[test]
@@ -147,7 +148,7 @@ fn terminal_title_and_queries_become_effects() {
 }
 
 #[test]
-fn detach_shuts_down_owned_in_process_shell() {
+fn detach_preserves_owned_shell() {
     let (mut server, _) = setup();
     let mut out = Vec::new();
     server.handle(
@@ -156,14 +157,14 @@ fn detach_shuts_down_owned_in_process_shell() {
         &mut out,
     );
     assert!(
-        out.iter()
-            .any(|effect| matches!(effect, Effect::KillPty(PaneId(1))))
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::KillPty(_)))
     );
     assert!(out.iter().any(|effect| matches!(
         effect,
         Effect::Send(_, ServerMsg::Exit(ExitReason::Detached))
     )));
-    assert!(out.iter().any(|effect| matches!(effect, Effect::Shutdown)));
+    assert!(!out.iter().any(|effect| matches!(effect, Effect::Shutdown)));
 }
 
 #[test]
@@ -204,8 +205,8 @@ fn disconnected_client_does_not_stop_terminal_updates() {
     assert!(out.is_empty());
     assert!(
         server
-            .pane
-            .as_mut()
+            .panes
+            .get_mut(&PaneId(1))
             .unwrap()
             .terminal
             .snapshot(PaneId(1), true)
@@ -296,4 +297,341 @@ fn wheel_scrolls_history_and_typing_returns_to_bottom() {
             .iter()
             .any(|effect| matches!(effect, Effect::WritePty(_, bytes) if bytes == b"x"))
     );
+}
+
+#[test]
+fn reattach_keeps_terminal_and_does_not_spawn_another_shell() {
+    let (mut server, _) = setup();
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::ClientGone(ClientId(1)), &mut out);
+    server.handle(
+        Millis(2),
+        Event::PtyOutput(PaneId(1), b"retained".to_vec()),
+        &mut out,
+    );
+    server.handle(Millis(3), Event::Client(ClientId(2), hello()), &mut out);
+    assert!(!out.iter().any(|effect| matches!(effect, Effect::Spawn(..))));
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Send(ClientId(2), ServerMsg::Frame {panes,..}) if panes[0].rows[0].1[0].c == 'r')));
+}
+
+#[test]
+fn two_clients_have_independent_credit_and_receive_output() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut second = Vec::new();
+    server.handle(Millis(2), Event::Client(ClientId(2), hello()), &mut second);
+    ack(&mut server, &second);
+    let mut output = Vec::new();
+    server.handle(
+        Millis(3),
+        Event::PtyOutput(PaneId(1), b"both".to_vec()),
+        &mut output,
+    );
+    for id in [ClientId(1), ClientId(2)] {
+        assert!(output.iter().any(|effect| matches!(effect, Effect::Send(client, ServerMsg::Frame {panes,..}) if *client == id && panes[0].rows[0].1[0].c == 'b')));
+    }
+}
+
+#[test]
+fn creating_a_hidden_session_does_not_change_attached_view() {
+    let (mut server, _) = setup();
+    let mut out = Vec::new();
+    server.handle(
+        Millis(1),
+        Event::Client(
+            ClientId(2),
+            ClientMsg::Control(Control::Create {
+                target: Target::Create {
+                    name: Some("other".into()),
+                    root: "/tmp".into(),
+                },
+                env: vec![],
+            }),
+        ),
+        &mut out,
+    );
+    assert_eq!(server.clients[&ClientId(1)].view.session, SessionId(1));
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Spawn(PaneId(2), spec) if spec.cwd == std::path::Path::new("/tmp"))));
+    assert_eq!(server.tree.sessions.len(), 2);
+}
+
+#[test]
+fn latest_active_client_decides_size_even_at_identical_time() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut out = Vec::new();
+    let mut second = hello();
+    if let ClientMsg::Hello { size, .. } = &mut second {
+        size.cols = 40;
+    }
+    server.handle(Millis(0), Event::Client(ClientId(2), second), &mut out);
+    server.handle(
+        Millis(0),
+        Event::Client(ClientId(1), ClientMsg::Focus(true)),
+        &mut out,
+    );
+    assert_eq!(server.panes[&PaneId(1)].size.cols, 20);
+    out.clear();
+    server.handle(
+        Millis(1),
+        Event::Client(
+            ClientId(2),
+            ClientMsg::Resize(GridSize { cols: 50, rows: 4 }),
+        ),
+        &mut out,
+    );
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::ResizePty(..)))
+    );
+}
+
+#[test]
+fn no_history_session_explicitly_removes_inherited_histfile() {
+    let mut server = Server::new(ServerConfig::from_config(&Config::default()));
+    let mut out = Vec::new();
+    server.handle(
+        Millis(0),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Control(Control::Create {
+                target: Target::Create {
+                    name: Some("H".into()),
+                    root: "/tmp".into(),
+                },
+                env: vec![("HISTFILE".into(), "/tmp/history".into())],
+            }),
+        ),
+        &mut out,
+    );
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Spawn(_, spec) if spec.unset_env.iter().any(|key| key == "HISTFILE") && !spec.env.iter().any(|(key,_)| key == "HISTFILE"))));
+}
+
+fn key(character: char, ctrl: bool) -> ClientMsg {
+    ClientMsg::Input(InputEvent::Key(KeyInput {
+        key: Key::Char(character),
+        mods: Mods {
+            ctrl,
+            ..Mods::default()
+        },
+        text: None,
+        repeat: false,
+        keypad: false,
+    }))
+}
+
+#[test]
+fn prefix_is_per_client_and_literal_prefix_reaches_pty() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut out = Vec::new();
+    server.handle(Millis(2), Event::Client(ClientId(2), hello()), &mut out);
+    server.handle(
+        Millis(3),
+        Event::Client(ClientId(1), key('a', true)),
+        &mut out,
+    );
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::Title(title)) if title.ends_with("^A"))));
+    out.clear();
+    server.handle(
+        Millis(4),
+        Event::Client(ClientId(2), key('f', false)),
+        &mut out,
+    );
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::WritePty(_, bytes) if bytes == b"f"))
+    );
+    server.handle(
+        Millis(5),
+        Event::Client(ClientId(1), key('a', true)),
+        &mut out,
+    );
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::WritePty(_, bytes) if bytes == &[1]))
+    );
+}
+
+#[test]
+fn prefix_sessionizer_reports_current_and_last_session() {
+    let (mut server, _) = setup();
+    let mut out = Vec::new();
+    server.handle(
+        Millis(1),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Command(Command::Switch(Target::Path("/tmp/project".into()))),
+        ),
+        &mut out,
+    );
+    server.handle(
+        Millis(2),
+        Event::Client(ClientId(1), key('a', true)),
+        &mut out,
+    );
+    server.handle(
+        Millis(3),
+        Event::Client(ClientId(1), key('f', false)),
+        &mut out,
+    );
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Send(_, ServerMsg::Sessionizer {sessions, current,last}) if sessions.len() == 2 && current == "project" && *last == Some(Target::Name("main".into())))));
+    server.handle(
+        Millis(4),
+        Event::Client(ClientId(1), key('a', true)),
+        &mut out,
+    );
+    server.handle(
+        Millis(5),
+        Event::Client(ClientId(1), key('l', false)),
+        &mut out,
+    );
+    assert_eq!(server.clients[&ClientId(1)].view.session, SessionId(1));
+    assert_eq!(server.panes.len(), 2);
+}
+
+#[test]
+fn switching_one_client_preserves_other_view_and_outstanding_credit() {
+    let (mut server, initial) = setup();
+    let original_seq = server.clients[&ClientId(1)].awaiting_ack;
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
+    server.handle(
+        Millis(2),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Command(Command::Switch(Target::Path("/tmp/other".into()))),
+        ),
+        &mut out,
+    );
+    assert_eq!(server.clients[&ClientId(2)].view.session, SessionId(1));
+    assert_eq!(server.clients[&ClientId(1)].awaiting_ack, original_seq);
+    let switched = ack(&mut server, &initial);
+    assert!(switched.iter().any(|effect| matches!(effect, Effect::Send(ClientId(1),ServerMsg::Frame{panes,..}) if panes[0].pane == PaneId(2) && panes[0].full)));
+}
+
+#[test]
+fn exited_session_returns_client_to_its_last_session() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut out = Vec::new();
+    server.handle(
+        Millis(1),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Command(Command::Switch(Target::Path("/tmp/other".into()))),
+        ),
+        &mut out,
+    );
+    ack(&mut server, &out);
+    out.clear();
+    server.handle(Millis(2), Event::PtyExited(PaneId(2)), &mut out);
+    assert_eq!(server.clients[&ClientId(1)].view.session, SessionId(1));
+    assert_eq!(server.tree.sessions.len(), 1);
+    assert!(!out.iter().any(|effect| matches!(effect, Effect::Shutdown)));
+}
+
+#[test]
+fn control_switch_targets_the_most_recent_gui_not_the_command_connection() {
+    let (mut server, _) = setup();
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
+    server.handle(
+        Millis(2),
+        Event::Client(ClientId(1), ClientMsg::Focus(true)),
+        &mut out,
+    );
+    server.handle(
+        Millis(3),
+        Event::Client(
+            ClientId(99),
+            ClientMsg::Control(Control::Switch {
+                target: Target::Path("/tmp/focus".into()),
+                pane: None,
+                env: vec![],
+            }),
+        ),
+        &mut out,
+    );
+    assert_eq!(server.clients[&ClientId(1)].view.session, SessionId(2));
+    assert_eq!(server.clients[&ClientId(2)].view.session, SessionId(1));
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::Send(ClientId(99), ServerMsg::Done)))
+    );
+}
+
+#[test]
+fn sessionizer_prefix_expires_and_restores_title() {
+    let (mut server, _) = setup();
+    let mut out = Vec::new();
+    server.handle(
+        Millis(1),
+        Event::Client(ClientId(1), key('a', true)),
+        &mut out,
+    );
+    out.clear();
+    server.handle(Millis(1001), Event::Timer(1), &mut out);
+    assert!(out.iter().any(
+        |effect| matches!(effect,Effect::Send(_,ServerMsg::Title(title)) if !title.contains("^A"))
+    ));
+    server.handle(
+        Millis(1002),
+        Event::Client(ClientId(1), key('f', false)),
+        &mut out,
+    );
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect,Effect::WritePty(_,bytes) if bytes == b"f"))
+    );
+}
+
+#[test]
+fn mouse_selection_sends_primary_and_clipboard_and_typing_clears_overlay() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut out = Vec::new();
+    server.handle(
+        Millis(1),
+        Event::PtyOutput(PaneId(1), b"hello world".to_vec()),
+        &mut out,
+    );
+    ack(&mut server, &out);
+    out.clear();
+    let mouse = |col, action| {
+        ClientMsg::Input(InputEvent::Mouse(flair_core::key::MouseInput {
+            point: CellPoint { col, row: 0 },
+            button: MouseButton::Left,
+            action,
+            mods: Mods::default(),
+        }))
+    };
+    server.handle(
+        Millis(2),
+        Event::Client(ClientId(1), mouse(0, MouseAction::Press)),
+        &mut out,
+    );
+    server.handle(
+        Millis(3),
+        Event::Client(ClientId(1), mouse(4, MouseAction::Motion)),
+        &mut out,
+    );
+    server.handle(
+        Millis(4),
+        Event::Client(ClientId(1), mouse(4, MouseAction::Release)),
+        &mut out,
+    );
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Send(ClientId(1),ServerMsg::SetClipboard {text,primary:true}) if text=="hello")));
+    server.handle(
+        Millis(5),
+        Event::Client(ClientId(1), ClientMsg::Command(Command::CopySelection)),
+        &mut out,
+    );
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Send(ClientId(1),ServerMsg::SetClipboard {text,primary:false}) if text=="hello")));
+    server.handle(
+        Millis(6),
+        Event::Client(ClientId(1), key('x', false)),
+        &mut out,
+    );
+    assert!(server.panes[&PaneId(1)].terminal.selection_text().is_none());
 }

@@ -2,10 +2,16 @@ use crate::{listener::Collector, osc::OscSniffer};
 use alacritty_terminal::{
     Term,
     grid::{Dimensions, Scroll},
+    index::{Column, Line, Point, Side},
+    selection::{Selection, SelectionType},
     term::{Config as TermConfig, TermMode},
     vte::ansi::Processor,
 };
-use flair_core::{geom::GridSize, proto::PaneUpdate, theme::Theme};
+use flair_core::{
+    geom::{CellPoint, GridSize},
+    proto::PaneUpdate,
+    theme::Theme,
+};
 use std::{
     cell::RefCell,
     path::{Path, PathBuf},
@@ -108,6 +114,7 @@ impl Terminal {
         self.force_full |= old_alt != self.modes().alt_screen;
     }
     pub fn resize(&mut self, size: GridSize) {
+        self.clear_selection();
         self.size = GridSize {
             cols: size.cols.max(1),
             rows: size.rows.max(1),
@@ -124,6 +131,39 @@ impl Terminal {
             self.term.scroll_display(Scroll::Bottom);
             self.force_full = true;
         }
+    }
+    pub fn select_start(&mut self, point: CellPoint, clicks: u8) {
+        let point = self.selection_point(point);
+        let ty = match clicks {
+            2 => SelectionType::Semantic,
+            3.. => SelectionType::Lines,
+            0 | 1 => SelectionType::Simple,
+        };
+        self.term.selection = Some(Selection::new(ty, point, Side::Left));
+    }
+    pub fn select_update(&mut self, point: CellPoint) {
+        let point = self.selection_point(point);
+        if let Some(selection) = &mut self.term.selection {
+            selection.update(point, Side::Right);
+            selection.include_all();
+        }
+    }
+    pub fn selection_text(&self) -> Option<String> {
+        self.term
+            .selection_to_string()
+            .filter(|text| !text.is_empty())
+    }
+    pub fn clear_selection(&mut self) {
+        self.term.selection = None;
+    }
+    fn selection_point(&self, point: CellPoint) -> Point {
+        Point::new(
+            Line(
+                i32::from(point.row.min(self.size.rows - 1))
+                    - self.term.grid().display_offset() as i32,
+            ),
+            Column(usize::from(point.col.min(self.size.cols - 1))),
+        )
     }
     pub fn set_palette(&mut self, theme: &Theme) {
         *self.palette.borrow_mut() = theme.clone();

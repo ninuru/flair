@@ -5,7 +5,7 @@ use flair_core::{
     config::Config,
     geom::GridSize,
     ids::PaneId,
-    key::{InputEvent, MouseAction, MouseButton, MouseInput},
+    key::{InputEvent, Key, KeyInput, MouseAction, MouseButton, MouseInput, NamedKey},
     link::ClientLink,
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target},
 };
@@ -27,6 +27,7 @@ use crate::{
     input::{self, LocalAction},
     mirror::Mirror,
     mouse::{self, WheelAccumulator},
+    picker::{self, Picker},
     probe::Probe,
     renderer::{Renderer, WindowContext},
 };
@@ -67,6 +68,7 @@ struct App {
     ime: bool,
     probe: Option<Probe>,
     error: Option<GuiError>,
+    picker: Option<Picker>,
 }
 
 impl App {
@@ -125,12 +127,51 @@ impl App {
             mods,
         })));
     }
+    fn request_redraw(&self) {
+        if let Some(surface) = &self.surface {
+            surface.window.request_redraw();
+        }
+    }
+    fn picker_key(&mut self, key: &KeyInput) {
+        let Some(picker) = &mut self.picker else {
+            return;
+        };
+        let mut close = false;
+        let mut target = None;
+        match key.key {
+            Key::Named(NamedKey::Escape) => close = true,
+            Key::Named(NamedKey::Enter) => {
+                target = picker.accept();
+                close = target.is_some();
+            }
+            Key::Named(NamedKey::Backspace) => picker.backspace(),
+            Key::Named(NamedKey::Up) => picker.move_selection(-1),
+            Key::Named(NamedKey::Down) => picker.move_selection(1),
+            Key::Char('u' | 'U') if key.mods.ctrl => picker.clear(),
+            Key::Char(_) if !key.mods.ctrl && !key.mods.alt && !key.mods.super_ => {
+                if let Some(text) = &key.text {
+                    picker.insert(text);
+                }
+            }
+            Key::Char(_) | Key::Named(_) => {}
+        }
+        if close {
+            self.picker = None;
+        }
+        if let Some(target) = target {
+            self.send(ClientMsg::Command(Command::Switch(target)));
+        }
+        self.request_redraw();
+    }
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let Some(pane) = self.pane else {
             return;
         };
         let theme = self.config.theme();
-        let grid = compose(&self.mirror, pane, &theme, true);
+        let mut grid = compose(&self.mirror, pane, &theme, true);
+        if let Some(picker) = &self.picker {
+            picker.draw(&mut grid, &theme);
+        }
         let padding = self.padding(
             self.surface
                 .as_ref()
@@ -241,6 +282,21 @@ impl ApplicationHandler<UserEvent> for App {
                     }
                 }
                 ServerMsg::Bell => {}
+                ServerMsg::SetClipboard { text, primary } => {
+                    if let Some(surface) = &self.surface {
+                        surface.clipboard.store(text, primary);
+                    }
+                }
+                ServerMsg::Sessionizer {
+                    sessions,
+                    current,
+                    last,
+                } => {
+                    self.picker =
+                        Some(Picker::new(sessions, &current, last, picker::directories()));
+                    self.request_redraw();
+                }
+                ServerMsg::Sessions(_) | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
                 ServerMsg::Exit(_) => {
                     self.redraw(event_loop);
@@ -288,7 +344,12 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::Ime(Ime::Preedit(text, _)) => self.ime = !text.is_empty(),
             WindowEvent::Ime(Ime::Commit(text)) => {
                 self.ime = false;
-                self.send(ClientMsg::Input(InputEvent::Text(text)));
+                if let Some(picker) = &mut self.picker {
+                    picker.insert(&text);
+                    self.request_redraw();
+                } else {
+                    self.send(ClientMsg::Input(InputEvent::Text(text)));
+                }
             }
             WindowEvent::Ime(Ime::Disabled) => self.ime = false,
             WindowEvent::KeyboardInput {
@@ -306,7 +367,25 @@ impl ApplicationHandler<UserEvent> for App {
                     self.mods,
                     event.repeat,
                 ) {
+                    if self.picker.is_some() {
+                        if input::local_action(&key) == Some(LocalAction::Paste) {
+                            if let Some(text) =
+                                self.surface.as_ref().and_then(|s| s.clipboard.load())
+                            {
+                                if let Some(picker) = &mut self.picker {
+                                    picker.insert(&text);
+                                }
+                                self.request_redraw();
+                            }
+                        } else {
+                            self.picker_key(&key);
+                        }
+                        return;
+                    }
                     match input::local_action(&key) {
+                        Some(LocalAction::Copy) => {
+                            self.send(ClientMsg::Command(Command::CopySelection))
+                        }
                         Some(LocalAction::Paste) => {
                             if let Some(text) =
                                 self.surface.as_ref().and_then(|s| s.clipboard.load())
@@ -326,9 +405,32 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = position;
+                if self.picker.is_some() {
+                    return;
+                }
                 self.mouse(self.button, MouseAction::Motion);
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                if self.picker.is_some() {
+                    return;
+                }
+                if button == winit::event::MouseButton::Middle
+                    && (self.mods.shift_key()
+                        || self
+                            .pane
+                            .and_then(|pane| self.mirror.pane(pane))
+                            .is_some_and(|pane| !pane.flags.mouse_reporting))
+                {
+                    if state == ElementState::Pressed
+                        && let Some(text) = self
+                            .surface
+                            .as_ref()
+                            .and_then(|s| s.clipboard.load_primary())
+                    {
+                        self.send(ClientMsg::Input(InputEvent::Paste(text)));
+                    }
+                    return;
+                }
                 let button = match button {
                     winit::event::MouseButton::Left => MouseButton::Left,
                     winit::event::MouseButton::Middle => MouseButton::Middle,
@@ -350,6 +452,9 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                if self.picker.is_some() {
+                    return;
+                }
                 let line_px = self
                     .surface
                     .as_ref()
@@ -370,14 +475,24 @@ impl ApplicationHandler<UserEvent> for App {
 }
 
 pub fn run(config: Config, link: ClientLink, probe: Option<Instant>) -> Result<(), GuiError> {
+    run_target(config, link, probe, Target::Main, Vec::new())
+}
+
+pub fn run_target(
+    config: Config,
+    link: ClientLink,
+    probe: Option<Instant>,
+    target: Target,
+    env: Vec<(String, String)>,
+) -> Result<(), GuiError> {
     link.tx
         .send(ClientMsg::Hello {
             protocol: PROTOCOL,
             kind: ClientKind::Gui,
             size: GridSize { cols: 80, rows: 24 },
             palette: config.theme(),
-            env: vec![],
-            target: Target::Main,
+            env,
+            target,
         })
         .map_err(|e| GuiError(e.to_string()))?;
     let event_loop = EventLoop::<UserEvent>::with_user_event()
@@ -406,6 +521,7 @@ pub fn run(config: Config, link: ClientLink, probe: Option<Instant>) -> Result<(
         ime: false,
         probe: probe.map(Probe::start),
         error: None,
+        picker: None,
     };
     if let Some(probe) = &mut app.probe {
         probe.mark("event_loop");

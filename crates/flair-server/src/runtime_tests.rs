@@ -58,7 +58,13 @@ fn wait_text(client: &flair_core::link::ClientLink, text: &str) {
             }
             ServerMsg::Error(error) => panic!("server error: {error}"),
             ServerMsg::Exit(reason) => panic!("shell exited before expected text: {reason:?}"),
-            ServerMsg::Welcome { .. } | ServerMsg::Title(_) | ServerMsg::Bell => {}
+            ServerMsg::Welcome { .. }
+            | ServerMsg::Title(_)
+            | ServerMsg::Bell
+            | ServerMsg::SetClipboard { .. }
+            | ServerMsg::Sessionizer { .. }
+            | ServerMsg::Sessions(_)
+            | ServerMsg::Done => {}
         }
     }
 }
@@ -90,7 +96,7 @@ fn real_pty_round_trip_delivers_final_output_before_exit() {
 }
 
 #[test]
-fn detach_terminates_a_shell_with_descendants_without_hanging() {
+fn owned_runtime_stops_after_detached_link_is_dropped() {
     let Some((client, handle)) = start("sleep 100 & printf ready; wait") else {
         return;
     };
@@ -100,6 +106,7 @@ fn detach_terminates_a_shell_with_descendants_without_hanging() {
         client.rx.recv_timeout(Duration::from_secs(5)).unwrap(),
         ServerMsg::Exit(ExitReason::Detached)
     ));
+    drop(client);
     let deadline = Instant::now() + Duration::from_secs(2);
     while !handle.is_finished() && Instant::now() < deadline {
         std::thread::yield_now();

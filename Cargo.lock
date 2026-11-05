@@ -428,6 +428,7 @@ dependencies = [
  "flair-gui",
  "flair-server",
  "lexopt",
+ "libc",
  "log",
  "serde",
  "toml",
@@ -437,6 +438,7 @@ dependencies = [
 name = "flair-core"
 version = "0.1.0"
 dependencies = [
+ "nucleo-matcher",
  "postcard",
  "serde",
  "toml",
@@ -462,7 +464,9 @@ version = "0.1.0"
 dependencies = [
  "flair-core",
  "flair-term",
+ "libc",
  "log",
+ "serde",
 ]
 
 [[package]]
@@ -878,6 +882,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873"
 dependencies = [
  "jni-sys 0.3.1",
+]
+
+[[package]]
+name = "nucleo-matcher"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf33f538733d1a5a3494b836ba913207f14d9d4a1d3cd67030c5061bdd2cac85"
+dependencies = [
+ "memchr",
+ "unicode-segmentation",
 ]
 
 [[package]]

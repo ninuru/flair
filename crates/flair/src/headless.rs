@@ -50,7 +50,13 @@ struct Capture {
 impl Capture {
     fn message(&mut self, message: ServerMsg, tx: &Sender<ClientMsg>) -> Result<(), String> {
         match message {
-            ServerMsg::Welcome { .. } | ServerMsg::Title(_) | ServerMsg::Bell => {}
+            ServerMsg::Welcome { .. }
+            | ServerMsg::Title(_)
+            | ServerMsg::Bell
+            | ServerMsg::SetClipboard { .. }
+            | ServerMsg::Sessionizer { .. }
+            | ServerMsg::Sessions(_)
+            | ServerMsg::Done => {}
             ServerMsg::Frame { seq, panes } => {
                 self.pane = panes.first().map(|pane| pane.pane).or(self.pane);
                 self.mirror.apply(&panes);
