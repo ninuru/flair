@@ -56,6 +56,12 @@ impl Capture {
             | ServerMsg::SetClipboard { .. }
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::Sessions(_)
+            | ServerMsg::Layout(_)
+            | ServerMsg::Status(_)
+            | ServerMsg::ChooseWindow
+            | ServerMsg::PasteClipboard
+            | ServerMsg::PromptRename { .. }
+            | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Done => {}
             ServerMsg::Frame { seq, panes } => {
                 self.pane = panes.first().map(|pane| pane.pane).or(self.pane);

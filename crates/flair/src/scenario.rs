@@ -1,6 +1,6 @@
 use flair_core::{
     geom::GridSize,
-    key::{Key, KeyInput, Mods, NamedKey},
+    key::{Key, KeyAction, KeyInput, Locks, Mods, NamedKey},
 };
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::PathBuf};
@@ -137,6 +137,11 @@ pub fn key_input(key: &str, ctrl: bool, shift: bool, alt: bool) -> Result<KeyInp
         },
         repeat: false,
         keypad: false,
+        action: KeyAction::Press,
+        unshifted: None,
+        shifted: None,
+        base: None,
+        locks: Locks::default(),
     })
 }
 

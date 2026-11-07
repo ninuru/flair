@@ -1,4 +1,4 @@
-use flair_core::key::{Key, KeyInput, Mods, NamedKey};
+use flair_core::key::{Key, KeyAction, KeyInput, Locks, Mods, NamedKey};
 use winit::keyboard::{Key as WinitKey, KeyLocation, ModifiersState, NamedKey as WinitNamed};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,6 +40,11 @@ pub fn translate(
                     text: Some(" ".into()),
                     repeat,
                     keypad: location == KeyLocation::Numpad,
+                    action: KeyAction::Press,
+                    unshifted: None,
+                    shifted: None,
+                    base: None,
+                    locks: Locks::default(),
                 });
             }
             WinitNamed::F1 => NamedKey::F(1),
@@ -66,6 +71,11 @@ pub fn translate(
         text,
         repeat,
         keypad: location == KeyLocation::Numpad,
+        action: KeyAction::Press,
+        unshifted: None,
+        shifted: None,
+        base: None,
+        locks: Locks::default(),
     })
 }
 

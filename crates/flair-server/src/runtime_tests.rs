@@ -3,7 +3,7 @@ use crate::ServerConfig;
 use flair_core::{
     config::Config,
     geom::GridSize,
-    key::{InputEvent, Key, KeyInput, Mods, NamedKey},
+    key::{InputEvent, Key, KeyAction, KeyInput, Locks, Mods, NamedKey},
     link::channel_pair,
     proto::{ClientKind, ClientMsg, ExitReason, PROTOCOL, ServerMsg, Target},
 };
@@ -84,6 +84,11 @@ fn real_pty_round_trip_delivers_final_output_before_exit() {
                 text: None,
                 repeat: false,
                 keypad: false,
+                action: KeyAction::Press,
+                unshifted: None,
+                shifted: None,
+                base: None,
+                locks: Locks::default(),
             })))
             .unwrap();
     }

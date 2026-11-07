@@ -150,6 +150,20 @@ pub fn encode_key(key: &KeyInput, modes: &Modes) -> Option<Vec<u8>> {
                     .into_bytes(),
                 );
             }
+            NamedKey::CapsLock
+            | NamedKey::NumLock
+            | NamedKey::ScrollLock
+            | NamedKey::PrintScreen
+            | NamedKey::Pause
+            | NamedKey::Menu
+            | NamedKey::ShiftLeft
+            | NamedKey::ShiftRight
+            | NamedKey::ControlLeft
+            | NamedKey::ControlRight
+            | NamedKey::AltLeft
+            | NamedKey::AltRight
+            | NamedKey::SuperLeft
+            | NamedKey::SuperRight => return None,
         },
     };
     if key.mods.alt {

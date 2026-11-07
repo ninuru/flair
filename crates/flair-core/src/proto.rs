@@ -7,13 +7,14 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     command::Command,
-    geom::{CellPoint, GridSize},
-    ids::{ClientId, PaneId},
+    geom::{Axis, CellPoint, CellRect, GridSize},
+    ids::{ClientId, PaneId, WindowId},
     key::InputEvent,
+    status::StatusLine,
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 2;
+pub const PROTOCOL: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -45,6 +46,8 @@ pub enum ServerMsg {
         seq: u64,
         panes: Vec<PaneUpdate>,
     },
+    Layout(WindowLayout),
+    Status(StatusLine),
     Title(String),
     Bell,
     SetClipboard {
@@ -57,6 +60,14 @@ pub enum ServerMsg {
         last: Option<Target>,
     },
     Sessions(Vec<SessionInfo>),
+    ChooseWindow,
+    PasteClipboard,
+    PromptRename {
+        current: String,
+    },
+    ReloadConfig {
+        toml: String,
+    },
     Done,
     Error(String),
     Exit(ExitReason),
@@ -223,4 +234,26 @@ pub struct SelectionSpan {
     pub row: u16,
     pub start: u16,
     pub end: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowLayout {
+    pub window: WindowId,
+    pub area: CellRect,
+    pub panes: Vec<PanePlacement>,
+    pub separators: Vec<Separator>,
+    pub active: PaneId,
+    pub zoomed: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PanePlacement {
+    pub pane: PaneId,
+    pub rect: CellRect,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Separator {
+    pub axis: Axis,
+    pub rect: CellRect,
 }

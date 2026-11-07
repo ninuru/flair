@@ -7,6 +7,7 @@ pub mod key;
 pub mod link;
 pub mod proto;
 pub mod sessionizer;
+pub mod status;
 pub mod theme;
 pub mod time;
 pub mod tree;
