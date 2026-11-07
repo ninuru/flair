@@ -1,39 +1,29 @@
 use crate::terminal::{Modes, MouseMode};
-use flair_core::key::{Key, KeyInput, MouseAction, MouseButton, MouseInput, NamedKey};
+
+#[path = "kitty.rs"]
+mod kitty;
+use flair_core::key::{Key, KeyAction, KeyInput, MouseAction, MouseButton, MouseInput, NamedKey};
 
 pub fn encode_key(key: &KeyInput, modes: &Modes) -> Option<Vec<u8>> {
+    if key.action == KeyAction::Release {
+        if modes.kitty_flags & 2 == 0
+            || modes.kitty_flags & 8 == 0
+                && matches!(
+                    key.key,
+                    Key::Named(NamedKey::Enter | NamedKey::Tab | NamedKey::Backspace)
+                )
+        {
+            return None;
+        }
+        return kitty::encode(key, modes);
+    }
     let modifier = 1
         + u8::from(key.mods.shift)
         + 2 * u8::from(key.mods.alt)
         + 4 * u8::from(key.mods.ctrl)
         + 8 * u8::from(key.mods.super_);
-    if modes.kitty_flags & 1 != 0 {
-        let code = match key.key {
-            Key::Named(NamedKey::Escape) => Some(27),
-            Key::Named(NamedKey::Enter) if key.mods.shift || key.mods.ctrl || key.mods.super_ => {
-                Some(13)
-            }
-            Key::Named(NamedKey::Tab) if key.mods.ctrl || key.mods.super_ => Some(9),
-            Key::Named(NamedKey::Backspace)
-                if key.mods.ctrl || key.mods.shift || key.mods.super_ =>
-            {
-                Some(127)
-            }
-            Key::Char(c) if key.mods.ctrl || key.mods.alt || key.mods.super_ => {
-                Some(c.to_ascii_lowercase() as u32)
-            }
-            _ => None,
-        };
-        if let Some(code) = code {
-            return Some(
-                if modifier == 1 {
-                    format!("\x1b[{code}u")
-                } else {
-                    format!("\x1b[{code};{modifier}u")
-                }
-                .into_bytes(),
-            );
-        }
+    if let Some(bytes) = kitty::encode(key, modes) {
+        return Some(bytes);
     }
     if key.keypad && modes.app_keypad && modifier == 1 {
         let code = match key.key {
@@ -84,6 +74,20 @@ pub fn encode_key(key: &KeyInput, modes: &Modes) -> Option<Vec<u8>> {
             NamedKey::Tab => vec![b'\t'],
             NamedKey::Backspace => vec![127],
             NamedKey::Escape => vec![27],
+            NamedKey::CapsLock
+            | NamedKey::NumLock
+            | NamedKey::ScrollLock
+            | NamedKey::PrintScreen
+            | NamedKey::Pause
+            | NamedKey::Menu
+            | NamedKey::ShiftLeft
+            | NamedKey::ShiftRight
+            | NamedKey::ControlLeft
+            | NamedKey::ControlRight
+            | NamedKey::AltLeft
+            | NamedKey::AltRight
+            | NamedKey::SuperLeft
+            | NamedKey::SuperRight => return None,
             NamedKey::Up
             | NamedKey::Down
             | NamedKey::Left
@@ -150,20 +154,6 @@ pub fn encode_key(key: &KeyInput, modes: &Modes) -> Option<Vec<u8>> {
                     .into_bytes(),
                 );
             }
-            NamedKey::CapsLock
-            | NamedKey::NumLock
-            | NamedKey::ScrollLock
-            | NamedKey::PrintScreen
-            | NamedKey::Pause
-            | NamedKey::Menu
-            | NamedKey::ShiftLeft
-            | NamedKey::ShiftRight
-            | NamedKey::ControlLeft
-            | NamedKey::ControlRight
-            | NamedKey::AltLeft
-            | NamedKey::AltRight
-            | NamedKey::SuperLeft
-            | NamedKey::SuperRight => return None,
         },
     };
     if key.mods.alt {
@@ -175,6 +165,19 @@ pub fn encode_key(key: &KeyInput, modes: &Modes) -> Option<Vec<u8>> {
 pub fn encode_text(text: &str) -> Vec<u8> {
     text.as_bytes().to_vec()
 }
+
+pub fn encode_text_with_modes(text: &str, modes: &Modes) -> Vec<u8> {
+    if modes.kitty_flags & 24 != 24 {
+        return encode_text(text);
+    }
+    let codepoints = kitty::text_codepoints(text);
+    if codepoints.is_empty() {
+        Vec::new()
+    } else {
+        format!("\x1b[0;;{codepoints}u").into_bytes()
+    }
+}
+
 pub fn encode_paste(text: &str, modes: &Modes) -> Vec<u8> {
     if modes.bracketed_paste {
         format!(
@@ -254,3 +257,7 @@ pub fn encode_mouse(mouse: &MouseInput, modes: &Modes) -> Option<Vec<u8>> {
 #[cfg(test)]
 #[path = "encode_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "kitty_tests.rs"]
+mod kitty_tests;
