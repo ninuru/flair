@@ -103,6 +103,100 @@ impl Layout {
         geometry
     }
 
+    pub fn hit_test(&self, area: CellRect, point: CellPoint) -> Option<PaneId> {
+        self.geometry(area)
+            .panes
+            .into_iter()
+            .find(|placement| placement.rect.contains(point))
+            .map(|placement| placement.pane)
+    }
+
+    pub fn separator_at(&self, area: CellRect, point: CellPoint) -> Option<Vec<bool>> {
+        if !area.contains(point) {
+            return None;
+        }
+        let Self::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } = self
+        else {
+            return None;
+        };
+        let (first_area, separator, second_area) = split_rect(
+            area,
+            *axis,
+            *ratio,
+            first.minimum_size(),
+            second.minimum_size(),
+        );
+        if separator.contains(point) {
+            return Some(Vec::new());
+        }
+        if let Some(mut path) = first.separator_at(first_area, point) {
+            path.insert(0, false);
+            return Some(path);
+        }
+        let mut path = second.separator_at(second_area, point)?;
+        path.insert(0, true);
+        Some(path)
+    }
+
+    pub fn resize_separator(&mut self, path: &[bool], area: CellRect, point: CellPoint) -> bool {
+        let minimum = self.minimum_size();
+        if area.size.cols < minimum.cols || area.size.rows < minimum.rows {
+            return false;
+        }
+        let Self::Split {
+            axis,
+            ratio,
+            first,
+            second,
+        } = self
+        else {
+            return false;
+        };
+        let first_minimum = first.minimum_size();
+        let second_minimum = second.minimum_size();
+        if let Some((branch, remaining)) = path.split_first() {
+            let (first_area, _, second_area) =
+                split_rect(area, *axis, *ratio, first_minimum, second_minimum);
+            return if *branch {
+                second.resize_separator(remaining, second_area, point)
+            } else {
+                first.resize_separator(remaining, first_area, point)
+            };
+        }
+        let (length, offset, first_minimum, second_minimum) = match axis {
+            Axis::Horizontal => (
+                area.size.cols,
+                point.col.saturating_sub(area.origin.col),
+                first_minimum.cols,
+                second_minimum.cols,
+            ),
+            Axis::Vertical => (
+                area.size.rows,
+                point.row.saturating_sub(area.origin.row),
+                first_minimum.rows,
+                second_minimum.rows,
+            ),
+        };
+        let available = length - 1;
+        let desired = offset.clamp(first_minimum, available - second_minimum);
+        let current = ((u32::from(available) * u32::from(*ratio) / 65536) as u16)
+            .clamp(first_minimum, available - second_minimum);
+        if desired == current {
+            return false;
+        }
+        let next = (u32::from(desired) * 65536).div_ceil(u32::from(available)) as u16;
+        if next == *ratio {
+            return false;
+        }
+        *ratio = next;
+        true
+    }
+
     fn place(&self, area: CellRect, geometry: &mut Geometry) {
         match self {
             Self::Leaf(pane) => geometry.panes.push(PanePlacement {

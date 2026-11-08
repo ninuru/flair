@@ -95,6 +95,7 @@ impl Server {
         {
             return;
         }
+        self.cancel_mouse(id, out);
         let client = self.clients.get_mut(&id).unwrap();
         let old = client.view.window;
         client.view.select_window(window);
@@ -209,13 +210,16 @@ impl Server {
     }
 
     pub(super) fn invalidate_window(&mut self, window: WindowId, out: &mut Vec<Effect>) {
-        for client in self
+        let clients: Vec<_> = self
             .clients
-            .values_mut()
-            .filter(|client| client.view.window == window)
-        {
+            .iter()
+            .filter(|(_, client)| client.view.window == window)
+            .map(|(id, _)| *id)
+            .collect();
+        for id in clients {
+            self.cancel_mouse(id, out);
+            let client = self.clients.get_mut(&id).unwrap();
             client.full = true;
-            client.selecting = false;
             client.last_click = None;
         }
         self.resize_window(window, out);

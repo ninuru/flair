@@ -2,6 +2,7 @@ use super::*;
 
 impl Server {
     pub(super) fn resize_window(&mut self, window: WindowId, out: &mut Vec<Effect>) {
+        let mut geometry_changed = false;
         if let Some(size) = self
             .clients
             .values()
@@ -10,7 +11,19 @@ impl Server {
             .map(|client| client.size)
             && let Some(window) = self.tree.window_mut(window)
         {
+            geometry_changed = window.size != size;
             window.size = size;
+        }
+        if geometry_changed {
+            let clients: Vec<_> = self
+                .clients
+                .iter()
+                .filter(|(_, client)| client.view.window == window)
+                .map(|(id, _)| *id)
+                .collect();
+            for id in clients {
+                self.cancel_mouse(id, out);
+            }
         }
         let Some(geometry) = self.tree.window(window).map(|window| window.geometry()) else {
             return;
