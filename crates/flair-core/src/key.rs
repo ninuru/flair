@@ -9,6 +9,24 @@ pub struct KeyInput {
     pub text: Option<String>,
     pub repeat: bool,
     pub keypad: bool,
+    pub action: KeyAction,
+    pub unshifted: Option<char>,
+    pub shifted: Option<char>,
+    pub base: Option<char>,
+    pub locks: Locks,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub enum KeyAction {
+    #[default]
+    Press,
+    Release,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+pub struct Locks {
+    pub caps: bool,
+    pub num: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -34,6 +52,20 @@ pub enum NamedKey {
     Insert,
     Delete,
     F(u8),
+    CapsLock,
+    NumLock,
+    ScrollLock,
+    PrintScreen,
+    Pause,
+    Menu,
+    ShiftLeft,
+    ShiftRight,
+    ControlLeft,
+    ControlRight,
+    AltLeft,
+    AltRight,
+    SuperLeft,
+    SuperRight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
@@ -77,4 +109,5 @@ pub enum InputEvent {
     Text(String),
     Paste(String),
     Mouse(MouseInput),
+    Ime(bool),
 }

@@ -296,7 +296,14 @@ impl ApplicationHandler<UserEvent> for App {
                         Some(Picker::new(sessions, &current, last, picker::directories()));
                     self.request_redraw();
                 }
-                ServerMsg::Sessions(_) | ServerMsg::Done => {}
+                ServerMsg::Sessions(_)
+                | ServerMsg::Done
+                | ServerMsg::Layout(_)
+                | ServerMsg::Status(_)
+                | ServerMsg::ChooseWindow
+                | ServerMsg::PasteClipboard
+                | ServerMsg::PromptRename { .. }
+                | ServerMsg::ReloadConfig { .. } => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
                 ServerMsg::Exit(_) => {
                     self.redraw(event_loop);

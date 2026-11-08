@@ -3,7 +3,7 @@ use flair_core::{
     command::Command,
     config::Config,
     geom::{CellPoint, GridSize},
-    key::{InputEvent, Key, KeyInput, Mods, MouseAction, MouseButton},
+    key::{InputEvent, Key, KeyAction, KeyInput, Locks, Mods, MouseAction, MouseButton},
     proto::ClientKind,
 };
 
@@ -95,6 +95,11 @@ fn control_c_is_encoded_for_the_pty() {
                 text: None,
                 repeat: false,
                 keypad: false,
+                action: KeyAction::Press,
+                unshifted: None,
+                shifted: None,
+                base: None,
+                locks: Locks::default(),
             })),
         ),
         &mut out,
@@ -287,6 +292,11 @@ fn wheel_scrolls_history_and_typing_returns_to_bottom() {
                 text: None,
                 repeat: false,
                 keypad: false,
+                action: KeyAction::Press,
+                unshifted: None,
+                shifted: None,
+                base: None,
+                locks: Locks::default(),
             })),
         ),
         &mut typed,
@@ -417,6 +427,11 @@ fn key(character: char, ctrl: bool) -> ClientMsg {
         text: None,
         repeat: false,
         keypad: false,
+        action: KeyAction::Press,
+        unshifted: None,
+        shifted: None,
+        base: None,
+        locks: Locks::default(),
     }))
 }
 

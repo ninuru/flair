@@ -73,6 +73,11 @@ fn control_shift_c_copies_without_forwarding_to_the_shell() {
         text: None,
         repeat: false,
         keypad: false,
+        action: KeyAction::Press,
+        unshifted: None,
+        shifted: None,
+        base: None,
+        locks: Locks::default(),
     };
     assert_eq!(local_action(&key), Some(LocalAction::Copy));
     let key = KeyInput {

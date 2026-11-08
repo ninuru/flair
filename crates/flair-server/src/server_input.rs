@@ -52,6 +52,26 @@ impl Server {
                 ));
             }
             Command::CopySelection => self.copy_selection(id, false, out),
+            Command::Detach => {
+                self.clients.remove(&id);
+                out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::Detached)));
+            }
+            Command::NewWindow
+            | Command::NextWindow
+            | Command::PreviousWindow
+            | Command::LastWindow
+            | Command::SelectWindow(_)
+            | Command::ChooseWindow
+            | Command::RenameWindow(_)
+            | Command::CloseWindow
+            | Command::Split(_)
+            | Command::SelectPane(_)
+            | Command::ClosePane
+            | Command::ToggleZoom
+            | Command::PasteClipboard
+            | Command::ReloadConfig => {
+                log::debug!("command not implemented yet: {command:?}");
+            }
             Command::ScrollLines(_) | Command::ScrollPages(_) | Command::ScrollToBottom => {
                 if let Some(pane) = self
                     .client_pane(id)
@@ -66,7 +86,22 @@ impl Server {
                         Command::Switch(_)
                         | Command::LastSession
                         | Command::Sessionizer
-                        | Command::CopySelection => unreachable!(),
+                        | Command::CopySelection
+                        | Command::Detach
+                        | Command::NewWindow
+                        | Command::NextWindow
+                        | Command::PreviousWindow
+                        | Command::LastWindow
+                        | Command::SelectWindow(_)
+                        | Command::ChooseWindow
+                        | Command::RenameWindow(_)
+                        | Command::CloseWindow
+                        | Command::Split(_)
+                        | Command::SelectPane(_)
+                        | Command::ClosePane
+                        | Command::ToggleZoom
+                        | Command::PasteClipboard
+                        | Command::ReloadConfig => unreachable!(),
                     }
                     pane.dirty = true;
                 }
@@ -86,10 +121,17 @@ impl Server {
         {
             return;
         }
-        if let InputEvent::Mouse(mouse) = input {
-            self.mouse_input(now, id, mouse, out);
-            return;
-        }
+        let mouse = match input {
+            InputEvent::Mouse(mouse) => mouse,
+            InputEvent::Ime(_) => return,
+            InputEvent::Key(_) | InputEvent::Text(_) | InputEvent::Paste(_) => {
+                return self.forward(id, input, out);
+            }
+        };
+        self.mouse_input(now, id, mouse, out);
+    }
+
+    fn forward(&mut self, id: ClientId, input: InputEvent, out: &mut Vec<Effect>) {
         let Some(pane_id) = self.client_pane(id) else {
             return;
         };
@@ -102,7 +144,7 @@ impl Server {
             InputEvent::Key(key) => encode_key(&key, &modes),
             InputEvent::Text(text) => Some(encode_text(&text)),
             InputEvent::Paste(text) => Some(encode_paste(&text, &modes)),
-            InputEvent::Mouse(_) => unreachable!(),
+            InputEvent::Mouse(_) | InputEvent::Ime(_) => unreachable!(),
         };
         if let Some(bytes) = bytes
             && !bytes.is_empty()
@@ -133,10 +175,7 @@ impl Server {
             match key.key {
                 Key::Char('f') => self.command(now, id, Command::Sessionizer, out),
                 Key::Char('l') => self.command(now, id, Command::LastSession, out),
-                Key::Char('d') => {
-                    self.clients.remove(&id);
-                    out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::Detached)));
-                }
+                Key::Char('d') => self.command(now, id, Command::Detach, out),
                 Key::Char(_) | Key::Named(_) => {}
             }
             return true;

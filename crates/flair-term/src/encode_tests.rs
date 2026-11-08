@@ -1,6 +1,6 @@
 use super::*;
 use flair_core::geom::CellPoint;
-use flair_core::key::{Mods, MouseAction, MouseButton};
+use flair_core::key::{KeyAction, Locks, Mods, MouseAction, MouseButton};
 
 fn key(key: Key, mods: Mods) -> KeyInput {
     KeyInput {
@@ -9,6 +9,11 @@ fn key(key: Key, mods: Mods) -> KeyInput {
         text: None,
         repeat: false,
         keypad: false,
+        action: KeyAction::Press,
+        unshifted: None,
+        shifted: None,
+        base: None,
+        locks: Locks::default(),
     }
 }
 

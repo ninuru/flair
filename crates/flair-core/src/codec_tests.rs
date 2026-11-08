@@ -2,15 +2,19 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::{
-    command::Command,
+    command::{Command, PaneRef, WindowRef},
     config::Config,
-    geom::{CellPoint, GridSize},
-    ids::{ClientId, PaneId},
-    key::{InputEvent, Key, KeyInput, Mods, MouseAction, MouseButton, MouseInput, NamedKey},
+    geom::{Axis, CellPoint, CellRect, Direction, GridSize},
+    ids::{ClientId, PaneId, WindowId},
+    key::{
+        InputEvent, Key, KeyAction, KeyInput, Locks, Mods, MouseAction, MouseButton, MouseInput,
+        NamedKey,
+    },
     proto::{
         Cell, CellFlags, ClientKind, ClientMsg, Color, Cursor, CursorShape, ExitReason, PaneFlags,
-        PaneUpdate, ServerMsg, Target,
+        PanePlacement, PaneUpdate, Separator, ServerMsg, Target, WindowLayout,
     },
+    status::{StatusLine, StatusWindow},
 };
 
 fn size() -> GridSize {
@@ -46,6 +50,11 @@ fn client_messages() -> Vec<ClientMsg> {
             text: None,
             repeat: true,
             keypad: false,
+            action: KeyAction::Press,
+            unshifted: None,
+            shifted: None,
+            base: None,
+            locks: Locks::default(),
         })),
         ClientMsg::Input(InputEvent::Key(KeyInput {
             key: Key::Named(NamedKey::F(5)),
@@ -53,7 +62,43 @@ fn client_messages() -> Vec<ClientMsg> {
             text: Some("x".to_owned()),
             repeat: false,
             keypad: true,
+            action: KeyAction::Press,
+            unshifted: None,
+            shifted: None,
+            base: None,
+            locks: Locks::default(),
         })),
+        ClientMsg::Input(InputEvent::Key(KeyInput {
+            key: Key::Char('&'),
+            mods: Mods {
+                shift: true,
+                ..Mods::default()
+            },
+            text: None,
+            repeat: false,
+            keypad: false,
+            action: KeyAction::Release,
+            unshifted: Some('7'),
+            shifted: Some('&'),
+            base: Some('7'),
+            locks: Locks {
+                caps: true,
+                num: true,
+            },
+        })),
+        ClientMsg::Input(InputEvent::Key(KeyInput {
+            key: Key::Named(NamedKey::ShiftLeft),
+            mods: Mods::default(),
+            text: None,
+            repeat: true,
+            keypad: false,
+            action: KeyAction::Press,
+            unshifted: None,
+            shifted: None,
+            base: None,
+            locks: Locks::default(),
+        })),
+        ClientMsg::Input(InputEvent::Ime(true)),
         ClientMsg::Input(InputEvent::Text("ä".to_owned())),
         ClientMsg::Input(InputEvent::Paste("a\nb".to_owned())),
         ClientMsg::Input(InputEvent::Mouse(MouseInput {
@@ -67,6 +112,25 @@ fn client_messages() -> Vec<ClientMsg> {
         ClientMsg::Command(Command::ScrollLines(-3)),
         ClientMsg::Command(Command::ScrollPages(2)),
         ClientMsg::Command(Command::ScrollToBottom),
+        ClientMsg::Command(Command::PasteClipboard),
+        ClientMsg::Command(Command::Detach),
+        ClientMsg::Command(Command::NewWindow),
+        ClientMsg::Command(Command::NextWindow),
+        ClientMsg::Command(Command::PreviousWindow),
+        ClientMsg::Command(Command::LastWindow),
+        ClientMsg::Command(Command::SelectWindow(WindowRef::Index(9))),
+        ClientMsg::Command(Command::SelectWindow(WindowRef::Id(WindowId(4)))),
+        ClientMsg::Command(Command::ChooseWindow),
+        ClientMsg::Command(Command::RenameWindow(None)),
+        ClientMsg::Command(Command::RenameWindow(Some("editor".to_owned()))),
+        ClientMsg::Command(Command::CloseWindow),
+        ClientMsg::Command(Command::Split(Axis::Horizontal)),
+        ClientMsg::Command(Command::Split(Axis::Vertical)),
+        ClientMsg::Command(Command::SelectPane(PaneRef::Direction(Direction::Left))),
+        ClientMsg::Command(Command::SelectPane(PaneRef::Id(PaneId(3)))),
+        ClientMsg::Command(Command::ClosePane),
+        ClientMsg::Command(Command::ToggleZoom),
+        ClientMsg::Command(Command::ReloadConfig),
         ClientMsg::Detach,
     ]
 }
@@ -102,6 +166,57 @@ fn server_messages() -> Vec<ServerMsg> {
                     mouse_reporting: false,
                 },
             }],
+        },
+        ServerMsg::Layout(WindowLayout {
+            window: WindowId(2),
+            area: CellRect {
+                origin: CellPoint { col: 0, row: 1 },
+                size: GridSize { cols: 80, rows: 23 },
+            },
+            panes: vec![
+                PanePlacement {
+                    pane: PaneId(1),
+                    rect: CellRect {
+                        origin: CellPoint { col: 0, row: 1 },
+                        size: GridSize { cols: 40, rows: 23 },
+                    },
+                },
+                PanePlacement {
+                    pane: PaneId(2),
+                    rect: CellRect {
+                        origin: CellPoint { col: 41, row: 1 },
+                        size: GridSize { cols: 39, rows: 23 },
+                    },
+                },
+            ],
+            separators: vec![Separator {
+                axis: Axis::Horizontal,
+                rect: CellRect {
+                    origin: CellPoint { col: 40, row: 1 },
+                    size: GridSize { cols: 1, rows: 23 },
+                },
+            }],
+            active: PaneId(2),
+            zoomed: false,
+        }),
+        ServerMsg::Status(StatusLine {
+            session: "main".to_owned(),
+            windows: vec![StatusWindow {
+                id: WindowId(2),
+                index: 1,
+                name: "nvim 世界".to_owned(),
+                active: true,
+                last: false,
+            }],
+            pending: Some("^A".to_owned()),
+        }),
+        ServerMsg::ChooseWindow,
+        ServerMsg::PasteClipboard,
+        ServerMsg::PromptRename {
+            current: "zsh".to_owned(),
+        },
+        ServerMsg::ReloadConfig {
+            toml: "[keys]\n".to_owned(),
         },
         ServerMsg::Title("zsh".to_owned()),
         ServerMsg::Bell,
