@@ -171,3 +171,56 @@ fn spawn_failure_is_reported_to_the_client() {
 
 #[path = "runtime_split_tests.rs"]
 mod splits;
+
+#[test]
+fn reload_reads_the_config_file_and_reaches_the_client() {
+    if !Path::new("/bin/sh").exists() {
+        eprintln!("skipping real PTY test: /bin/sh unavailable");
+        return;
+    }
+    let dir = std::env::temp_dir().join(format!("flair-reload-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let toml = "[keys]\nkey = \"C-b\"\n";
+    std::fs::write(dir.join("flair.toml"), toml).unwrap();
+    let mut config = ServerConfig::from_config(&Config::default());
+    config.program = "/bin/sh".into();
+    config.args = vec!["-c".into(), "printf ready; read x".into()];
+    config.path = dir.join("flair.toml");
+    let (client, server) = channel_pair();
+    let handle = spawn_in_process(config, server).unwrap();
+    client
+        .tx
+        .send(ClientMsg::Hello {
+            protocol: PROTOCOL,
+            kind: ClientKind::Gui,
+            size: GridSize { cols: 40, rows: 6 },
+            palette: Config::default().theme(),
+            env: vec![],
+            target: Target::Main,
+        })
+        .unwrap();
+    wait_text(&client, "ready");
+    client
+        .tx
+        .send(ClientMsg::Command(
+            flair_core::command::Command::ReloadConfig,
+        ))
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let reloaded = loop {
+        let message = client
+            .rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .unwrap_or_else(|error| panic!("no reload before deadline: {error}"));
+        if let ServerMsg::ReloadConfig { toml } = message {
+            break toml;
+        }
+        if let ServerMsg::Frame { seq, .. } = message {
+            client.tx.send(ClientMsg::FrameAck { seq }).unwrap();
+        }
+    };
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(reloaded, toml);
+    drop(client);
+    handle.join().unwrap();
+}
