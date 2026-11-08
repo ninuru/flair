@@ -64,6 +64,12 @@ fn wait_text(client: &flair_core::link::ClientLink, text: &str) {
             | ServerMsg::SetClipboard { .. }
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::Sessions(_)
+            | ServerMsg::Layout(_)
+            | ServerMsg::Status(_)
+            | ServerMsg::ChooseWindow
+            | ServerMsg::PasteClipboard
+            | ServerMsg::PromptRename { .. }
+            | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Done => {}
         }
     }
