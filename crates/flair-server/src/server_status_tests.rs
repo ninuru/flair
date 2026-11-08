@@ -306,3 +306,19 @@ fn reload_keeps_the_socket_variable_and_working_directory() {
     );
     assert_eq!(next.cwd, std::path::Path::new("/srv"));
 }
+
+#[test]
+fn paste_cancels_a_pending_prefix() {
+    let mut server = setup();
+    key(&mut server, 1, press(Key::Char('a'), true));
+    let out = send(
+        &mut server,
+        2,
+        ClientMsg::Input(InputEvent::Paste("x".into())),
+    );
+    assert!(!server.clients[&ClientId(1)].prefix.pending());
+    assert_eq!(status(&out).unwrap().pending, None);
+    let out = key(&mut server, 3, press(Key::Char('c'), false));
+    assert_eq!(server.tree.sessions[0].windows.len(), 1);
+    assert!(!writes(&out).is_empty());
+}

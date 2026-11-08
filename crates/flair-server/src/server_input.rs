@@ -165,11 +165,10 @@ impl Server {
         match input {
             InputEvent::Key(key) => self.key_input(now, id, key, out),
             InputEvent::Ime(composing) => self.set_ime(id, composing, out),
-            InputEvent::Text(_) => {
+            InputEvent::Text(_) | InputEvent::Paste(_) => {
                 self.cancel_prefix(id, out);
                 self.forward(id, input, out);
             }
-            InputEvent::Paste(_) => self.forward(id, input, out),
             InputEvent::Mouse(mouse) => self.mouse_input(now, id, mouse, out),
         }
     }

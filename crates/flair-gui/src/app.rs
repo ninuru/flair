@@ -399,6 +399,16 @@ impl ApplicationHandler<UserEvent> for App {
                     self.request_redraw();
                 }
                 ServerMsg::PromptRename { current } => {
+                    let current = if current.is_empty() {
+                        self.status
+                            .windows
+                            .iter()
+                            .find(|window| window.active)
+                            .map(|window| window.name.clone())
+                            .unwrap_or_default()
+                    } else {
+                        current
+                    };
                     self.prompt = Some(Prompt::rename(current));
                     self.request_redraw();
                 }
@@ -505,13 +515,13 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = position;
-                if self.picker.is_some() {
+                if self.picker.is_some() || self.prompt.is_some() {
                     return;
                 }
                 self.mouse(self.button, MouseAction::Motion);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if self.picker.is_some() {
+                if self.picker.is_some() || self.prompt.is_some() {
                     return;
                 }
                 if button == winit::event::MouseButton::Middle
@@ -559,7 +569,7 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if self.picker.is_some() {
+                if self.picker.is_some() || self.prompt.is_some() {
                     return;
                 }
                 let line_px = self
