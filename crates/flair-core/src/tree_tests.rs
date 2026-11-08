@@ -63,11 +63,11 @@ fn removing_the_active_pane_activates_a_neighbour() {
 #[test]
 fn removing_a_window_s_last_pane_keeps_the_session() {
     let mut tree = single();
-    tree.sessions[0].windows.push(Window {
-        id: WindowId(1),
-        panes: vec![PaneId(1)],
-        active_pane: PaneId(1),
-    });
+    tree.sessions[0].windows.push(Window::new(
+        WindowId(1),
+        PaneId(1),
+        GridSize { cols: 80, rows: 25 },
+    ));
     assert_eq!(
         tree.remove_pane(PaneId(0)),
         Removed {
@@ -78,4 +78,22 @@ fn removing_a_window_s_last_pane_keeps_the_session() {
     let session = tree.session(SessionId(0)).unwrap();
     assert_eq!(session.windows.len(), 1);
     assert_eq!(session.windows[0].id, WindowId(1));
+}
+
+#[test]
+fn window_numbers_start_at_one_and_close_gaps() {
+    let mut tree = single();
+    for number in [7, 12] {
+        tree.sessions[0].windows.push(Window::new(
+            WindowId(number),
+            PaneId(number),
+            GridSize { cols: 80, rows: 25 },
+        ));
+    }
+    assert_eq!(tree.sessions[0].window_number(WindowId(0)), Some(1));
+    assert_eq!(tree.sessions[0].window_number(WindowId(7)), Some(2));
+    assert_eq!(tree.sessions[0].window_number(WindowId(12)), Some(3));
+    tree.remove_pane(PaneId(7));
+    assert_eq!(tree.sessions[0].window_number(WindowId(12)), Some(2));
+    assert_eq!(tree.sessions[0].window_number(WindowId(7)), None);
 }

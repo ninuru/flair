@@ -1,4 +1,4 @@
-use crate::scenario::{Scenario, Step, key_input, validate_size};
+use crate::scenario::{Scenario, Step, client_size, key_input};
 use flair_core::{
     command::Command,
     config::Config,
@@ -200,10 +200,7 @@ pub fn run(scenario: Scenario, output: &Path, timeout: Duration) -> Result<(), S
             .send(ClientMsg::Hello {
                 protocol: PROTOCOL,
                 kind: ClientKind::Headless,
-                size: GridSize {
-                    cols: scenario.cols,
-                    rows: scenario.rows,
-                },
+                size: client_size(scenario.cols, scenario.rows)?,
                 palette: config.theme(),
                 env: vec![],
                 target: Target::Main,
@@ -240,9 +237,7 @@ pub fn run(scenario: Scenario, output: &Path, timeout: Duration) -> Result<(), S
                 )?))),
                 Step::Text { text } => Some(ClientMsg::Input(InputEvent::Text(text.clone()))),
                 Step::Paste { text } => Some(ClientMsg::Input(InputEvent::Paste(text.clone()))),
-                Step::Resize { cols, rows } => {
-                    Some(ClientMsg::Resize(validate_size(*cols, *rows)?))
-                }
+                Step::Resize { cols, rows } => Some(ClientMsg::Resize(client_size(*cols, *rows)?)),
                 Step::Scroll { lines } => Some(ClientMsg::Command(Command::ScrollLines(*lines))),
             };
             if let Some(message) = message {

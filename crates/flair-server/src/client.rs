@@ -1,10 +1,13 @@
 use flair_core::{
     geom::{CellPoint, GridSize},
-    proto::{ClientKind, PaneUpdate},
+    ids::PaneId,
+    proto::{ClientKind, PaneUpdate, WindowLayout},
     theme::Theme,
     time::Millis,
     view::ClientView,
 };
+
+use std::collections::BTreeMap;
 
 pub(crate) struct ClientState {
     pub view: ClientView,
@@ -15,7 +18,9 @@ pub(crate) struct ClientState {
     pub activity: u64,
     pub focused: bool,
     pub full: bool,
-    pub previous: Option<PaneUpdate>,
+    pub previous: BTreeMap<PaneId, PaneUpdate>,
+    pub acknowledged: BTreeMap<PaneId, PaneUpdate>,
+    pub layout: Option<WindowLayout>,
     pub env: Vec<(String, String)>,
     pub palette: Theme,
     pub prefix_until: Option<Millis>,

@@ -378,7 +378,8 @@ fn run(
                     server.handle(now, event, &mut effects);
                     if let Some(owner) = owner {
                         for effect in &effects[first..] {
-                            if let Effect::Spawn(pane, _) = effect {
+                            if let Effect::Spawn(pane, _) | Effect::SpawnSplit(pane, _, _) = effect
+                            {
                                 spawn_owners.insert(*pane, owner);
                             }
                         }
@@ -407,7 +408,21 @@ fn run(
         let mut gone = Vec::new();
         let mut failed = Vec::new();
         for effect in effects {
+            let effect = if let Effect::SpawnSplit(id, parent, mut spec) = effect {
+                if let Some(worker) = workers.get(&parent) {
+                    match worker.pty.cwd() {
+                        Ok(cwd) => spec.cwd = cwd,
+                        Err(error) => {
+                            log::debug!("could not resolve split cwd for {parent:?}: {error}")
+                        }
+                    }
+                }
+                Effect::Spawn(id, spec)
+            } else {
+                effect
+            };
             match effect {
+                Effect::SpawnSplit(_, _, _) => unreachable!(),
                 Effect::Spawn(id, spec) => match PtyWorker::spawn(id, &spec, event_tx.clone()) {
                     Ok(pty) => {
                         workers.insert(id, pty);

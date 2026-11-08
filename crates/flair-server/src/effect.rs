@@ -9,6 +9,7 @@ use flair_term::pty::SpawnSpec;
 #[derive(Debug)]
 pub enum Effect {
     Spawn(PaneId, SpawnSpec),
+    SpawnSplit(PaneId, PaneId, SpawnSpec),
     WritePty(PaneId, Vec<u8>),
     ResizePty(PaneId, GridSize),
     KillPty(PaneId),

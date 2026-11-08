@@ -154,3 +154,32 @@ fn unset_environment_removes_inherited_history() {
     assert!(!text.contains("history=set"), "{text:?}");
     pty.kill();
 }
+
+#[test]
+fn foreground_cwd_tracks_shell_directory_without_osc7() {
+    if !std::path::Path::new("/bin/sh").exists() {
+        eprintln!("skipping cwd PTY test: /bin/sh unavailable");
+        return;
+    }
+    let mut pty = Pty::spawn(&spec("cd /; printf ready; read x")).unwrap();
+    assert!(read_until(&mut pty.reader().unwrap(), "ready").contains("ready"));
+    assert_eq!(pty.cwd().unwrap(), PathBuf::from("/"));
+    pty.kill();
+    assert!(pty.cwd().is_err());
+}
+
+#[test]
+fn foreground_job_cwd_takes_precedence_over_shell_cwd() {
+    if !std::path::Path::new("/bin/sh").exists() {
+        eprintln!("skipping foreground cwd PTY test: /bin/sh unavailable");
+        return;
+    }
+    let mut pty = Pty::spawn(&spec("set -m; (cd /; printf child-ready; read x)")).unwrap();
+    assert!(read_until(&mut pty.reader().unwrap(), "child-ready").contains("child-ready"));
+    assert_eq!(pty.cwd().unwrap(), PathBuf::from("/"));
+    assert_eq!(
+        std::fs::read_link(format!("/proc/{}/cwd", pty.pid())).unwrap(),
+        PathBuf::from("/tmp")
+    );
+    pty.kill();
+}

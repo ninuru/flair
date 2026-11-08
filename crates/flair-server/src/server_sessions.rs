@@ -2,10 +2,10 @@ use super::*;
 use flair_core::{
     config::Config,
     proto::SessionInfo,
+    status::STATUS_ROWS,
     theme::Theme,
     tree::{Session, Window},
 };
-use flair_term::{Terminal, pty::SpawnSpec};
 
 impl Server {
     pub(super) fn resolve_target(
@@ -86,51 +86,16 @@ impl Server {
         let session = SessionId(number);
         let window = WindowId(number);
         let pane_id = PaneId(number);
-        let mut terminal = Terminal::new(size, self.config.scrollback);
-        terminal.set_palette(palette);
-        self.panes.insert(
-            pane_id,
-            Pane {
-                terminal,
-                size,
-                dirty: true,
-                cached: None,
-                exited: false,
-            },
-        );
         let no_history = name == "H";
+        let spec = self.spawn_pane(pane_id, root.clone(), size, palette, env, no_history);
         self.tree.sessions.push(Session {
             id: session,
             name,
-            root: root.clone(),
-            windows: vec![Window {
-                id: window,
-                panes: vec![pane_id],
-                active_pane: pane_id,
-            }],
+            root,
+            last_window: window,
+            windows: vec![Window::new(window, pane_id, size)],
         });
-        let mut pane_env: BTreeMap<_, _> = self.config.env.iter().cloned().collect();
-        pane_env.extend(env.iter().cloned());
-        pane_env.insert("TERM_PROGRAM".into(), "flair".into());
-        pane_env.insert("FLAIR_PANE".into(), format!("%{}", pane_id.0));
-        if no_history {
-            pane_env.remove("HISTFILE");
-        }
-        out.push(Effect::Spawn(
-            pane_id,
-            SpawnSpec {
-                program: self.config.program.clone(),
-                args: self.config.args.clone(),
-                cwd: root,
-                env: pane_env.into_iter().collect(),
-                unset_env: ["FLAIR_SOCKET", "FLAIR_SOCKET_NAME"]
-                    .into_iter()
-                    .chain(no_history.then_some("HISTFILE"))
-                    .map(String::from)
-                    .collect(),
-                size,
-            },
-        ));
+        out.push(Effect::Spawn(pane_id, spec));
         Ok(session)
     }
 
@@ -166,13 +131,15 @@ impl Server {
         session: SessionId,
         out: &mut Vec<Effect>,
     ) {
-        let window = self.tree.session(session).unwrap().windows[0].id;
+        let window = self.tree.session(session).unwrap().last_window;
         let client = self.clients.get_mut(&id).unwrap();
+        let previous_window = client.view.window;
         client.view.switch_session(session, window);
         client.full = true;
         client.prefix_until = None;
         client.selecting = false;
         client.last_click = None;
+        self.resize_window(previous_window, out);
         self.touch(now, id, out);
         self.send_title(id, out);
     }
@@ -207,7 +174,10 @@ impl Server {
                 let palette = Config::default().theme();
                 match self.resolve_target(
                     target,
-                    GridSize { cols: 80, rows: 24 },
+                    GridSize {
+                        cols: 80,
+                        rows: 24 + STATUS_ROWS,
+                    },
                     &palette,
                     &env,
                     out,
@@ -240,7 +210,13 @@ impl Server {
                         (state.size, state.palette.clone())
                     })
                     .unwrap_or_else(|| {
-                        (GridSize { cols: 80, rows: 24 }, Config::default().theme())
+                        (
+                            GridSize {
+                                cols: 80,
+                                rows: 24 + STATUS_ROWS,
+                            },
+                            Config::default().theme(),
+                        )
                     });
                 match self.resolve_target(target, size, &palette, &env, out) {
                     Ok(session) => {
