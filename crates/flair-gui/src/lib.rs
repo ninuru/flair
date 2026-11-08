@@ -10,6 +10,7 @@ pub mod mouse;
 pub mod picker;
 pub mod probe;
 pub mod renderer;
+pub mod status;
 
 pub use app::{GuiError, run, run_target};
 pub use font::{CellMetrics, FontError, Fonts, RasterGlyph, Style};

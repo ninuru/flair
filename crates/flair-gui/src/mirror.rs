@@ -1,7 +1,7 @@
 use flair_core::{
     geom::GridSize,
     ids::PaneId,
-    proto::{Cell, Cursor, PaneFlags, PaneUpdate, SelectionSpan},
+    proto::{Cell, Cursor, PaneFlags, PaneUpdate, SelectionSpan, WindowLayout},
 };
 use std::collections::HashMap;
 
@@ -19,6 +19,11 @@ pub struct PaneMirror {
 }
 
 impl Mirror {
+    pub fn retain_layout(&mut self, layout: &WindowLayout) {
+        self.panes
+            .retain(|id, _| layout.panes.iter().any(|placement| placement.pane == *id));
+    }
+
     pub fn apply(&mut self, updates: &[PaneUpdate]) -> bool {
         let mut changed = false;
         for update in updates {
