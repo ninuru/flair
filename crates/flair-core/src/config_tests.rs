@@ -156,3 +156,31 @@ fn line_height_must_be_finite_and_positive() {
         assert!(error.to_string().contains("font.line_height"), "{error}");
     }
 }
+
+#[test]
+fn key_tables_accept_configured_prefix_and_unbind_default_chords() {
+    let config = Config::from_toml(
+        r#"
+[keys]
+key = "C-b"
+timeout_ms = 750
+[keys.prefix]
+f = "last-session"
+[keys.root]
+"C-S-Enter" = "none"
+"#,
+    );
+    assert!(config.is_ok(), "{config:?}");
+}
+
+#[test]
+fn invalid_key_configuration_names_the_binding() {
+    for text in [
+        "[keys]\nkey = 'C-C-a'",
+        "[keys.prefix]\n'unknown-key' = 'last-session'",
+        "[keys.root]\n'A-x' = 'typo-command'",
+        "[keys.prefix]\n'&' = 'close-window'\n'S-&' = 'close-pane'",
+    ] {
+        assert!(Config::from_toml(text).is_err(), "{text}");
+    }
+}

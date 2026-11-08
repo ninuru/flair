@@ -8,11 +8,15 @@ use std::{
 
 use serde::{Deserialize, Deserializer, de};
 
-use crate::theme::{Rgb, Rgba, Theme};
+use crate::{
+    keys::KeysConfig,
+    theme::{Rgb, Rgba, Theme},
+};
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    pub keys: KeysConfig,
     pub shell: ShellConfig,
     #[serde(deserialize_with = "env_over_defaults")]
     pub env: BTreeMap<String, String>,
@@ -96,6 +100,7 @@ pub struct ColorsConfig {
 pub enum ConfigError {
     Read { path: PathBuf, error: io::Error },
     Parse(toml::de::Error),
+    Keys(String),
     NotPositive { key: &'static str, value: f32 },
 }
 
@@ -107,6 +112,7 @@ impl fmt::Display for ConfigError {
                 write!(f, "cannot read {path}: {error}")
             }
             ConfigError::Parse(error) => write!(f, "invalid config: {error}"),
+            ConfigError::Keys(error) => write!(f, "invalid config: {error}"),
             ConfigError::NotPositive { key, value } => {
                 write!(
                     f,
@@ -122,7 +128,7 @@ impl Error for ConfigError {
         match self {
             ConfigError::Read { error, .. } => Some(error),
             ConfigError::Parse(error) => Some(error),
-            ConfigError::NotPositive { .. } => None,
+            ConfigError::Keys(_) | ConfigError::NotPositive { .. } => None,
         }
     }
 }
@@ -144,6 +150,7 @@ impl Config {
 
     pub fn from_toml(text: &str) -> Result<Config, ConfigError> {
         let config: Config = toml::from_str(text).map_err(ConfigError::Parse)?;
+        config.keys.validate().map_err(ConfigError::Keys)?;
         positive("font.size", config.font.size)?;
         positive("font.line_height", config.font.line_height)?;
         Ok(config)
@@ -183,6 +190,7 @@ impl Config {
 impl Default for Config {
     fn default() -> Config {
         Config {
+            keys: KeysConfig::default(),
             shell: ShellConfig::default(),
             env: default_env(),
             font: FontConfig::default(),
