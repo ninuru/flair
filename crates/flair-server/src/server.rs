@@ -12,10 +12,16 @@ use flair_term::{TermEvent, encode::encode_focus};
 
 use crate::{client::ClientState, config::ServerConfig, effect::Effect, event::Event, pane::Pane};
 
+#[path = "server_frames.rs"]
+mod frames;
 #[path = "server_input.rs"]
 mod input;
+#[path = "server_lifecycle.rs"]
+mod lifecycle;
 #[path = "server_sessions.rs"]
 mod sessions;
+#[path = "server_windows.rs"]
+mod windows;
 
 pub struct Server {
     config: ServerConfig,
@@ -48,7 +54,7 @@ impl Server {
             Event::ClientConnected(_) => {}
             Event::Client(id, message) => self.client_message(now, id, message, out),
             Event::ClientGone(id) => {
-                self.clients.remove(&id);
+                self.remove_client(id, out);
             }
             Event::PtyOutput(id, bytes) => {
                 if let Some(pane) = self.panes.get_mut(&id) {
@@ -61,7 +67,7 @@ impl Server {
                 for (client_id, client) in &mut self.clients {
                     if self.tree.active_pane(client.view.window) == Some(id) {
                         client.awaiting_ack = None;
-                        client.previous = None;
+                        client.previous.clear();
                         out.push(Effect::Send(
                             *client_id,
                             ServerMsg::Error("could not start shell".into()),
@@ -95,7 +101,6 @@ impl Server {
             }
         }
         if !self.stopping {
-            self.flush_frames(out);
             self.reap_sessions(now, out);
             self.flush_frames(out);
         }
@@ -133,7 +138,7 @@ impl Server {
                         return;
                     }
                 };
-                let window = self.tree.session(session).unwrap().windows[0].id;
+                let window = self.tree.session(session).unwrap().last_window;
                 self.activity += 1;
                 self.clients.insert(
                     id,
@@ -146,7 +151,9 @@ impl Server {
                         activity: self.activity,
                         focused: false,
                         full: true,
-                        previous: None,
+                        previous: BTreeMap::new(),
+                        acknowledged: BTreeMap::new(),
+                        layout: None,
                         env,
                         palette,
                         prefix_until: None,
@@ -206,12 +213,16 @@ impl Server {
             ClientMsg::FrameAck { seq } => {
                 let client = self.clients.get_mut(&id).unwrap();
                 if client.awaiting_ack == Some(seq) {
+                    client.acknowledged = client.previous.clone();
                     client.awaiting_ack = None;
                 }
             }
-            ClientMsg::Command(command) => self.command(now, id, command, out),
+            ClientMsg::Command(command) => {
+                self.touch(now, id, out);
+                self.command(now, id, command, out);
+            }
             ClientMsg::Detach => {
-                self.clients.remove(&id);
+                self.remove_client(id, out);
                 out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::Detached)));
             }
             ClientMsg::Hello { .. } | ClientMsg::Control(_) => unreachable!(),
@@ -224,42 +235,26 @@ impl Server {
         client.view.touch(now);
         client.activity = self.activity;
         let window = client.view.window;
+        let session = client.view.session;
+        self.tree
+            .sessions
+            .iter_mut()
+            .find(|candidate| candidate.id == session)
+            .unwrap()
+            .last_window = window;
         self.resize_window(window, out);
+    }
+
+    pub(super) fn remove_client(&mut self, id: ClientId, out: &mut Vec<Effect>) {
+        if let Some(client) = self.clients.remove(&id) {
+            self.resize_window(client.view.window, out);
+        }
     }
 
     fn client_pane(&self, id: ClientId) -> Option<PaneId> {
         self.clients
             .get(&id)
             .and_then(|client| self.tree.active_pane(client.view.window))
-    }
-
-    fn resize_window(&mut self, window: WindowId, out: &mut Vec<Effect>) {
-        let Some(size) = self
-            .clients
-            .values()
-            .filter(|client| client.view.window == window)
-            .max_by_key(|client| client.activity)
-            .map(|client| client.size)
-        else {
-            return;
-        };
-        let Some(id) = self.tree.active_pane(window) else {
-            return;
-        };
-        let pane = self.panes.get_mut(&id).unwrap();
-        if pane.size != size {
-            pane.size = size;
-            pane.terminal.resize(size);
-            pane.dirty = true;
-            for client in self
-                .clients
-                .values_mut()
-                .filter(|client| client.view.window == window)
-            {
-                client.full = true;
-            }
-            out.push(Effect::ResizePty(id, size));
-        }
     }
 
     fn terminal_events(&mut self, pane: PaneId, out: &mut Vec<Effect>) {
@@ -309,105 +304,6 @@ impl Server {
             title.to_owned()
         };
         out.push(Effect::Send(id, ServerMsg::Title(title)));
-    }
-
-    fn flush_frames(&mut self, out: &mut Vec<Effect>) {
-        for (id, pane) in &mut self.panes {
-            if pane.dirty {
-                pane.cached = pane.terminal.snapshot(*id, true);
-                pane.dirty = false;
-            }
-        }
-        for (id, client) in &mut self.clients {
-            if client.awaiting_ack.is_some() {
-                continue;
-            }
-            let Some(pane) = self
-                .tree
-                .active_pane(client.view.window)
-                .and_then(|pane| self.panes.get(&pane))
-            else {
-                continue;
-            };
-            let Some(current) = &pane.cached else {
-                continue;
-            };
-            if !client.full && client.previous.as_ref() == Some(current) {
-                continue;
-            }
-            let mut update = current.clone();
-            if !client.full
-                && let Some(previous) = &client.previous
-                && previous.pane == current.pane
-                && previous.size == current.size
-                && previous.flags == current.flags
-            {
-                update.full = false;
-                update
-                    .rows
-                    .retain(|(row, cells)| previous.rows[usize::from(*row)].1 != *cells);
-            }
-            client.previous = Some(current.clone());
-            client.full = false;
-            let seq = client.next_seq;
-            client.next_seq += 1;
-            client.awaiting_ack = Some(seq);
-            out.push(Effect::Send(
-                *id,
-                ServerMsg::Frame {
-                    seq,
-                    panes: vec![update],
-                },
-            ));
-        }
-    }
-
-    fn reap_sessions(&mut self, now: Millis, out: &mut Vec<Effect>) {
-        let finished: Vec<_> = self
-            .panes
-            .iter()
-            .filter(|(pane_id, pane)| {
-                pane.exited
-                    && self
-                        .clients
-                        .iter()
-                        .filter(|(id, _)| self.client_pane(**id) == Some(**pane_id))
-                        .all(|(_, client)| {
-                            client.awaiting_ack.is_none()
-                                && client.previous.as_ref() == pane.cached.as_ref()
-                        })
-            })
-            .map(|(id, _)| *id)
-            .collect();
-        for pane in finished {
-            self.panes.remove(&pane);
-            out.push(Effect::KillPty(pane));
-            let removed = self.tree.remove_pane(pane);
-            if let Some(session) = removed.session {
-                let affected: Vec<_> = self
-                    .clients
-                    .iter()
-                    .filter(|(_, client)| client.view.session == session)
-                    .map(|(id, _)| *id)
-                    .collect();
-                for id in affected {
-                    let last = self.clients[&id]
-                        .view
-                        .last_session
-                        .filter(|last| self.tree.session(*last).is_some());
-                    if let Some(last) = last {
-                        self.switch_to(now, id, last, out);
-                    } else {
-                        self.clients.remove(&id);
-                        out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::SessionEnded)));
-                    }
-                }
-            }
-        }
-        if self.next_id > 1 && self.tree.sessions.is_empty() {
-            self.stopping = true;
-            out.push(Effect::Shutdown);
-        }
     }
 }
 

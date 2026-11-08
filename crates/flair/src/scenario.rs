@@ -1,6 +1,7 @@
 use flair_core::{
     geom::GridSize,
     key::{Key, KeyAction, KeyInput, Locks, Mods, NamedKey},
+    status::STATUS_ROWS,
 };
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::PathBuf};
@@ -66,14 +67,14 @@ pub enum Step {
 impl Scenario {
     pub fn parse(text: &str) -> Result<Self, String> {
         let scenario: Self = toml::from_str(text).map_err(|e| format!("invalid scenario: {e}"))?;
-        validate_size(scenario.cols, scenario.rows)?;
+        client_size(scenario.cols, scenario.rows)?;
         if scenario.program.is_empty() {
             return Err("scenario program is empty".into());
         }
         for step in &scenario.steps {
             match step {
                 Step::Resize { cols, rows } => {
-                    validate_size(*cols, *rows)?;
+                    client_size(*cols, *rows)?;
                 }
                 Step::Key { key, .. } => {
                     parse_key(key)?;
@@ -88,11 +89,17 @@ impl Scenario {
         Ok(scenario)
     }
 }
-pub fn validate_size(cols: u16, rows: u16) -> Result<GridSize, String> {
-    if cols == 0 || rows == 0 || u32::from(cols) * u32::from(rows) > 1_000_000 {
+pub fn client_size(cols: u16, rows: u16) -> Result<GridSize, String> {
+    let full_rows = rows
+        .checked_add(STATUS_ROWS)
+        .ok_or("grid is too tall to include the status row")?;
+    if cols == 0 || rows == 0 || u32::from(cols) * u32::from(full_rows) > 1_000_000 {
         return Err("grid must be nonzero and contain at most 1000000 cells".into());
     }
-    Ok(GridSize { cols, rows })
+    Ok(GridSize {
+        cols,
+        rows: full_rows,
+    })
 }
 pub fn parse_key(key: &str) -> Result<Key, String> {
     let named = match key {

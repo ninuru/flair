@@ -1,6 +1,12 @@
 use std::path::PathBuf;
 
-use crate::ids::{PaneId, SessionId, WindowId};
+use crate::{
+    geom::{CellPoint, CellRect, GridSize},
+    ids::{PaneId, SessionId, WindowId},
+    layout::Layout,
+    proto::{PanePlacement, WindowLayout},
+    status::STATUS_ROWS,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tree {
@@ -13,6 +19,7 @@ pub struct Session {
     pub name: String,
     pub root: PathBuf,
     pub windows: Vec<Window>,
+    pub last_window: WindowId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -26,6 +33,10 @@ pub struct Window {
     pub id: WindowId,
     pub panes: Vec<PaneId>,
     pub active_pane: PaneId,
+    pub name: Option<String>,
+    pub layout: Layout,
+    pub size: GridSize,
+    pub zoomed: bool,
 }
 
 impl Tree {
@@ -41,11 +52,8 @@ impl Tree {
                 id: session,
                 name,
                 root,
-                windows: vec![Window {
-                    id: window,
-                    panes: vec![pane],
-                    active_pane: pane,
-                }],
+                last_window: window,
+                windows: vec![Window::new(window, pane, GridSize { cols: 80, rows: 25 })],
             }],
         }
     }
@@ -55,11 +63,21 @@ impl Tree {
     }
 
     pub fn active_pane(&self, window: WindowId) -> Option<PaneId> {
+        self.window(window).map(|window| window.active_pane)
+    }
+
+    pub fn window(&self, id: WindowId) -> Option<&Window> {
         self.sessions
             .iter()
             .flat_map(|session| &session.windows)
-            .find(|candidate| candidate.id == window)
-            .map(|found| found.active_pane)
+            .find(|window| window.id == id)
+    }
+
+    pub fn window_mut(&mut self, id: WindowId) -> Option<&mut Window> {
+        self.sessions
+            .iter_mut()
+            .flat_map(|session| &mut session.windows)
+            .find(|window| window.id == id)
     }
 
     pub fn remove_pane(&mut self, pane: PaneId) -> Removed {
@@ -73,8 +91,18 @@ impl Tree {
                 continue;
             };
             if window.panes.is_empty() {
-                removed.window = Some(window.id);
+                let id = window.id;
+                removed.window = Some(id);
+                let index = session.window_number(id).unwrap() - 1;
                 session.windows.retain(|window| !window.panes.is_empty());
+                if removed.window == Some(session.last_window)
+                    && let Some(next) = session
+                        .windows
+                        .get(index)
+                        .or_else(|| session.windows.last())
+                {
+                    session.last_window = next.id;
+                }
             }
             if session.windows.is_empty() {
                 removed.session = Some(session.id);
@@ -86,12 +114,73 @@ impl Tree {
     }
 }
 
+impl Session {
+    pub fn window_number(&self, id: WindowId) -> Option<usize> {
+        self.windows
+            .iter()
+            .position(|window| window.id == id)
+            .map(|index| index + 1)
+    }
+}
+
 impl Window {
+    pub fn new(id: WindowId, pane: PaneId, size: GridSize) -> Window {
+        Window {
+            id,
+            panes: vec![pane],
+            active_pane: pane,
+            name: None,
+            layout: Layout::Leaf(pane),
+            size,
+            zoomed: false,
+        }
+    }
+
+    pub fn area(&self) -> CellRect {
+        CellRect {
+            origin: CellPoint {
+                col: 0,
+                row: STATUS_ROWS,
+            },
+            size: GridSize {
+                cols: self.size.cols,
+                rows: self.size.rows.saturating_sub(STATUS_ROWS),
+            },
+        }
+    }
+
+    pub fn geometry(&self) -> WindowLayout {
+        let area = self.area();
+        let geometry = self.layout.geometry(area);
+        let (panes, separators) = if self.zoomed {
+            (
+                vec![PanePlacement {
+                    pane: self.active_pane,
+                    rect: area,
+                }],
+                vec![],
+            )
+        } else {
+            (geometry.panes, geometry.separators)
+        };
+        WindowLayout {
+            window: self.id,
+            area,
+            panes,
+            separators,
+            active: self.active_pane,
+            zoomed: self.zoomed,
+        }
+    }
+
     fn remove_pane(&mut self, pane: PaneId) -> bool {
         let Some(index) = self.panes.iter().position(|candidate| *candidate == pane) else {
             return false;
         };
         self.panes.remove(index);
+        if let Some(layout) = self.layout.clone().remove(pane) {
+            self.layout = layout;
+        }
         if self.active_pane == pane
             && let Some(next) = self.panes.get(index).or(self.panes.last())
         {

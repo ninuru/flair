@@ -116,6 +116,15 @@ impl Pty {
     pub fn pid(&self) -> u32 {
         self.pid
     }
+    pub fn cwd(&self) -> io::Result<PathBuf> {
+        let pgid = unsafe { libc::tcgetpgrp(self.file()?.as_raw_fd()) };
+        if pgid > 0 {
+            std::fs::read_link(format!("/proc/{pgid}/cwd"))
+                .or_else(|_| std::fs::read_link(format!("/proc/{}/cwd", self.pid)))
+        } else {
+            std::fs::read_link(format!("/proc/{}/cwd", self.pid))
+        }
+    }
     pub fn try_wait(&mut self) -> io::Result<Option<i32>> {
         if self.status.is_none() && self.inner.is_some() {
             let mut info = std::mem::MaybeUninit::<libc::siginfo_t>::zeroed();

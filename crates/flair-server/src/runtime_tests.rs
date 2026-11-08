@@ -168,3 +168,6 @@ fn spawn_failure_is_reported_to_the_client() {
     }
     handle.join().unwrap();
 }
+
+#[path = "runtime_split_tests.rs"]
+mod splits;

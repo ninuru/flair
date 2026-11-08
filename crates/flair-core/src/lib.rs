@@ -5,6 +5,7 @@ pub mod geom;
 pub mod ids;
 pub mod key;
 pub mod keys;
+pub mod layout;
 pub mod link;
 pub mod prefix;
 pub mod proto;

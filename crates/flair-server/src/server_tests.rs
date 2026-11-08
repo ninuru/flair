@@ -115,22 +115,21 @@ fn resize_preserves_credit_then_sends_full_frame() {
     let (mut server, initial) = setup();
     let mut out = Vec::new();
     let size = GridSize { cols: 30, rows: 6 };
+    let pane_size = GridSize { cols: 30, rows: 5 };
     server.handle(
         Millis(2),
         Event::Client(ClientId(1), ClientMsg::Resize(size)),
         &mut out,
     );
-    assert!(
-        out.iter().any(
-            |effect| matches!(effect, Effect::ResizePty(PaneId(1), actual) if actual == &size)
-        )
-    );
+    assert!(out.iter().any(
+        |effect| matches!(effect, Effect::ResizePty(PaneId(1), actual) if actual == &pane_size)
+    ));
     assert!(
         !out.iter()
             .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::Frame { .. })))
     );
     let out = ack(&mut server, &initial);
-    assert!(out.iter().any(|effect| matches!(effect, Effect::Send(_, ServerMsg::Frame { panes, .. }) if panes[0].full && panes[0].size == size)));
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Send(_, ServerMsg::Frame { panes, .. }) if panes[0].full && panes[0].size == pane_size)));
 }
 
 #[test]
@@ -271,7 +270,7 @@ fn wheel_scrolls_history_and_typing_returns_to_bottom() {
         Event::Client(
             ClientId(1),
             ClientMsg::Input(InputEvent::Mouse(flair_core::key::MouseInput {
-                point: CellPoint { col: 0, row: 0 },
+                point: CellPoint { col: 0, row: 1 },
                 button: MouseButton::WheelUp,
                 action: MouseAction::Press,
                 mods: Mods::default(),
@@ -615,7 +614,7 @@ fn mouse_selection_sends_primary_and_clipboard_and_typing_clears_overlay() {
     out.clear();
     let mouse = |col, action| {
         ClientMsg::Input(InputEvent::Mouse(flair_core::key::MouseInput {
-            point: CellPoint { col, row: 0 },
+            point: CellPoint { col, row: 1 },
             button: MouseButton::Left,
             action,
             mods: Mods::default(),
@@ -650,3 +649,9 @@ fn mouse_selection_sends_primary_and_clipboard_and_typing_clears_overlay() {
     );
     assert!(server.panes[&PaneId(1)].terminal.selection_text().is_none());
 }
+
+#[path = "server_windows_tests.rs"]
+mod windows;
+
+#[path = "server_split_tests.rs"]
+mod splits;
