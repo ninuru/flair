@@ -655,3 +655,6 @@ mod windows;
 
 #[path = "server_split_tests.rs"]
 mod splits;
+
+#[path = "server_mouse_tests.rs"]
+mod mouse;

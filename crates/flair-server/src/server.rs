@@ -18,6 +18,8 @@ mod frames;
 mod input;
 #[path = "server_lifecycle.rs"]
 mod lifecycle;
+#[path = "server_mouse.rs"]
+mod mouse;
 #[path = "server_sessions.rs"]
 mod sessions;
 #[path = "server_windows.rs"]
@@ -159,6 +161,7 @@ impl Server {
                         prefix_until: None,
                         last_click: None,
                         selecting: false,
+                        mouse: None,
                     },
                 );
                 out.push(Effect::Send(id, ServerMsg::Welcome { client: id }));
@@ -200,6 +203,9 @@ impl Server {
                 self.input(now, id, input, out);
             }
             ClientMsg::Focus(focused) => {
+                if !focused {
+                    self.cancel_mouse(id, out);
+                }
                 self.clients.get_mut(&id).unwrap().focused = focused;
                 if focused {
                     self.touch(now, id, out);
@@ -246,6 +252,9 @@ impl Server {
     }
 
     pub(super) fn remove_client(&mut self, id: ClientId, out: &mut Vec<Effect>) {
+        if self.clients.contains_key(&id) {
+            self.cancel_mouse(id, out);
+        }
         if let Some(client) = self.clients.remove(&id) {
             self.resize_window(client.view.window, out);
         }

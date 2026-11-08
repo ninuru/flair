@@ -1,6 +1,7 @@
 use flair_core::{
     geom::{CellPoint, GridSize},
-    ids::PaneId,
+    ids::{PaneId, WindowId},
+    key::MouseInput,
     proto::{ClientKind, PaneUpdate, WindowLayout},
     theme::Theme,
     time::Millis,
@@ -26,4 +27,12 @@ pub(crate) struct ClientState {
     pub prefix_until: Option<Millis>,
     pub last_click: Option<(Millis, CellPoint, u8)>,
     pub selecting: bool,
+    pub mouse: Option<MouseCapture>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum MouseCapture {
+    Separator { window: WindowId, path: Vec<bool> },
+    Selection(PaneId),
+    Reporting { pane: PaneId, input: MouseInput },
 }

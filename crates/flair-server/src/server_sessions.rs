@@ -132,6 +132,7 @@ impl Server {
         out: &mut Vec<Effect>,
     ) {
         let window = self.tree.session(session).unwrap().last_window;
+        self.cancel_mouse(id, out);
         let client = self.clients.get_mut(&id).unwrap();
         let previous_window = client.view.window;
         client.view.switch_session(session, window);

@@ -1,12 +1,9 @@
 use super::*;
 use flair_core::{
     command::Command,
-    key::{InputEvent, Key, KeyInput, MouseAction, MouseButton, MouseInput},
+    key::{InputEvent, Key, KeyInput},
 };
-use flair_term::{
-    encode::{encode_key, encode_mouse, encode_paste, encode_text},
-    terminal::MouseMode,
-};
+use flair_term::encode::{encode_key, encode_paste, encode_text};
 
 impl Server {
     pub(super) fn command(
@@ -242,104 +239,6 @@ impl Server {
             return true;
         }
         false
-    }
-
-    fn mouse_input(
-        &mut self,
-        now: Millis,
-        id: ClientId,
-        mut mouse: MouseInput,
-        out: &mut Vec<Effect>,
-    ) {
-        let Some(pane_id) = self.client_pane(id) else {
-            return;
-        };
-        let layout = self
-            .tree
-            .window(self.clients[&id].view.window)
-            .unwrap()
-            .geometry();
-        let Some(placement) = layout
-            .panes
-            .iter()
-            .find(|placement| placement.pane == pane_id)
-        else {
-            return;
-        };
-        if !placement.rect.contains(mouse.point) && !self.clients[&id].selecting {
-            return;
-        }
-        mouse.point.col = mouse
-            .point
-            .col
-            .saturating_sub(placement.rect.origin.col)
-            .min(placement.rect.size.cols.saturating_sub(1));
-        mouse.point.row = mouse
-            .point
-            .row
-            .saturating_sub(placement.rect.origin.row)
-            .min(placement.rect.size.rows.saturating_sub(1));
-        let modes = self.panes[&pane_id].terminal.modes();
-        if modes.mouse != MouseMode::Off && !mouse.mods.shift {
-            if let Some(bytes) = encode_mouse(&mouse, &modes) {
-                out.push(Effect::WritePty(pane_id, bytes));
-            }
-            return;
-        }
-        match (mouse.button, mouse.action) {
-            (MouseButton::Left, MouseAction::Press) => {
-                let client = self.clients.get_mut(&id).unwrap();
-                let clicks = client
-                    .last_click
-                    .filter(|(last, point, _)| {
-                        now.saturating_sub(*last).0 <= 400 && *point == mouse.point
-                    })
-                    .map_or(1, |(_, _, clicks)| clicks % 3 + 1);
-                client.last_click = Some((now, mouse.point, clicks));
-                client.selecting = true;
-                let pane = self.panes.get_mut(&pane_id).unwrap();
-                pane.terminal.select_start(mouse.point, clicks);
-                pane.dirty = true;
-            }
-            (MouseButton::Left | MouseButton::NoButton, MouseAction::Motion) => {
-                if self.clients[&id].selecting {
-                    let pane = self.panes.get_mut(&pane_id).unwrap();
-                    pane.terminal.select_update(mouse.point);
-                    pane.dirty = true;
-                }
-            }
-            (MouseButton::Left, MouseAction::Release) => {
-                if self.clients[&id].selecting {
-                    self.clients.get_mut(&id).unwrap().selecting = false;
-                    let pane = self.panes.get_mut(&pane_id).unwrap();
-                    pane.terminal.select_update(mouse.point);
-                    pane.dirty = true;
-                    self.copy_selection(id, true, out);
-                }
-            }
-            (MouseButton::WheelUp | MouseButton::WheelDown, MouseAction::Press) => {
-                let pane = self.panes.get_mut(&pane_id).unwrap();
-                pane.terminal
-                    .scroll(if mouse.button == MouseButton::WheelUp {
-                        3
-                    } else {
-                        -3
-                    });
-                pane.dirty = true;
-            }
-            (
-                MouseButton::Middle
-                | MouseButton::Right
-                | MouseButton::WheelLeft
-                | MouseButton::WheelRight,
-                _,
-            )
-            | (
-                MouseButton::WheelUp | MouseButton::WheelDown,
-                MouseAction::Release | MouseAction::Motion,
-            )
-            | (MouseButton::NoButton, MouseAction::Press | MouseAction::Release) => {}
-        }
     }
 
     fn copy_selection(&self, id: ClientId, primary: bool, out: &mut Vec<Effect>) {
