@@ -8,6 +8,8 @@ use flair_core::{
 
 use crate::cellgrid::{CellGrid, DrawCell};
 
+const NAME_LIMIT: usize = 255;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Prompt {
     Choose {
@@ -45,7 +47,7 @@ impl Prompt {
     pub fn insert(&mut self, input: &str) {
         match self {
             Prompt::Choose { .. } => {}
-            Prompt::Rename { text } => text.extend(input.chars().filter(|c| !c.is_control())),
+            Prompt::Rename { text } => push_name(text, input),
         }
     }
 
@@ -90,7 +92,7 @@ impl Prompt {
                 }
                 Key::Char(_) if plain => {
                     if let Some(input) = &key.text {
-                        text.extend(input.chars().filter(|c| !c.is_control()));
+                        push_name(text, input);
                     }
                     Outcome::Pending
                 }
@@ -131,6 +133,15 @@ impl Prompt {
                 );
             }
         }
+    }
+}
+
+fn push_name(text: &mut String, input: &str) {
+    for c in input.chars().filter(|c| !c.is_control()) {
+        if text.len() + c.len_utf8() > NAME_LIMIT {
+            return;
+        }
+        text.push(c);
     }
 }
 

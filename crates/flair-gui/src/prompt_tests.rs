@@ -121,3 +121,15 @@ fn rename_draws_on_the_status_row() {
     assert_eq!(cells.to_lines()[0], "(rename-window) nvim");
     assert_eq!(cells.to_lines()[1], "..............................");
 }
+
+#[test]
+fn rename_stops_at_the_servers_name_limit() {
+    let mut prompt = Prompt::rename(String::new());
+    prompt.insert(&"é".repeat(200));
+    let Outcome::Run(Command::RenameWindow(Some(name))) =
+        prompt.key(&key(Key::Named(NamedKey::Enter), None))
+    else {
+        panic!("rename did not submit");
+    };
+    assert_eq!(name.len(), 254);
+}

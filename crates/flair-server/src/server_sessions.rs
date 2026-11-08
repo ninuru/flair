@@ -137,7 +137,7 @@ impl Server {
         let previous_window = client.view.window;
         client.view.switch_session(session, window);
         client.full = true;
-        client.prefix_until = None;
+        client.prefix.reset();
         client.selecting = false;
         client.last_click = None;
         self.resize_window(previous_window, out);

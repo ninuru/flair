@@ -73,6 +73,7 @@ struct App {
     error: Option<GuiError>,
     picker: Option<Picker>,
     prompt: Option<Prompt>,
+    held: bool,
     input: InputState,
     layout: Option<WindowLayout>,
     status: StatusLine,
@@ -111,41 +112,48 @@ impl App {
                 .clamp(1.0, u16::MAX as f32) as u16,
         }
     }
-    fn mouse(&self, button: MouseButton, action: MouseAction) {
-        let Some(surface) = &self.surface else {
-            return;
-        };
-        let point = mouse::to_cell(
+    fn cell(&self) -> Option<CellPoint> {
+        let surface = self.surface.as_ref()?;
+        Some(mouse::to_cell(
             (self.pointer.x, self.pointer.y),
             &surface.fonts.metrics(),
             self.padding(surface.window.scale_factor()),
             self.size(),
-        );
-        if point.row == 0 {
-            if button == MouseButton::Left
-                && action == MouseAction::Press
-                && let Some(window) =
+        ))
+    }
+    fn mouse(&mut self, button: MouseButton, action: MouseAction) {
+        let Some(point) = self.cell() else {
+            return;
+        };
+        let route = route_mouse(point, button, action, self.held);
+        self.held = held_after(self.held, button, action, route);
+        match route {
+            MouseRoute::Status => {
+                if let Some(window) =
                     compose_status(&self.status, self.size().cols, &self.config.theme())
                         .hit_test(point)
-            {
-                self.send(ClientMsg::Command(Command::SelectWindow(WindowRef::Id(
-                    window,
-                ))));
+                {
+                    self.send(ClientMsg::Command(Command::SelectWindow(WindowRef::Id(
+                        window,
+                    ))));
+                }
             }
-            return;
+            MouseRoute::Drop => {}
+            MouseRoute::Server => {
+                let mods = flair_core::key::Mods {
+                    ctrl: self.mods.control_key(),
+                    shift: self.mods.shift_key(),
+                    alt: self.mods.alt_key(),
+                    super_: self.mods.super_key(),
+                };
+                self.send(ClientMsg::Input(InputEvent::Mouse(MouseInput {
+                    point,
+                    button,
+                    action,
+                    mods,
+                })));
+            }
         }
-        let mods = flair_core::key::Mods {
-            ctrl: self.mods.control_key(),
-            shift: self.mods.shift_key(),
-            alt: self.mods.alt_key(),
-            super_: self.mods.super_key(),
-        };
-        self.send(ClientMsg::Input(InputEvent::Mouse(MouseInput {
-            point,
-            button,
-            action,
-            mods,
-        })));
     }
     fn request_redraw(&self) {
         if let Some(surface) = &self.surface {
@@ -507,29 +515,26 @@ impl ApplicationHandler<UserEvent> for App {
                     return;
                 }
                 if button == winit::event::MouseButton::Middle
+                    && let Some(point) = self.cell()
+                    && route_mouse(point, MouseButton::Middle, MouseAction::Press, self.held)
+                        == MouseRoute::Server
                     && (self.mods.shift_key()
                         || self
-                            .surface
-                            .as_ref()
-                            .map(|surface| {
-                                mouse::to_cell(
-                                    (self.pointer.x, self.pointer.y),
-                                    &surface.fonts.metrics(),
-                                    self.padding(surface.window.scale_factor()),
-                                    self.size(),
-                                )
-                            })
-                            .and_then(|point| self.pane_at(point))
+                            .pane_at(point)
                             .and_then(|pane| self.mirror.pane(pane))
                             .is_some_and(|pane| !pane.flags.mouse_reporting))
                 {
-                    if state == ElementState::Pressed
-                        && let Some(text) = self
+                    if state == ElementState::Pressed {
+                        if let Some(text) = self
                             .surface
                             .as_ref()
                             .and_then(|s| s.clipboard.load_primary())
-                    {
-                        self.send(ClientMsg::Input(InputEvent::Paste(text)));
+                        {
+                            self.mouse(MouseButton::Middle, MouseAction::Press);
+                            self.send(ClientMsg::Input(InputEvent::Paste(text)));
+                        }
+                    } else {
+                        self.mouse(MouseButton::Middle, MouseAction::Release);
                     }
                     return;
                 }
@@ -573,6 +578,42 @@ impl ApplicationHandler<UserEvent> for App {
             }
             _ => {}
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MouseRoute {
+    Status,
+    Server,
+    Drop,
+}
+
+fn route_mouse(
+    point: CellPoint,
+    button: MouseButton,
+    action: MouseAction,
+    held: bool,
+) -> MouseRoute {
+    if held || point.row > 0 {
+        MouseRoute::Server
+    } else if button == MouseButton::Left && action == MouseAction::Press {
+        MouseRoute::Status
+    } else {
+        MouseRoute::Drop
+    }
+}
+
+fn held_after(held: bool, button: MouseButton, action: MouseAction, route: MouseRoute) -> bool {
+    match action {
+        MouseAction::Release => false,
+        MouseAction::Press => {
+            held || (route == MouseRoute::Server
+                && matches!(
+                    button,
+                    MouseButton::Left | MouseButton::Middle | MouseButton::Right
+                ))
+        }
+        MouseAction::Motion => held,
     }
 }
 
@@ -625,6 +666,7 @@ pub fn run_target(
         error: None,
         picker: None,
         prompt: None,
+        held: false,
         input: InputState::default(),
         layout: None,
         status: StatusLine::default(),
@@ -642,3 +684,7 @@ pub fn run_target(
         None => Ok(()),
     }
 }
+
+#[cfg(test)]
+#[path = "app_tests.rs"]
+mod tests;

@@ -460,6 +460,11 @@ fn run(
                     }
                 }
                 Effect::SetTimer(id, when) => timers.push((id, when)),
+                Effect::ReadConfig(path) => {
+                    let result = std::fs::read_to_string(&path)
+                        .map_err(|error| format!("cannot read {}: {error}", path.display()));
+                    server.handle(now, Event::ConfigRead(result), &mut pending_effects);
+                }
                 Effect::Shutdown => shutdown = true,
             }
         }

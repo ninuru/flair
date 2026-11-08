@@ -77,14 +77,16 @@ fn main() -> ExitCode {
             }
         }
         Args::Server { config: path } => {
-            let (config, error) = Config::load(&path.unwrap_or_else(Config::default_path));
+            let path = path.unwrap_or_else(Config::default_path);
+            let (config, error) = Config::load(&path);
             if let Some(error) = error {
                 log::warn!("{error}; using defaults");
             }
             finish((|| {
-                let path = flair_server::socket::socket_path()?;
-                let config = daemon::server_config(&config)?;
-                flair_server::runtime::serve(config, &path)
+                let socket = flair_server::socket::socket_path()?;
+                let mut config = daemon::server_config(&config)?;
+                config.path = path;
+                flair_server::runtime::serve(config, &socket)
             })())
         }
         Args::KillServer => finish(daemon::kill()),
@@ -154,7 +156,11 @@ fn main() -> ExitCode {
             }
             let (client, worker) = if standalone {
                 let (client, server) = channel_pair();
-                match spawn_in_process(ServerConfig::from_config(&config), server) {
+                let mut server_config = ServerConfig::from_config(&config);
+                if let Some(path) = &path {
+                    server_config.path.clone_from(path);
+                }
+                match spawn_in_process(server_config, server) {
                     Ok(worker) => (client, Some(worker)),
                     Err(error) => {
                         eprintln!("flair: {error}");
