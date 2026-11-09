@@ -1,27 +1,9 @@
 use std::iter;
 
-use flair_core::{
-    geom::{CellPoint, GridSize},
-    ids::WindowId,
-    proto::CellFlags,
-    status::StatusLine,
-    theme::{Rgb, Theme},
-};
+use flair_core::{ids::WindowId, proto::CellFlags, status::StatusLine, theme::Rgb};
 use unicode_width::UnicodeWidthChar;
 
-use crate::cellgrid::{CellGrid, DrawCell};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WindowHit {
-    pub window: WindowId,
-    pub start: u16,
-    pub end: u16,
-}
-
-pub struct StatusRow {
-    pub grid: CellGrid,
-    pub windows: Vec<WindowHit>,
-}
+use crate::cellgrid::DrawCell;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusParts {
@@ -56,18 +38,6 @@ pub enum BadgeKind {
 pub struct BadgeParts {
     pub kind: BadgeKind,
     pub text: String,
-}
-
-impl StatusRow {
-    pub fn hit_test(&self, point: CellPoint) -> Option<WindowId> {
-        if point.row != 0 {
-            return None;
-        }
-        self.windows
-            .iter()
-            .find(|hit| point.col >= hit.start && point.col < hit.end)
-            .map(|hit| hit.window)
-    }
 }
 
 pub fn status_parts(status: &StatusLine) -> StatusParts {
@@ -105,8 +75,7 @@ pub fn status_parts(status: &StatusLine) -> StatusParts {
 }
 
 pub fn status_text(parts: &StatusParts, cols: u16) -> String {
-    let (cells, _) = status_cells(parts, cols, Rgb::default());
-    cells
+    status_cells(parts, cols, Rgb::default())
         .iter()
         .filter(|cell| !cell.flags.contains(CellFlags::WIDE_SPACER))
         .flat_map(|cell| {
@@ -115,19 +84,7 @@ pub fn status_text(parts: &StatusParts, cols: u16) -> String {
         .collect()
 }
 
-pub fn compose_status(status: &StatusLine, cols: u16, theme: &Theme) -> StatusRow {
-    let (cells, windows) = status_cells(&status_parts(status), cols, theme.foreground);
-    StatusRow {
-        grid: CellGrid {
-            size: GridSize { cols, rows: 1 },
-            cells,
-            cursor: None,
-        },
-        windows,
-    }
-}
-
-fn status_cells(parts: &StatusParts, cols: u16, fg: Rgb) -> (Vec<DrawCell>, Vec<WindowHit>) {
+fn status_cells(parts: &StatusParts, cols: u16, fg: Rgb) -> Vec<DrawCell> {
     let width = usize::from(cols);
     let blank = DrawCell {
         c: ' ',
@@ -153,10 +110,10 @@ fn status_cells(parts: &StatusParts, cols: u16, fg: Rgb) -> (Vec<DrawCell>, Vec<
     let suffix = session_cells(&chip_label(&parts.chip), suffix_width, fg);
     let left_width = remaining - suffix.len();
     let mut cells = vec![blank; width];
-    let windows = draw_windows(&parts.tabs, &mut cells[..left_width], fg);
+    draw_windows(&parts.tabs, &mut cells[..left_width], fg);
     cells[remaining - suffix.len()..remaining].clone_from_slice(&suffix);
     cells[width - pending.len()..].clone_from_slice(&pending);
-    (cells, windows)
+    cells
 }
 
 fn chip_label(chip: &ChipParts) -> String {
@@ -171,7 +128,7 @@ fn chip_label(chip: &ChipParts) -> String {
     format!("{session}{hidden}{running}{finished}")
 }
 
-fn draw_windows(tabs: &[TabParts], cells: &mut [DrawCell], fg: Rgb) -> Vec<WindowHit> {
+fn draw_windows(tabs: &[TabParts], cells: &mut [DrawCell], fg: Rgb) {
     let entries: Vec<_> = tabs
         .iter()
         .map(|tab| {
@@ -195,7 +152,6 @@ fn draw_windows(tabs: &[TabParts], cells: &mut [DrawCell], fg: Rgb) -> Vec<Windo
         used -= entries[first].len();
         first += 1;
     }
-    let mut windows = Vec::new();
     let mut col = 0;
     for (tab, entry) in tabs.iter().zip(entries).skip(first) {
         let mut count = entry.len().min(cells.len() - col);
@@ -206,17 +162,11 @@ fn draw_windows(tabs: &[TabParts], cells: &mut [DrawCell], fg: Rgb) -> Vec<Windo
             break;
         }
         cells[col..col + count].clone_from_slice(&entry[..count]);
-        windows.push(WindowHit {
-            window: tab.window,
-            start: col as u16,
-            end: (col + count) as u16,
-        });
         col += count;
         if col == cells.len() {
             break;
         }
     }
-    windows
 }
 
 fn session_cells(session: &str, width: usize, fg: Rgb) -> Vec<DrawCell> {

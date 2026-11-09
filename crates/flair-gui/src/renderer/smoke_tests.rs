@@ -81,7 +81,12 @@ fn headless_draws_background_glyphs_and_cursor() {
     let mut renderer = Renderer::new(gl, metrics).unwrap();
     renderer.resize((800, 480));
     renderer
-        .draw(&grid, &mut fonts, (16.0, 8.0), theme.background)
+        .draw_frame(
+            &grid,
+            &Chrome::cells_only((16.0, 8.0), (800, 480)),
+            &mut fonts,
+            theme.background,
+        )
         .unwrap();
     let pixels = renderer.read_pixels();
     let pixel =
@@ -131,6 +136,7 @@ fn combining_marks_stay_in_their_base_cell() {
     let metrics = fonts.metrics();
     let mut renderer = Renderer::new(gl, metrics).unwrap();
     renderer.resize((200, 100));
+    let chrome = Chrome::cells_only((16.0, 8.0), (200, 100));
     for (col, wide) in [(0, false), (1, false), (1, true)] {
         let mut grid = CellGrid {
             size: GridSize { cols: 4, rows: 1 },
@@ -152,12 +158,12 @@ fn combining_marks_stay_in_their_base_cell() {
             grid.cells[col + 1].flags = CellFlags::WIDE_SPACER;
         }
         renderer
-            .draw(&grid, &mut fonts, (16.0, 8.0), theme.background)
+            .draw_frame(&grid, &chrome, &mut fonts, theme.background)
             .unwrap();
         let before = renderer.read_pixels();
         grid.cells[col].extra = Some("\u{301}".into());
         renderer
-            .draw(&grid, &mut fonts, (16.0, 8.0), theme.background)
+            .draw_frame(&grid, &chrome, &mut fonts, theme.background)
             .unwrap();
         let after = renderer.read_pixels();
         let left = 16 + col * metrics.width as usize;
@@ -405,45 +411,6 @@ fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
     let lifted_y =
         (35.0 + f32::from(lifted.origin.row) * metrics.height + metrics.height / 2.0) as usize;
     assert_eq!(pixel(lifted_x, lifted_y), rgb(lifted_bg));
-    drop(renderer);
-    drop(ctx);
-}
-
-#[test]
-fn cells_only_chrome_draws_like_the_old_draw() {
-    let Some((ctx, gl)) = headless_or_skip((320, 200), "cells only") else {
-        return;
-    };
-    let config = Config::default();
-    let theme = config.theme();
-    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
-    let metrics = fonts.metrics();
-    let mut grid = filled_grid(GridSize { cols: 30, rows: 12 }, theme.background);
-    for (cell, c) in grid.cells.iter_mut().zip("chrome only cells".chars()) {
-        cell.c = c;
-        cell.fg = theme.foreground;
-        cell.flags = CellFlags::UNDERLINE;
-    }
-    grid.cursor = Some(DrawCursor {
-        point: CellPoint { col: 3, row: 1 },
-        shape: CursorShape::Beam,
-        color: theme.cursor,
-    });
-    let mut renderer = Renderer::new(gl, metrics).unwrap();
-    renderer.resize((320, 200));
-    renderer
-        .draw(&grid, &mut fonts, (16.0, 8.0), theme.background)
-        .unwrap();
-    let old = renderer.read_pixels();
-    renderer
-        .draw_frame(
-            &grid,
-            &Chrome::cells_only((16.0, 8.0), (320, 200)),
-            &mut fonts,
-            theme.background,
-        )
-        .unwrap();
-    assert!(old == renderer.read_pixels(), "cells_only frame differs");
     drop(renderer);
     drop(ctx);
 }

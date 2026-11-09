@@ -136,9 +136,9 @@ fn split_frames_include_all_visible_panes_and_inactive_output() {
     let second = window.active_pane;
     let layout = window.geometry();
     assert_eq!(layout.panes.len(), 2);
-    assert_eq!(layout.panes[0].rect.origin, CellPoint { col: 0, row: 1 });
-    assert_eq!(server.panes[&PaneId(1)].size, GridSize { cols: 9, rows: 3 });
-    assert_eq!(server.panes[&second].size, GridSize { cols: 10, rows: 3 });
+    assert_eq!(layout.panes[0].rect.origin, CellPoint { col: 0, row: 0 });
+    assert_eq!(server.panes[&PaneId(1)].size, GridSize { cols: 9, rows: 4 });
+    assert_eq!(server.panes[&second].size, GridSize { cols: 10, rows: 4 });
     assert!(split.iter().any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::Frame {panes,..}) if panes.len()==2 && panes.iter().all(|pane| pane.full))));
     ack(&mut server, &split);
     let mut output = Vec::new();
@@ -163,17 +163,17 @@ fn latest_active_client_resizes_every_split_pane() {
     let mut out = Vec::new();
     server.handle(Millis(11), Event::Client(ClientId(2), second), &mut out);
     for pane in [PaneId(1), second_pane] {
-        assert_eq!(server.panes[&pane].size, GridSize { cols: 20, rows: 9 });
+        assert_eq!(server.panes[&pane].size, GridSize { cols: 20, rows: 10 });
     }
     server.handle(
         Millis(12),
         Event::Client(ClientId(1), ClientMsg::Focus(true)),
         &mut out,
     );
-    assert_eq!(server.panes[&PaneId(1)].size, GridSize { cols: 9, rows: 3 });
+    assert_eq!(server.panes[&PaneId(1)].size, GridSize { cols: 9, rows: 4 });
     assert_eq!(
         server.panes[&second_pane].size,
-        GridSize { cols: 10, rows: 3 }
+        GridSize { cols: 10, rows: 4 }
     );
 }
 
@@ -188,7 +188,7 @@ fn closing_a_split_pane_collapses_layout_and_resizes_survivor() {
     );
     assert_eq!(
         server.panes[&PaneId(1)].size,
-        GridSize { cols: 20, rows: 3 }
+        GridSize { cols: 20, rows: 4 }
     );
     assert!(
         out.iter()
@@ -209,7 +209,7 @@ fn zoom_is_shared_and_restores_split_geometry() {
     assert!(zoomed.separators.is_empty());
     assert_eq!(
         server.panes[&before.active].size,
-        GridSize { cols: 20, rows: 3 }
+        GridSize { cols: 20, rows: 4 }
     );
     run(&mut server, ClientId(1), Command::ToggleZoom);
     assert_eq!(server.tree.window(WindowId(1)).unwrap().geometry(), before);
@@ -543,7 +543,7 @@ fn prefixed(server: &mut Server, c: char, unshifted: char) -> Vec<Effect> {
         Millis(10),
         Event::Client(
             ClientId(1),
-            ClientMsg::Resize(GridSize { cols: 20, rows: 9 }),
+            ClientMsg::Resize(GridSize { cols: 20, rows: 10 }),
         ),
         &mut out,
     );

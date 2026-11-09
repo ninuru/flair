@@ -2,7 +2,6 @@ use super::*;
 use flair_core::{
     config::Config,
     proto::SessionInfo,
-    status::STATUS_ROWS,
     theme::Theme,
     tree::{Session, Window},
 };
@@ -175,10 +174,7 @@ impl Server {
                 let palette = Config::default().theme();
                 match self.resolve_target(
                     target,
-                    GridSize {
-                        cols: 80,
-                        rows: 24 + STATUS_ROWS,
-                    },
+                    GridSize { cols: 80, rows: 24 },
                     &palette,
                     &env,
                     out,
@@ -211,13 +207,7 @@ impl Server {
                         (state.size, state.palette.clone())
                     })
                     .unwrap_or_else(|| {
-                        (
-                            GridSize {
-                                cols: 80,
-                                rows: 24 + STATUS_ROWS,
-                            },
-                            Config::default().theme(),
-                        )
+                        (GridSize { cols: 80, rows: 24 }, Config::default().theme())
                     });
                 match self.resolve_target(target, size, &palette, &env, out) {
                     Ok(session) => {

@@ -1,7 +1,12 @@
 use super::*;
 use crate::{
-    Fonts,
+    CellMetrics, Fonts,
+    chrome_layout::{
+        self, ChromeInput, ChromeLayout, Modal, bar_height, grid_origin, grid_size, modal_area,
+    },
+    picker::Picker,
     renderer::{HeadlessContext, Renderer},
+    status::status_parts,
 };
 use flair_core::{
     config::Config,
@@ -9,7 +14,7 @@ use flair_core::{
     ids::WindowId,
     proto::{
         Cell, Cursor, CursorShape, PaneFlags, PanePlacement, PaneUpdate, SelectionSpan, Separator,
-        WindowLayout,
+        SessionInfo, WindowLayout,
     },
     status::{StatusLine, StatusWindow},
 };
@@ -102,7 +107,7 @@ fn selection_overlay_blends_the_theme_color_and_clears_on_next_update() {
 }
 
 #[test]
-fn frame_places_panes_below_status_and_only_shows_active_cursor() {
+fn frame_places_panes_from_row_zero_and_only_shows_active_cursor() {
     let theme = Config::default().theme();
     let make_pane = |id, text: &str| PaneUpdate {
         pane: PaneId(id),
@@ -128,7 +133,7 @@ fn frame_places_panes_below_status_and_only_shows_active_cursor() {
     let mut mirror = Mirror::default();
     mirror.apply(&[make_pane(1, "ab"), make_pane(2, "cd")]);
     let rect = |col, cols| CellRect {
-        origin: CellPoint { col, row: 1 },
+        origin: CellPoint { col, row: 0 },
         size: GridSize { cols, rows: 1 },
     };
     let layout = WindowLayout {
@@ -151,29 +156,23 @@ fn frame_places_panes_below_status_and_only_shows_active_cursor() {
         active: PaneId(2),
         zoomed: false,
     };
-    let size = GridSize { cols: 5, rows: 2 };
-    let grid = compose_frame(&mirror, &layout, &StatusLine::default(), size, &theme, true);
-    assert_eq!(grid.to_lines()[1], "ab│cd");
-    assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 4, row: 1 });
-    assert_eq!(grid.cells[0].bg, Rgb::default());
-    assert_eq!(grid.cells[5].bg, theme.background);
+    let size = GridSize { cols: 5, rows: 1 };
+    let mut grid = compose_frame(&mirror, &layout, size, &theme, true);
+    assert_eq!(grid.to_lines(), ["ab cd"]);
+    assert_eq!(grid.cells[2].bg, theme.background);
+    assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 4, row: 0 });
     assert!(
-        compose_frame(
-            &mirror,
-            &layout,
-            &StatusLine::default(),
-            size,
-            &theme,
-            false
-        )
-        .cursor
-        .is_none()
+        compose_frame(&mirror, &layout, size, &theme, false)
+            .cursor
+            .is_none()
     );
+    separator_glyphs(&mut grid, &layout);
+    assert_eq!(grid.to_lines(), ["ab│cd"]);
     assert_eq!(mirror.pane(PaneId(2)).unwrap().cursor.point.row, 0);
 }
 
 #[test]
-fn frame_clips_stale_rectangles_without_drawing_over_status() {
+fn frame_clips_stale_rectangles_and_wide_glyphs_at_the_edge() {
     let theme = Config::default().theme();
     let mut mirror = Mirror::default();
     mirror.apply(&[PaneUpdate {
@@ -202,19 +201,12 @@ fn frame_clips_stale_rectangles_without_drawing_over_status() {
         flags: PaneFlags::default(),
         selection: vec![],
     }]);
-    for origin in [
-        CellPoint { col: 0, row: 0 },
-        CellPoint { col: 1, row: 1 },
-        CellPoint {
-            col: u16::MAX,
-            row: u16::MAX,
-        },
-    ] {
+    let layout = |origin| {
         let rect = CellRect {
             origin,
             size: GridSize { cols: 2, rows: 1 },
         };
-        let layout = WindowLayout {
+        WindowLayout {
             window: WindowId(1),
             area: rect,
             panes: vec![PanePlacement {
@@ -224,93 +216,81 @@ fn frame_clips_stale_rectangles_without_drawing_over_status() {
             separators: vec![],
             active: PaneId(1),
             zoomed: false,
-        };
-        for size in [
-            GridSize { cols: 0, rows: 0 },
-            GridSize { cols: 2, rows: 1 },
-            GridSize { cols: 2, rows: 2 },
-        ] {
-            let grid = compose_frame(&mirror, &layout, &StatusLine::default(), size, &theme, true);
+        }
+    };
+    let sizes = [
+        GridSize { cols: 0, rows: 0 },
+        GridSize { cols: 2, rows: 1 },
+        GridSize { cols: 2, rows: 2 },
+    ];
+    for origin in [
+        CellPoint { col: 1, row: 1 },
+        CellPoint {
+            col: u16::MAX,
+            row: u16::MAX,
+        },
+    ] {
+        for size in sizes {
+            let grid = compose_frame(&mirror, &layout(origin), size, &theme, true);
             assert_eq!(
                 grid.cells.len(),
                 usize::from(size.cols) * usize::from(size.rows)
             );
             assert!(grid.cells.iter().all(|cell| cell.c != '界'));
-            assert!(grid.cursor.is_none_or(|cursor| cursor.point.row > 0));
+            assert!(
+                grid.cursor
+                    .is_none_or(|cursor| cursor.point.row < size.rows)
+            );
+        }
+    }
+    let top = layout(CellPoint { col: 0, row: 0 });
+    let grid = compose_frame(&mirror, &top, sizes[1], &theme, true);
+    assert_eq!(grid.to_lines(), ["界"]);
+    assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 0, row: 0 });
+    assert!(
+        compose_frame(&mirror, &top, sizes[0], &theme, true)
+            .cells
+            .is_empty()
+    );
+}
+
+struct Frame {
+    width: usize,
+    height: usize,
+    pixels: Vec<u8>,
+}
+
+impl Frame {
+    fn at(&self, x: f32, y: f32) -> [u8; 3] {
+        let (x, y) = (x as usize, y as usize);
+        let i = ((self.height - 1 - y) * self.width + x) * 4;
+        [self.pixels[i], self.pixels[i + 1], self.pixels[i + 2]]
+    }
+    fn dump(&self, var: &str) {
+        let Some(path) = std::env::var_os(var) else {
+            return;
+        };
+        let mut file = fs::File::create(path).unwrap();
+        write!(file, "P6\n{} {}\n255\n", self.width, self.height).unwrap();
+        for y in 0..self.height {
+            for x in 0..self.width {
+                file.write_all(&self.at(x as f32, y as f32)).unwrap();
+            }
         }
     }
 }
 
-#[test]
-fn gpu_draws_status_split_panes_and_active_cursor() {
-    let (ctx, gl) = match HeadlessContext::new((800, 240)) {
-        Ok(pair) => pair,
-        Err(error) => {
-            if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
-                panic!("required EGL unavailable: {error}");
-            }
-            eprintln!("skipped frame EGL smoke: {error}");
-            return;
-        }
-    };
-    let config = Config::default();
-    let theme = config.theme();
-    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
-    let metrics = fonts.metrics();
-    let mut mirror = Mirror::default();
-    for (id, cols, text) in [(1, 29, "left pane: shell"), (2, 30, "right pane: editor")] {
-        mirror.apply(&[PaneUpdate {
-            pane: PaneId(id),
-            size: GridSize { cols, rows: 5 },
-            full: true,
-            rows: vec![(
-                0,
-                text.chars()
-                    .map(|c| Cell {
-                        c,
-                        ..Cell::default()
-                    })
-                    .collect(),
-            )],
-            cursor: Cursor {
-                point: CellPoint { col: 0, row: 1 },
-                shape: CursorShape::Block,
-                visible: true,
-            },
-            flags: PaneFlags::default(),
-            selection: vec![],
-        }]);
-    }
-    let rect = |col, cols| CellRect {
-        origin: CellPoint { col, row: 1 },
-        size: GridSize { cols, rows: 5 },
-    };
-    let layout = WindowLayout {
-        window: WindowId(2),
-        area: rect(0, 60),
-        panes: vec![
-            PanePlacement {
-                pane: PaneId(1),
-                rect: rect(0, 29),
-            },
-            PanePlacement {
-                pane: PaneId(2),
-                rect: rect(30, 30),
-            },
-        ],
-        separators: vec![Separator {
-            axis: Axis::Horizontal,
-            rect: rect(29, 1),
-        }],
-        active: PaneId(2),
-        zoomed: false,
-    };
-    let status = StatusLine {
+fn rgb(color: Rgb) -> [u8; 3] {
+    [color.r, color.g, color.b]
+}
+
+fn chrome_status() -> StatusLine {
+    StatusLine {
         session: "main".into(),
-        hidden: 0,
-        running: false,
+        hidden: 2,
+        running: true,
         finished: false,
-        pending: Some("^A".into()),
+        pending: None,
         copy: false,
         windows: vec![
             StatusWindow {
@@ -328,50 +308,221 @@ fn gpu_draws_status_split_panes_and_active_cursor() {
                 last: false,
             },
         ],
+    }
+}
+
+fn split_frame(size: GridSize) -> (Mirror, WindowLayout) {
+    let left = (size.cols - 1) / 2;
+    let rect = |col, cols| CellRect {
+        origin: CellPoint { col, row: 0 },
+        size: GridSize {
+            cols,
+            rows: size.rows,
+        },
     };
-    let grid = compose_frame(
-        &mirror,
-        &layout,
-        &status,
-        GridSize { cols: 60, rows: 6 },
-        &theme,
-        true,
-    );
-    let mut renderer = Renderer::new(gl, metrics).unwrap();
-    renderer.resize((800, 240));
-    renderer
-        .draw(&grid, &mut fonts, (16.0, 8.0), theme.background)
-        .unwrap();
-    let pixels = renderer.read_pixels();
-    let pixel =
-        |x: usize, y: usize| &pixels[((239 - y) * 800 + x) * 4..((239 - y) * 800 + x) * 4 + 3];
-    for col in [1, 31] {
-        assert!(
-            (8 + metrics.height as usize..8 + 2 * metrics.height as usize).any(|y| {
-                ((16.0 + col as f32 * metrics.width) as usize
-                    ..(16.0 + (col + 10) as f32 * metrics.width) as usize)
-                    .any(|x| pixel(x, y).iter().any(|c| *c > 30))
-            })
-        );
+    let mut mirror = Mirror::default();
+    for (id, cols, text) in [
+        (1, left, " left pane: shell"),
+        (2, size.cols - left - 1, "right pane: editor"),
+    ] {
+        mirror.apply(&[PaneUpdate {
+            pane: PaneId(id),
+            size: GridSize {
+                cols,
+                rows: size.rows,
+            },
+            full: true,
+            rows: vec![(
+                0,
+                text.chars()
+                    .enumerate()
+                    .map(|(index, c)| Cell {
+                        c,
+                        flags: if index == 0 {
+                            CellFlags::INVERSE
+                        } else {
+                            CellFlags::empty()
+                        },
+                        ..Cell::default()
+                    })
+                    .collect(),
+            )],
+            cursor: Cursor {
+                point: CellPoint { col: 0, row: 1 },
+                shape: CursorShape::Block,
+                visible: true,
+            },
+            flags: PaneFlags::default(),
+            selection: vec![],
+        }]);
     }
-    assert_eq!(pixel(16, 8), &[0, 0, 0]);
-    let cursor_x = (16.0 + 30.5 * metrics.width) as usize;
-    let cursor_y = (8.0 + 2.5 * metrics.height) as usize;
-    assert_eq!(
-        pixel(cursor_x, cursor_y),
-        &[theme.cursor.r, theme.cursor.g, theme.cursor.b]
-    );
-    if let Some(path) = std::env::var_os("FLAIR_FRAME_PPM") {
-        let mut file = fs::File::create(path).unwrap();
-        write!(file, "P6\n800 240\n255\n").unwrap();
-        for y in 0..240 {
-            for x in 0..800 {
-                file.write_all(pixel(x, y)).unwrap();
+    let layout = WindowLayout {
+        window: WindowId(2),
+        area: rect(0, size.cols),
+        panes: vec![
+            PanePlacement {
+                pane: PaneId(1),
+                rect: rect(0, left),
+            },
+            PanePlacement {
+                pane: PaneId(2),
+                rect: rect(left + 1, size.cols - left - 1),
+            },
+        ],
+        separators: vec![Separator {
+            axis: Axis::Horizontal,
+            rect: rect(left, 1),
+        }],
+        active: PaneId(2),
+        zoomed: false,
+    };
+    (mirror, layout)
+}
+
+fn draw_chrome_frame(picker: bool, name: &str) -> Option<(Frame, ChromeLayout, CellMetrics)> {
+    const W: u32 = 800;
+    const H: u32 = 300;
+    let (ctx, gl) = match HeadlessContext::new((W, H)) {
+        Ok(pair) => pair,
+        Err(error) => {
+            if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
+                panic!("required EGL unavailable: {error}");
             }
+            eprintln!("skipped {name} EGL frame: {error}");
+            return None;
         }
-    }
+    };
+    let config = Config::default();
+    let theme = config.theme();
+    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
+    let metrics = fonts.metrics();
+    let padding = (
+        f32::from(config.window.padding_x),
+        f32::from(config.window.padding_y),
+    );
+    let size = grid_size((W, H), padding, 1.0, metrics);
+    let (mirror, layout) = split_frame(size);
+    let mut grid = compose_frame(&mirror, &layout, size, &theme, true);
+    let lifted = picker.then(|| {
+        Picker::sessions(
+            ["main", "notes", "work"]
+                .into_iter()
+                .map(|name| SessionInfo {
+                    name: name.into(),
+                    root: format!("/tmp/{name}").into(),
+                    windows: 1,
+                })
+                .collect(),
+            "main",
+        )
+        .draw(&mut grid, modal_area(size, metrics, 1.0), &theme)
+    });
+    let parts = status_parts(&chrome_status());
+    let input = ChromeInput {
+        px: (W, H),
+        scale: 1.0,
+        padding,
+        metrics,
+        ui: fonts.ui_metrics(),
+        theme: &theme,
+        status: &parts,
+        prompt: None,
+        separators: &layout.separators,
+        modal: lifted.map(Modal::Centered),
+    };
+    let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
+    let mut renderer = Renderer::new(gl, metrics).unwrap();
+    renderer.resize((W, H));
+    renderer
+        .draw_frame(&grid, &chrome.chrome, &mut fonts, theme.background)
+        .unwrap();
+    let frame = Frame {
+        width: W as usize,
+        height: H as usize,
+        pixels: renderer.read_pixels(),
+    };
     drop(renderer);
     drop(ctx);
+    Some((frame, chrome, metrics))
+}
+
+#[test]
+fn gpu_frame_draws_bar_border_pane_border_and_grid_below_the_bar() {
+    let Some((frame, chrome, metrics)) = draw_chrome_frame(false, "chrome") else {
+        return;
+    };
+    frame.dump("FLAIR_FRAME_PPM");
+    let config = Config::default();
+    let theme = config.theme();
+    let surfaces = theme.surfaces();
+    let bar = bar_height(1.0);
+    assert_eq!(bar, 34.0);
+    for x in [2.0, 400.0, 797.0] {
+        assert_eq!(frame.at(x, 1.0), rgb(surfaces.surface1), "bar at {x}");
+        assert_eq!(frame.at(x, bar - 1.0), rgb(surfaces.surface1), "bar at {x}");
+        assert_eq!(frame.at(x, bar), rgb(surfaces.outline), "border at {x}");
+    }
+    let dot = chrome
+        .chrome
+        .quads
+        .iter()
+        .find(|quad| quad.rect.w == 6.0 && quad.radius == 3.0)
+        .expect("running dot");
+    assert_eq!(
+        frame.at(dot.rect.x + 3.0, dot.rect.y + 3.0),
+        rgb(theme.accent)
+    );
+    let origin = grid_origin(
+        (
+            f32::from(config.window.padding_x),
+            f32::from(config.window.padding_y),
+        ),
+        1.0,
+    );
+    assert_eq!(origin, (16.0, 35.0 + 8.0));
+    assert_eq!(chrome.chrome.origin, origin);
+    assert_eq!(frame.at(origin.0 + 1.0, origin.1), rgb(theme.foreground));
+    assert_eq!(
+        frame.at(origin.0 + 1.0, origin.1 - 1.0),
+        rgb(theme.background)
+    );
+    let size = grid_size((800, 300), (16.0, 8.0), 1.0, metrics);
+    let gap = origin.0 + f32::from((size.cols - 1) / 2) * metrics.width;
+    let line = (gap + (metrics.width - 1.0) / 2.0).round();
+    let y = origin.1 + metrics.height * 3.5;
+    assert_eq!(frame.at(line, y), rgb(surfaces.pane_border));
+    assert_eq!(frame.at(line - 1.0, y), rgb(theme.background));
+    assert_eq!(frame.at(line + 1.0, y), rgb(theme.background));
+}
+
+#[test]
+fn gpu_frame_draws_a_picker_in_a_rounded_modal_over_a_backdrop() {
+    let Some((frame, chrome, _)) = draw_chrome_frame(true, "modal") else {
+        return;
+    };
+    frame.dump("FLAIR_MODAL_PPM");
+    let surfaces = Config::default().theme().surfaces();
+    let [backdrop, modal] = chrome.chrome.modal.as_slice() else {
+        panic!("modal quads {:?}", chrome.chrome.modal);
+    };
+    assert_eq!(backdrop.color.a, 179);
+    let dimmed = frame.at(797.0, 1.0);
+    assert!(
+        dimmed.iter().all(|channel| *channel <= 5),
+        "backdrop over the bar is {dimmed:?}"
+    );
+    let rect = modal.rect;
+    assert_eq!(modal.radius, 8.0);
+    assert_ne!(frame.at(rect.x, rect.y), rgb(surfaces.surface1));
+    assert_eq!(frame.at(rect.x + 8.0, rect.y + 8.0), rgb(surfaces.surface1));
+    assert_eq!(
+        frame.at(rect.x + rect.w / 2.0, rect.y),
+        rgb(surfaces.outline)
+    );
+    assert_eq!(
+        frame.at(rect.x, rect.y + rect.h / 2.0),
+        rgb(surfaces.outline)
+    );
 }
 
 #[test]
@@ -413,38 +564,39 @@ fn stacked_frame_moves_selection_with_cells_and_draws_horizontal_separator() {
     let layout = WindowLayout {
         window: WindowId(1),
         area: CellRect {
-            origin: CellPoint { col: 0, row: 1 },
+            origin: CellPoint { col: 0, row: 0 },
             size: GridSize { cols: 3, rows: 3 },
         },
         panes: vec![
             PanePlacement {
                 pane: PaneId(1),
-                rect: rect(1),
+                rect: rect(0),
             },
             PanePlacement {
                 pane: PaneId(2),
-                rect: rect(3),
+                rect: rect(2),
             },
         ],
         separators: vec![Separator {
             axis: Axis::Vertical,
-            rect: rect(2),
+            rect: rect(1),
         }],
         active: PaneId(1),
         zoomed: false,
     };
-    let grid = compose_frame(
+    let mut grid = compose_frame(
         &mirror,
         &layout,
-        &StatusLine::default(),
-        GridSize { cols: 3, rows: 4 },
+        GridSize { cols: 3, rows: 3 },
         &theme,
         true,
     );
-    assert_eq!(&grid.to_lines()[1..], &["ab", "───", "cd"]);
-    assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 0, row: 1 });
+    assert_eq!(grid.to_lines(), ["ab", "", "cd"]);
+    separator_glyphs(&mut grid, &layout);
+    assert_eq!(grid.to_lines(), ["ab", "───", "cd"]);
+    assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 0, row: 0 });
     assert_eq!(
-        grid.at(CellPoint { col: 0, row: 3 }).bg,
+        grid.at(CellPoint { col: 0, row: 2 }).bg,
         Rgb {
             r: theme.selection.r,
             g: theme.selection.g,

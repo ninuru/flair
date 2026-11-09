@@ -5,15 +5,15 @@ use winit::event::MouseScrollDelta;
 pub fn to_cell(
     pos: (f64, f64),
     metrics: &CellMetrics,
-    padding: (f32, f32),
+    origin: (f32, f32),
     size: GridSize,
 ) -> CellPoint {
     CellPoint {
-        col: (((pos.0 - f64::from(padding.0)) / f64::from(metrics.width))
+        col: (((pos.0 - f64::from(origin.0)) / f64::from(metrics.width))
             .floor()
             .max(0.0) as u16)
             .min(size.cols.saturating_sub(1)),
-        row: (((pos.1 - f64::from(padding.1)) / f64::from(metrics.height))
+        row: (((pos.1 - f64::from(origin.1)) / f64::from(metrics.height))
             .floor()
             .max(0.0) as u16)
             .min(size.rows.saturating_sub(1)),

@@ -10,8 +10,9 @@ use flair_core::{
     status::StatusLine,
 };
 use flair_gui::{
-    compose::{compose, compose_frame},
+    compose::{compose, compose_frame, separator_glyphs},
     mirror::Mirror,
+    status::{status_parts, status_text},
 };
 use flair_server::{ServerConfig, runtime::spawn_in_process};
 use serde::Serialize;
@@ -121,14 +122,12 @@ impl Capture {
 
     fn frame(&self) -> String {
         match &self.layout {
-            Some(layout) => lines(&compose_frame(
-                &self.mirror,
-                layout,
-                &self.status,
-                self.size,
-                &self.theme,
-                true,
-            )),
+            Some(layout) => {
+                let mut grid = compose_frame(&self.mirror, layout, self.size, &self.theme, true);
+                separator_glyphs(&mut grid, layout);
+                let status = status_text(&status_parts(&self.status), self.size.cols);
+                format!("{status}\n{}", lines(&grid))
+            }
             None => self.screen(),
         }
     }

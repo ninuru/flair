@@ -139,16 +139,6 @@ impl Renderer {
         self.metrics = metrics;
         self.reset_atlas = true;
     }
-    pub fn draw(
-        &mut self,
-        grid: &CellGrid,
-        fonts: &mut Fonts,
-        padding: (f32, f32),
-        background: Rgb,
-    ) -> Result<(), RenderError> {
-        let chrome = Chrome::cells_only(padding, self.px);
-        self.draw_frame(grid, &chrome, fonts, background)
-    }
     pub fn draw_frame(
         &mut self,
         grid: &CellGrid,

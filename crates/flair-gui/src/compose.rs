@@ -1,13 +1,11 @@
 use crate::{
     cellgrid::{CellGrid, DrawCell, DrawCursor},
     mirror::Mirror,
-    status::compose_status,
 };
 use flair_core::{
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::PaneId,
     proto::{CellFlags, WindowLayout},
-    status::StatusLine,
     theme::{Rgb, Theme},
 };
 
@@ -86,7 +84,6 @@ pub fn compose(mirror: &Mirror, pane: PaneId, theme: &Theme, cursor_visible: boo
 pub fn compose_frame(
     mirror: &Mirror,
     layout: &WindowLayout,
-    status: &StatusLine,
     size: GridSize,
     theme: &Theme,
     cursor_visible: bool,
@@ -117,6 +114,11 @@ pub fn compose_frame(
         );
         place_pane(&mut grid, &pane, placement.rect);
     }
+    grid
+}
+
+pub fn separator_glyphs(grid: &mut CellGrid, layout: &WindowLayout) {
+    let size = grid.size;
     for separator in &layout.separators {
         let c = match separator.axis {
             Axis::Horizontal => '│',
@@ -124,16 +126,12 @@ pub fn compose_frame(
         };
         let right = usize::from(separator.rect.origin.col) + usize::from(separator.rect.size.cols);
         let bottom = usize::from(separator.rect.origin.row) + usize::from(separator.rect.size.rows);
-        for row in usize::from(separator.rect.origin.row).max(1)..bottom.min(usize::from(size.rows))
-        {
+        for row in usize::from(separator.rect.origin.row)..bottom.min(usize::from(size.rows)) {
             for col in usize::from(separator.rect.origin.col)..right.min(usize::from(size.cols)) {
                 grid.cells[row * usize::from(size.cols) + col].c = c;
             }
         }
     }
-    grid.cells[..usize::from(size.cols)]
-        .clone_from_slice(&compose_status(status, size.cols, theme).grid.cells);
-    grid
 }
 
 fn place_pane(grid: &mut CellGrid, pane: &CellGrid, rect: CellRect) {
@@ -144,9 +142,6 @@ fn place_pane(grid: &mut CellGrid, pane: &CellGrid, rect: CellRect) {
     let height = usize::from(pane.size.rows.min(rect.size.rows))
         .min(usize::from(grid.size.rows).saturating_sub(top));
     for row in 0..height {
-        if top + row == 0 {
-            continue;
-        }
         let source = row * usize::from(pane.size.cols);
         let count = width
             - usize::from(
@@ -164,7 +159,6 @@ fn place_pane(grid: &mut CellGrid, pane: &CellGrid, rect: CellRect) {
     if let Some(cursor) = pane.cursor
         && usize::from(cursor.point.col) < width
         && usize::from(cursor.point.row) < height
-        && top + usize::from(cursor.point.row) > 0
     {
         grid.cursor = Some(DrawCursor {
             point: CellPoint {

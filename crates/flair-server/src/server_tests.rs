@@ -115,7 +115,7 @@ fn resize_preserves_credit_then_sends_full_frame() {
     let (mut server, initial) = setup();
     let mut out = Vec::new();
     let size = GridSize { cols: 30, rows: 6 };
-    let pane_size = GridSize { cols: 30, rows: 5 };
+    let pane_size = size;
     server.handle(
         Millis(2),
         Event::Client(ClientId(1), ClientMsg::Resize(size)),
@@ -717,7 +717,7 @@ fn mouse_selection_sends_primary_and_clipboard_and_typing_clears_overlay() {
     out.clear();
     let mouse = |col, action| {
         ClientMsg::Input(InputEvent::Mouse(flair_core::key::MouseInput {
-            point: CellPoint { col, row: 1 },
+            point: CellPoint { col, row: 0 },
             button: MouseButton::Left,
             action,
             mods: Mods::default(),
