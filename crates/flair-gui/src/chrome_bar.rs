@@ -102,7 +102,7 @@ fn note(
     let scale = input.scale;
     let (x, end) = room;
     let surfaces = input.theme.surfaces();
-    let color = match notice.error {
+    let dot_color = match notice.error {
         true => surfaces.attention,
         false => surfaces.muted,
     };
@@ -113,13 +113,15 @@ fn note(
         return;
     }
     let dot_rect = bar_item(x, dot, DOT, scale);
-    scene.quads.push(rounded(dot_rect, color, DOT / 2.0, scale));
+    scene
+        .quads
+        .push(rounded(dot_rect, dot_color, DOT / 2.0, scale));
     let rect = bar_item(x, end - x, ITEM_HEIGHT, scale);
     scene.text.push(ui_text(
         text_x,
         baseline(rect, input.ui),
         text,
-        color,
+        surfaces.muted,
         false,
     ));
 }
@@ -159,14 +161,15 @@ fn session(
         .quads
         .push(rounded(mark_rect, mark.hue, MONOGRAM_RADIUS, scale));
     let small = input.ui.small;
-    let letters_width = measure(&mark.letters, true) * small;
+    let letters = fit_letters(&mark.letters, mono, small, measure);
+    let letters_width = measure(&letters, true) * small;
     scene.text.push(TextRun {
         face: TextFace::Small,
         ..ui_text(
             (mark_x + (mono - letters_width) / 2.0).round(),
             (mark_rect.y + (mark_rect.h - input.ui.height * small) / 2.0 + input.ui.ascent * small)
                 .round(),
-            mark.letters,
+            letters,
             mark.text,
             true,
         )
@@ -185,6 +188,18 @@ fn session(
     rect.x + rect.w
 }
 
+pub(crate) fn fit_letters(
+    letters: &str,
+    room: f32,
+    small: f32,
+    measure: &mut impl FnMut(&str, bool) -> f32,
+) -> String {
+    if measure(letters, true) * small <= room * 1.05 {
+        return letters.to_owned();
+    }
+    letters.chars().take(1).collect()
+}
+
 fn badges(
     input: &ChromeInput,
     scene: &mut Scene,
@@ -197,18 +212,11 @@ fn badges(
     let mut right = input.px.0 as f32 - px(INSET, scale);
     let mut left = None;
     for badge in right_items(input) {
-        let (fill_color, border_color, text_color, bold) = match badge.kind {
-            BadgeKind::Copy | BadgeKind::Zoom => {
-                (surfaces.accent_soft, theme.accent, theme.accent, true)
-            }
-            BadgeKind::Prefix => (
-                surfaces.surface3,
-                surfaces.outline_strong,
-                theme.foreground,
-                false,
-            ),
+        let (fill_color, border_color, text_color) = match badge.kind {
+            BadgeKind::Copy | BadgeKind::Zoom => (surfaces.accent_soft, theme.accent, theme.accent),
+            BadgeKind::Prefix => (surfaces.surface3, surfaces.outline_strong, theme.foreground),
         };
-        let width = (measure(&badge.text, bold) + pad * 2.0).round();
+        let width = (measure(&badge.text, false) * input.ui.small + pad * 2.0).round();
         let rect = bar_item(right - width, width, CAP_HEIGHT, scale);
         scene.quads.push(Quad {
             border: Some(Border {
@@ -217,12 +225,12 @@ fn badges(
             }),
             ..rounded(rect, fill_color, CAP_RADIUS, scale)
         });
-        scene.text.push(ui_text(
+        scene.text.push(small_text(
             rect.x + pad,
-            baseline(rect, input.ui),
+            rect,
             badge.text,
             text_color,
-            bold,
+            input.ui,
         ));
         left = Some(rect.x);
         right = rect.x - px(ITEM_GAP, scale);
@@ -272,38 +280,76 @@ fn tabs(
         .collect();
     let active = tabs.iter().position(|tab| tab.active).unwrap_or(0);
     let mut placed = place(&labels, &widths, active, (start, end), pad, gap, measure);
+    let mut lead = false;
     if placed.len() < tabs.len() {
-        let widest = (measure(&format!("+{}", tabs.len()), false) + pad * 2.0).round();
-        let room = (start, end - gap - widest);
-        let reserved = place(&labels, &widths, active, room, pad, gap, measure);
+        let widest = (measure(&format!("+{}", tabs.len()), false) + pad * 2.0).round() + gap;
+        let room = |sides: (bool, bool)| {
+            (
+                start + if sides.0 { widest } else { 0.0 },
+                end - if sides.1 { widest } else { 0.0 },
+            )
+        };
+        let mut sides = hidden(&placed, tabs.len());
+        let mut reserved = place(&labels, &widths, active, room(sides), pad, gap, measure);
+        let more = hidden(&reserved, tabs.len());
+        if (more.0 && !sides.0) || (more.1 && !sides.1) {
+            sides = (sides.0 || more.0, sides.1 || more.1);
+            reserved = place(&labels, &widths, active, room(sides), pad, gap, measure);
+        }
         let index_width = format!("{} ", tabs[active].index).len();
         if reserved.iter().any(|item| {
             item.index == active && item.label.trim_end_matches(ELLIPSIS).len() > index_width
         }) {
             placed = reserved;
+            lead = sides.0;
         }
     }
+    let before = placed.first().map_or(0, |item| item.index);
+    let after = placed.last().map_or(0, |item| tabs.len() - item.index - 1);
     let mut x = start;
+    if lead && before > 0 {
+        x += overflow(input, before, x, scene, measure) + gap;
+    }
     for item in &placed {
         let rect = bar_item(x, item.width, ITEM_HEIGHT, scale);
         draw_tab(input, &tabs[item.index], rect, item.label.clone(), scene);
         x += item.width + gap;
     }
-    let hidden = tabs.len() - placed.len();
-    if hidden > 0 {
-        let text = format!("+{hidden}");
-        let width = (measure(&text, false) + pad * 2.0).round();
+    if after > 0 {
+        let width = (measure(&format!("+{after}"), false) + pad * 2.0).round();
         if x + width <= end {
-            let rect = bar_item(x, width, ITEM_HEIGHT, scale);
-            scene.text.push(ui_text(
-                x + pad,
-                baseline(rect, input.ui),
-                text,
-                input.theme.surfaces().muted,
-                false,
-            ));
+            overflow(input, after, x, scene, measure);
         }
     }
+}
+
+fn hidden(placed: &[Placed], count: usize) -> (bool, bool) {
+    match (placed.first(), placed.last()) {
+        (Some(first), Some(last)) => (first.index > 0, last.index + 1 < count),
+        _ => (false, false),
+    }
+}
+
+fn overflow(
+    input: &ChromeInput,
+    count: usize,
+    x: f32,
+    scene: &mut Scene,
+    measure: &mut impl FnMut(&str, bool) -> f32,
+) -> f32 {
+    let scale = input.scale;
+    let pad = px(ITEM_PAD, scale);
+    let text = format!("+{count}");
+    let width = (measure(&text, false) + pad * 2.0).round();
+    let rect = bar_item(x, width, ITEM_HEIGHT, scale);
+    scene.text.push(ui_text(
+        rect.x + pad,
+        baseline(rect, input.ui),
+        text,
+        input.theme.surfaces().muted,
+        false,
+    ));
+    width
 }
 
 fn place(
@@ -404,8 +450,11 @@ fn field(
         }),
         ..rounded(rect, input.theme.background, FIELD_RADIUS, scale)
     });
-    let text_x = rect.x + pad;
     let max = width - pad * 2.0 - line;
+    let label = ellipsize(prompt.label, max, false, measure);
+    let label_width = measure(&label, false);
+    let text_x = rect.x + pad + label_width;
+    let max = max - label_width;
     let head: String = prompt.text.chars().take(prompt.cursor).collect();
     let rest: String = prompt.text.chars().skip(prompt.cursor).collect();
     let head = tail(&head, max, false, measure);
@@ -413,13 +462,21 @@ fn field(
     let rest = ellipsize(&rest, max - head_width, false, measure);
     let caret = (text_x + head_width).round();
     let text = format!("{head}{rest}");
-    scene.text.push(ui_text(
-        text_x,
-        baseline(rect, input.ui),
-        text,
-        input.theme.foreground,
-        false,
-    ));
+    let base = baseline(rect, input.ui);
+    if !label.is_empty() {
+        scene
+            .text
+            .push(ui_text(rect.x + pad, base, label, surfaces.muted, false));
+    }
+    if !text.is_empty() {
+        scene.text.push(ui_text(
+            text_x.round(),
+            base,
+            text,
+            input.theme.foreground,
+            false,
+        ));
+    }
     scene.quads.push(fill(
         PxRect {
             x: caret,
@@ -470,6 +527,17 @@ pub(crate) fn ui_text(x: f32, baseline: f32, text: String, color: Rgb, bold: boo
     }
 }
 
+pub(crate) fn small_text(x: f32, rect: PxRect, text: String, color: Rgb, ui: UiMetrics) -> TextRun {
+    TextRun {
+        x,
+        baseline: (rect.y + (rect.h - ui.height * ui.small) / 2.0 + ui.ascent * ui.small).round(),
+        text,
+        color,
+        bold: false,
+        face: TextFace::Small,
+    }
+}
+
 pub(crate) fn ellipsize(
     text: &str,
     max: f32,
@@ -495,7 +563,12 @@ pub(crate) fn ellipsize(
     text.chars().take(count).collect::<String>() + ELLIPSIS
 }
 
-fn tail(text: &str, max: f32, bold: bool, measure: &mut impl FnMut(&str, bool) -> f32) -> String {
+pub(crate) fn tail(
+    text: &str,
+    max: f32,
+    bold: bool,
+    measure: &mut impl FnMut(&str, bool) -> f32,
+) -> String {
     let widths = advances(text, bold, measure);
     if widths.iter().sum::<f32>() <= max {
         return text.to_owned();

@@ -9,6 +9,7 @@ use flair_core::{
 };
 
 use crate::{
+    chrome_layout::BarField,
     input::{self, LocalAction},
     notice::Notice,
     overlay_layout::{self, OverlayHit, OverlayHits, OverlayInput, OverlayScene, Sheet},
@@ -253,11 +254,13 @@ impl Overlays {
         self.prompt.as_ref().and_then(Prompt::bar_text)
     }
 
-    pub fn bar_field(&self) -> Option<(String, usize)> {
+    pub fn bar_field(&self) -> Option<BarField<'_>> {
         let prompt = self.prompt.as_ref()?;
-        let text = prompt.bar_text()?;
-        let cursor = prompt.field_prefix()?.chars().count() + prompt.cursor()?;
-        Some((text, cursor))
+        Some(BarField {
+            label: prompt.field_prefix()?,
+            text: prompt.field_text()?,
+            cursor: prompt.cursor()?,
+        })
     }
 
     fn sheet(&self) -> Option<Sheet> {

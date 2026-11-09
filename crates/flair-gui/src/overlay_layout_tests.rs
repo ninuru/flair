@@ -1,4 +1,5 @@
 use super::*;
+use crate::{renderer::TextFace, ui::ELLIPSIS};
 use flair_core::config::Config;
 
 fn measure(text: &str, _: bool) -> f32 {
@@ -13,11 +14,6 @@ fn input(theme: &Theme, px: (u32, u32), scale: f32, hover: Option<(f32, f32)>) -
     OverlayInput {
         px,
         scale,
-        metrics: CellMetrics {
-            width: 8.0 * scale,
-            height: 16.0 * scale,
-            baseline: 12.0 * scale,
-        },
         ui: UiMetrics {
             height: 14.0 * scale,
             ascent: 11.0 * scale,
@@ -221,7 +217,7 @@ fn selected_row_is_surface3_and_hovered_row_surface2() {
 }
 
 #[test]
-fn rows_draw_a_monogram_the_name_the_mono_path_and_the_trailing_label() {
+fn rows_draw_a_monogram_the_name_a_muted_regular_path_and_the_trailing_label() {
     let theme = Config::default().theme();
     let surfaces = theme.surfaces();
     let scene = run(&three(), (960, 600), 1.0, None);
@@ -236,10 +232,10 @@ fn rows_draw_a_monogram_the_name_the_mono_path_and_the_trailing_label() {
     );
     let path = text(&scene, "~/IdeaProjects/flair").unwrap();
     assert_eq!(
-        (path.x, path.color, path.face),
-        (225.0, surfaces.muted, TextFace::Mono)
+        (path.x, path.color, path.face, path.bold),
+        (225.0, surfaces.muted, TextFace::Ui, false)
     );
-    assert_eq!(path.baseline, 294.0 + 8.0 + 12.0);
+    assert_eq!(path.baseline, name.baseline);
     let current = text(&scene, "current").unwrap();
     assert_eq!(
         (current.x, current.color, current.face),
@@ -264,11 +260,14 @@ fn long_paths_lose_their_head_and_long_names_their_tail() {
     let path = scene
         .text
         .iter()
-        .find(|run| run.face == TextFace::Mono)
+        .find(|run| run.text.ends_with("/tail"))
         .unwrap();
     assert!(path.text.starts_with(ELLIPSIS), "{}", path.text);
-    assert!(path.text.ends_with("/tail"));
-    assert!(path.x + path.text.chars().count() as f32 * 8.0 <= 144.0 + 672.0 - 10.0);
+    assert_eq!(
+        (path.face, path.color),
+        (TextFace::Ui, Config::default().theme().surfaces().muted)
+    );
+    assert!(path.x + measure(&path.text, false) <= 144.0 + 672.0 - 10.0);
     let shown = scene
         .text
         .iter()

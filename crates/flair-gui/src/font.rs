@@ -3,7 +3,7 @@ use std::{collections::HashMap, error::Error, fmt};
 use crossfont::{BitmapBuffer, FontDesc, Rasterize, Slant, Weight};
 use flair_core::config::FontConfig;
 
-use crate::ui::MONOGRAM_TEXT;
+use crate::ui::SMALL_TEXT;
 
 pub struct Fonts {
     rasterizer: crossfont::Rasterizer,
@@ -133,7 +133,7 @@ impl Fonts {
         let raw = rasterizer
             .metrics(ui_faces[0], ui_size)
             .map_err(|e| FontError(e.to_string()))?;
-        let small_size = crossfont::Size::from_px(MONOGRAM_TEXT * scale as f32);
+        let small_size = crossfont::Size::from_px(SMALL_TEXT * scale as f32);
         let ui_metrics = UiMetrics {
             height: (raw.line_height as f32).ceil().max(1.0),
             ascent: raw.line_height as f32 + raw.descent,

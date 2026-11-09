@@ -2,11 +2,12 @@ use std::path::Path;
 
 use super::*;
 use crate::{
+    chrome_bar::fit_letters,
     notice::Notice,
     overlay_layout::OverlayHit,
-    renderer::{Quad, TextRun},
+    renderer::TextRun,
     status::{BadgeKind, BadgeParts, ChipParts, TabParts, status_parts},
-    ui::ELLIPSIS,
+    ui::{ELLIPSIS, SMALL_TEXT},
 };
 use flair_core::{
     config::Config,
@@ -120,10 +121,6 @@ fn run_layout(scale: f32, width: u32, window: Option<&WindowLayout>) -> ChromeLa
         notice: None,
     };
     layout(&input, measure)
-}
-
-fn quad_at(layout: &ChromeLayout, rect: PxRect) -> Option<&Quad> {
-    layout.chrome.quads.iter().find(|quad| quad.rect == rect)
 }
 
 #[test]
@@ -255,50 +252,40 @@ fn mouse_mapping_uses_the_drawn_grid_origin() {
     }
 }
 
+fn lines(layout: ChromeLayout) -> Vec<(PxRect, Rgba)> {
+    layout
+        .chrome
+        .quads
+        .into_iter()
+        .filter(|quad| quad.rect.y >= 35.0)
+        .map(|quad| (quad.rect, quad.color))
+        .collect()
+}
+
 #[test]
-fn separators_become_lines_centred_in_the_gap() {
-    let surfaces = Config::default().theme().surfaces();
-    let separators = [
-        Separator {
-            axis: Axis::Horizontal,
-            rect: CellRect {
-                origin: CellPoint { col: 10, row: 0 },
-                size: GridSize { cols: 1, rows: 20 },
-            },
-        },
-        Separator {
-            axis: Axis::Vertical,
-            rect: CellRect {
-                origin: CellPoint { col: 0, row: 5 },
-                size: GridSize { cols: 10, rows: 1 },
-            },
-        },
-    ];
-    for (scale, vertical, horizontal) in [
-        (
-            1.0,
-            rect(92.0, 52.0, 1.0, 320.0),
-            rect(8.0, 140.0, 80.0, 1.0),
-        ),
-        (
-            2.0,
-            rect(183.0, 104.0, 2.0, 640.0),
-            rect(16.0, 279.0, 160.0, 2.0),
-        ),
+fn a_vertical_split_line_runs_from_the_bar_line_to_the_window_bottom() {
+    let theme = Config::default().theme();
+    let outline = opaque(theme.surfaces().outline);
+    let accent = opaque(theme.accent);
+    let separators = [Separator {
+        axis: Axis::Horizontal,
+        rect: cells(49, 0, 1, 34),
+    }];
+    let panes = [(1, cells(0, 0, 49, 34)), (2, cells(50, 0, 48, 34))];
+    for (scale, line) in [
+        (1.0, rect(404.0, 35.0, 1.0, 565.0)),
+        (2.0, rect(807.0, 70.0, 2.0, 1130.0)),
     ] {
-        let window = window(&separators, &[], 9);
+        let window = window(&separators, &panes, 2);
         let layout = run_layout(scale, 800, Some(&window));
-        for expected in [vertical, horizontal] {
-            assert_eq!(
-                quad_at(&layout, expected),
-                Some(&Quad {
-                    rect: expected,
-                    color: opaque(surfaces.outline),
-                    radius: 0.0,
-                    border: None,
-                })
-            );
-        }
+        let found: Vec<_> = layout
+            .chrome
+            .quads
+            .iter()
+            .filter(|quad| quad.rect.y >= chrome_bottom(scale))
+            .map(|quad| (quad.rect, quad.color))
+            .collect();
+        assert_eq!(found, [(line, outline), (line, accent)], "{scale}");
     }
 }
 
@@ -323,64 +310,65 @@ fn hit_test_finds_tabs_and_the_session_but_not_gaps_or_the_grid() {
 }
 
 #[test]
-fn separator_segments_next_to_the_active_pane_are_accent() {
+fn accent_segments_meet_the_crossing_separator_without_a_gap() {
     let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
+    let outline = opaque(theme.surfaces().outline);
+    let accent = opaque(theme.accent);
     let separators = [
         Separator {
             axis: Axis::Horizontal,
-            rect: cells(10, 0, 1, 20),
+            rect: cells(49, 0, 1, 34),
         },
         Separator {
             axis: Axis::Vertical,
-            rect: cells(11, 9, 20, 1),
+            rect: cells(50, 16, 48, 1),
         },
     ];
     let panes = [
-        (1, cells(0, 0, 10, 20)),
-        (2, cells(11, 0, 20, 9)),
-        (3, cells(11, 10, 20, 10)),
+        (1, cells(0, 0, 49, 34)),
+        (2, cells(50, 0, 48, 16)),
+        (3, cells(50, 17, 48, 17)),
     ];
-    let lines = |active| {
-        let window = window(&separators, &panes, active);
-        run_layout(1.0, 800, Some(&window))
-            .chrome
-            .quads
-            .into_iter()
-            .filter(|quad| quad.rect.y >= 39.0)
-            .map(|quad| (quad.rect, quad.color))
-            .collect::<Vec<_>>()
+    let lines_for = |active| {
+        lines(run_layout(
+            1.0,
+            800,
+            Some(&window(&separators, &panes, active)),
+        ))
     };
-    let outline = opaque(surfaces.outline);
-    let accent = opaque(theme.accent);
-    let vertical = rect(92.0, 52.0, 1.0, 320.0);
-    let horizontal = rect(96.0, 204.0, 160.0, 1.0);
+    let vertical = rect(404.0, 35.0, 1.0, 565.0);
+    let horizontal = rect(404.0, 316.0, 396.0, 1.0);
     assert_eq!(
-        lines(1),
+        lines_for(1),
         [
             (vertical, outline),
-            (vertical, accent),
-            (horizontal, outline)
+            (horizontal, outline),
+            (vertical, accent)
         ]
     );
+    let upper = rect(404.0, 35.0, 1.0, 282.0);
     assert_eq!(
-        lines(2),
+        lines_for(2),
         [
             (vertical, outline),
-            (rect(92.0, 52.0, 1.0, 144.0), accent),
             (horizontal, outline),
+            (upper, accent),
             (horizontal, accent),
         ]
     );
+    assert_eq!(upper.y + upper.h - 1.0, horizontal.y);
+    assert_eq!(upper.x, horizontal.x);
+    let lower = rect(404.0, 316.0, 1.0, 284.0);
     assert_eq!(
-        lines(3),
+        lines_for(3),
         [
             (vertical, outline),
-            (rect(92.0, 212.0, 1.0, 160.0), accent),
             (horizontal, outline),
+            (lower, accent),
             (horizontal, accent),
         ]
     );
+    assert_eq!((lower.x, lower.y), (horizontal.x, horizontal.y));
 }
 
 #[test]
@@ -394,7 +382,7 @@ fn zoomed_windows_draw_no_separators() {
 }
 
 #[test]
-fn separators_are_clipped_to_the_grid_area() {
+fn separators_reach_the_window_edges_and_are_clipped_to_the_window() {
     let surfaces = Config::default().theme().surfaces();
     let separators = [
         Separator {
@@ -425,13 +413,13 @@ fn separators_are_clipped_to_the_grid_area() {
         .chrome
         .quads
         .iter()
-        .filter(|quad| quad.color == opaque(surfaces.outline) && quad.rect.y >= 39.0)
+        .filter(|quad| quad.color == opaque(surfaces.outline) && quad.rect.y >= 35.0)
         .map(|quad| quad.rect)
         .collect();
     assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 184.0, 557.0));
     assert_eq!(
         borders,
-        [rect(92.0, 52.0, 1.0, 544.0), rect(8.0, 140.0, 184.0, 1.0)]
+        [rect(92.0, 35.0, 1.0, 565.0), rect(0.0, 140.0, 200.0, 1.0)]
     );
 }
 
@@ -498,7 +486,6 @@ fn scaled_layout(
         &[(1, cells(0, 0, 40, 12)), (2, cells(41, 0, 40, 30))],
         1,
     );
-    let prompt = overlays.bar_field();
     let input = ChromeInput {
         px: (1203, 757),
         scale,
@@ -511,10 +498,7 @@ fn scaled_layout(
         ui: ui(scale),
         theme: &theme,
         status: &parts,
-        prompt: prompt.as_ref().map(|(text, cursor)| BarField {
-            text,
-            cursor: *cursor,
-        }),
+        prompt: overlays.bar_field(),
         layout: Some(&window),
         hover: None,
         overlays: Some(overlays),
@@ -751,7 +735,7 @@ fn non_ascii_names_ellipsize_on_whole_chars() {
         .chrome
         .text
         .iter()
-        .find(|run| run.text.starts_with("1 Über"))
+        .find(|run| run.text.starts_with("1 Üb"))
         .unwrap();
     let kept = tab.text.strip_suffix(ELLIPSIS).unwrap();
     assert!(format!("1 {long}").starts_with(kept));
@@ -768,4 +752,46 @@ fn non_ascii_names_ellipsize_on_whole_chars() {
     let kept = tab.text.trim_end_matches(ELLIPSIS);
     assert!(format!("2 {cjk}").starts_with(kept));
     assert!(text(&layout, "Größe").is_some());
+}
+
+#[test]
+fn monogram_letters_at_the_small_size_fit_inside_the_square() {
+    let theme = Config::default().theme();
+    let small = SMALL_TEXT / 12.0;
+    for session in ["MA", "WW"] {
+        let status = narrow(session, &["shell"], 0);
+        let input = ChromeInput {
+            px: (800, 600),
+            scale: 1.0,
+            padding: (8.0, 4.0),
+            metrics: metrics(1.0),
+            ui: UiMetrics { small, ..ui(1.0) },
+            theme: &theme,
+            status: &status,
+            prompt: None,
+            layout: None,
+            hover: None,
+            overlays: None,
+            notice: None,
+        };
+        let layout = layout(&input, measure);
+        let letters = text(&layout, session).unwrap();
+        let right = letters.x + measure(session, true) * small;
+        assert!(letters.x >= 12.0 && right <= 30.0, "{session} {right}");
+    }
+}
+
+#[test]
+fn a_monogram_that_does_not_fit_its_square_keeps_only_its_first_letter() {
+    let wide = |text: &str, bold: bool| {
+        if bold {
+            text.chars().count() as f32 * 11.0
+        } else {
+            measure(text, bold)
+        }
+    };
+    let mut wide = wide;
+    assert_eq!(fit_letters("WW", 18.0, 1.0, &mut wide), "W");
+    assert_eq!(fit_letters("MA", 18.0, 0.8, &mut wide), "MA");
+    assert_eq!(fit_letters("Ü", 18.0, 1.0, &mut wide), "Ü");
 }

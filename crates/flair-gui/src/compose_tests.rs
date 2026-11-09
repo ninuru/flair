@@ -492,6 +492,19 @@ fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
         frame.at(mark.rect.x + 2.0, mark.rect.y + 2.0),
         [mark.color.r, mark.color.g, mark.color.b]
     );
+    let right = mark.rect.x + mark.rect.w;
+    for y in mark.rect.y as usize..(mark.rect.y + mark.rect.h) as usize {
+        for x in [mark.rect.x - 2.0, mark.rect.x - 1.0, right, right + 1.0] {
+            assert_eq!(
+                frame.at(x, y as f32),
+                rgb(surfaces.surface1),
+                "monogram letters spill at {x},{y}"
+            );
+        }
+    }
+    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
+    let width = fonts.ui_width("MA", true) * fonts.ui_metrics().small;
+    assert!(width <= mark.rect.w, "MA is {width} wide");
     let padding = (
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
@@ -527,6 +540,9 @@ fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
     assert_eq!(frame.at(line, y), rgb(theme.accent));
     assert_eq!(frame.at(line - 1.0, y), rgb(theme.background));
     assert_eq!(frame.at(line + 1.0, y), rgb(theme.background));
+    for y in [35.0, origin.1 - 1.0, 299.0] {
+        assert_eq!(frame.at(line, y), rgb(theme.accent), "separator at {y}");
+    }
 }
 
 #[test]
