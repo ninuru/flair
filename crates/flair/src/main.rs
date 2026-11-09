@@ -26,8 +26,9 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut logger =
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn"));
+    let mut logger = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("error,flair=warn"),
+    );
     if matches!(args, Args::Server { .. }) {
         match daemon::log_file() {
             Ok(file) => {
