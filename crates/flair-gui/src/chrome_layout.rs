@@ -18,6 +18,7 @@ use crate::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BarField<'a> {
+    pub label: &'a str,
     pub text: &'a str,
     pub cursor: usize,
 }
@@ -121,15 +122,20 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
         w: (width - input.padding.0 * 2.0).max(0.0),
         h: (height - top - input.padding.1).max(0.0),
     };
+    let extend = PxRect {
+        x: 0.0,
+        y: chrome_bottom(scale),
+        w: width,
+        h: (height - chrome_bottom(scale)).max(0.0),
+    };
     if let Some(window) = input.layout {
-        separators(input, window, clip, &mut scene);
+        separators(input, window, extend, &mut scene);
     }
     let overlay = input.overlays.and_then(|overlays| {
         overlays.layout(
             &OverlayInput {
                 px: input.px,
                 scale,
-                metrics: input.metrics,
                 ui: input.ui,
                 theme: input.theme,
                 hover: input.hover,
@@ -146,12 +152,7 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
             scale,
             origin,
             clip,
-            extend: PxRect {
-                x: 0.0,
-                y: chrome_bottom(scale),
-                w: width,
-                h: (height - chrome_bottom(scale)).max(0.0),
-            },
+            extend,
             quads: scene.quads,
             text: scene.text,
             modal,
@@ -162,7 +163,7 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     }
 }
 
-fn separators(input: &ChromeInput, window: &WindowLayout, clip: PxRect, scene: &mut Scene) {
+fn separators(input: &ChromeInput, window: &WindowLayout, bounds: PxRect, scene: &mut Scene) {
     let theme = input.theme;
     let active = window
         .panes
@@ -170,12 +171,22 @@ fn separators(input: &ChromeInput, window: &WindowLayout, clip: PxRect, scene: &
         .find(|placement| placement.pane == window.active)
         .map(|placement| placement.rect);
     for separator in &window.separators {
-        if let Some(rect) = intersect(separator_rect(input, separator.axis, separator.rect), clip) {
+        if let Some(rect) = intersect(
+            separator_rect(input, separator.axis, separator.rect, bounds),
+            bounds,
+        ) {
             scene.quads.push(fill(rect, theme.surfaces().outline));
         }
+    }
+    for separator in &window.separators {
         if let Some(rect) = active
             .and_then(|pane| adjacent(separator, pane))
-            .and_then(|segment| intersect(separator_rect(input, separator.axis, segment), clip))
+            .and_then(|segment| {
+                intersect(
+                    separator_rect(input, separator.axis, segment, bounds),
+                    bounds,
+                )
+            })
         {
             scene.quads.push(fill(rect, theme.accent));
         }
@@ -243,22 +254,45 @@ fn adjacent(separator: &Separator, pane: CellRect) -> Option<CellRect> {
     })
 }
 
-fn separator_rect(input: &ChromeInput, axis: Axis, rect: CellRect) -> PxRect {
+fn separator_rect(input: &ChromeInput, axis: Axis, rect: CellRect, bounds: PxRect) -> PxRect {
     let gap = cell_rect(input, rect);
+    let grid = grid_size(input.px, input.padding, input.scale, input.metrics);
+    let metrics = input.metrics;
     let line = px(LINE, input.scale);
+    let centre = |start: f32, length: f32| (start + (length - line) / 2.0).round();
     match axis {
-        Axis::Horizontal => PxRect {
-            x: (gap.x + (gap.w - line) / 2.0).round(),
-            y: gap.y.round(),
-            w: line,
-            h: gap.h.round(),
-        },
-        Axis::Vertical => PxRect {
-            x: gap.x.round(),
-            y: (gap.y + (gap.h - line) / 2.0).round(),
-            w: gap.w.round(),
-            h: line,
-        },
+        Axis::Horizontal => {
+            let top = match rect.origin.row {
+                0 => bounds.y,
+                _ => centre(gap.y - metrics.height, metrics.height),
+            };
+            let bottom = match rect.origin.row + rect.size.rows >= grid.rows {
+                true => bounds.y + bounds.h,
+                false => centre(gap.y + gap.h, metrics.height) + line,
+            };
+            PxRect {
+                x: centre(gap.x, gap.w),
+                y: top,
+                w: line,
+                h: bottom - top,
+            }
+        }
+        Axis::Vertical => {
+            let left = match rect.origin.col {
+                0 => bounds.x,
+                _ => centre(gap.x - metrics.width, metrics.width),
+            };
+            let right = match rect.origin.col + rect.size.cols >= grid.cols {
+                true => bounds.x + bounds.w,
+                false => centre(gap.x + gap.w, metrics.width) + line,
+            };
+            PxRect {
+                x: left,
+                y: centre(gap.y, gap.h),
+                w: right - left,
+                h: line,
+            }
+        }
     }
 }
 

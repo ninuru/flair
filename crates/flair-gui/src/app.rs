@@ -24,7 +24,7 @@ use winit::{
 
 use crate::{
     Fonts,
-    chrome_layout::{self, BarField, ChromeInput, ChromeLayout, Hit},
+    chrome_layout::{self, ChromeInput, ChromeLayout, Hit},
     clipboard::Clipboard,
     compose::{compose, compose_frame},
     drive::Drive,
@@ -284,7 +284,6 @@ impl App {
             grid.cursor = None;
         }
         let parts = status_parts(&self.status);
-        let prompt = self.overlays.bar_field();
         let px = surface.window.inner_size();
         let input = ChromeInput {
             px: (px.width, px.height),
@@ -294,10 +293,7 @@ impl App {
             ui: surface.fonts.ui_metrics(),
             theme: &theme,
             status: &parts,
-            prompt: prompt.as_ref().map(|(text, cursor)| BarField {
-                text,
-                cursor: *cursor,
-            }),
+            prompt: self.overlays.bar_field(),
             layout: self.layout.as_ref(),
             hover: Some((self.pointer.x as f32, self.pointer.y as f32)),
             overlays: Some(&self.overlays),

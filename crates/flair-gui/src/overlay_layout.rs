@@ -1,18 +1,17 @@
-use flair_core::{
-    monogram::monogram,
-    theme::{Rgb, Theme},
-};
+use flair_core::{monogram::monogram, theme::Theme};
 
 use crate::{
-    CellMetrics, UiMetrics,
-    chrome_bar::{baseline, ellipsize, fill, opaque, rounded, ui_text},
+    UiMetrics,
+    chrome_bar::{
+        baseline, ellipsize, fill, fit_letters, opaque, rounded, small_text, tail, ui_text,
+    },
     chrome_layout::chrome_bottom,
-    renderer::{Border, PxRect, Quad, TextFace, TextRun},
+    renderer::{Border, PxRect, Quad, TextRun},
     ui::{
-        BACKDROP, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CARET_GAP, DOCK_INSET, DOCK_WIDTH, ELLIPSIS,
-        FIELD_GAP, FIELD_HEIGHT, FIELD_RADIUS, FOOTER_GAP, FOOTER_RULE_GAP, ITEM_GAP, ITEM_HEIGHT,
-        ITEM_PAD, LINE, MONOGRAM, MONOGRAM_GAP, MONOGRAM_RADIUS, PANEL_PAD_X, PANEL_PAD_Y,
-        PANEL_RADIUS, PANEL_TALL, PANEL_TOP, PANEL_WIDTH, ROW_GAP, ROW_HEIGHT, ROW_PAD, ROW_RADIUS,
+        BACKDROP, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CARET_GAP, DOCK_INSET, DOCK_WIDTH, FIELD_GAP,
+        FIELD_HEIGHT, FIELD_RADIUS, FOOTER_GAP, FOOTER_RULE_GAP, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD,
+        LINE, MONOGRAM, MONOGRAM_GAP, MONOGRAM_RADIUS, PANEL_PAD_X, PANEL_PAD_Y, PANEL_RADIUS,
+        PANEL_TALL, PANEL_TOP, PANEL_WIDTH, ROW_GAP, ROW_HEIGHT, ROW_PAD, ROW_RADIUS,
         SESSION_NAME_MAX, px,
     },
 };
@@ -20,7 +19,6 @@ use crate::{
 pub struct OverlayInput<'a> {
     pub px: (u32, u32),
     pub scale: f32,
-    pub metrics: CellMetrics,
     pub ui: UiMetrics,
     pub theme: &'a Theme,
     pub hover: Option<(f32, f32)>,
@@ -489,17 +487,16 @@ fn entry(
     ));
     x += name_width + pad;
     if let Some(detail) = &row.detail {
-        let detail = head(detail, right - x, input.metrics.width);
+        let detail: String = detail.chars().filter(|c| !c.is_control()).collect();
+        let detail = tail(&detail, right - x, false, measure);
         if !detail.is_empty() {
-            scene.text.push(TextRun {
-                x: x.round(),
-                baseline: (rect.y + (rect.h - input.metrics.height) / 2.0 + input.metrics.baseline)
-                    .round(),
-                text: detail,
-                color: surfaces.muted,
-                bold: false,
-                face: TextFace::Mono,
-            });
+            scene.text.push(ui_text(
+                x.round(),
+                baseline(rect, input.ui),
+                detail,
+                surfaces.muted,
+                false,
+            ));
         }
     }
 }
@@ -524,13 +521,14 @@ fn mark(
     scene
         .quads
         .push(rounded(rect, mark.hue, MONOGRAM_RADIUS, scale));
-    let width = measure(&mark.letters, true) * input.ui.small;
+    let letters = fit_letters(&mark.letters, size, input.ui.small, measure);
+    let width = measure(&letters, true) * input.ui.small;
     scene.text.push(TextRun {
         bold: true,
         ..small_text(
             (rect.x + (size - width) / 2.0).round(),
             rect,
-            mark.letters,
+            letters,
             mark.text,
             input.ui,
         )
@@ -630,32 +628,6 @@ fn footer(
         ));
         x += verb_width + px(FOOTER_GAP, scale);
     }
-}
-
-fn small_text(x: f32, rect: PxRect, text: String, color: Rgb, ui: UiMetrics) -> TextRun {
-    TextRun {
-        x,
-        baseline: (rect.y + (rect.h - ui.height * ui.small) / 2.0 + ui.ascent * ui.small).round(),
-        text,
-        color,
-        bold: false,
-        face: TextFace::Small,
-    }
-}
-
-fn head(text: &str, room: f32, cell: f32) -> String {
-    let chars: Vec<char> = text.chars().filter(|c| !c.is_control()).collect();
-    let fit = (room / cell).floor().max(0.0) as usize;
-    if chars.len() <= fit {
-        return chars.into_iter().collect();
-    }
-    if fit < 2 {
-        return String::new();
-    }
-    ELLIPSIS
-        .chars()
-        .chain(chars[chars.len() - (fit - 1)..].iter().copied())
-        .collect()
 }
 
 fn inside(rect: PxRect, point: (f32, f32)) -> bool {

@@ -13,7 +13,7 @@ use flair_core::{
 use flair_gui::{
     Fonts,
     cellgrid::CellGrid,
-    chrome_layout::{self, BarField, ChromeInput, ChromeLayout},
+    chrome_layout::{self, ChromeInput, ChromeLayout},
     compose::{compose, compose_frame, separator_glyphs},
     mirror::Mirror,
     notice::Notice,
@@ -283,7 +283,6 @@ impl Capture {
         }
         let theme = self.preview.as_ref().unwrap_or(&self.theme);
         let parts = status_parts(&self.status);
-        let prompt = self.overlays.bar_field();
         let input = ChromeInput {
             px: pixels.px,
             scale: pixels.scale as f32,
@@ -292,10 +291,7 @@ impl Capture {
             ui: pixels.fonts.ui_metrics(),
             theme,
             status: &parts,
-            prompt: prompt.as_ref().map(|(text, cursor)| BarField {
-                text,
-                cursor: *cursor,
-            }),
+            prompt: self.overlays.bar_field(),
             layout: self.layout.as_ref(),
             hover: None,
             overlays: Some(&self.overlays),
@@ -326,7 +322,6 @@ impl Capture {
             grid.cursor = None;
         }
         let parts = status_parts(&self.status);
-        let prompt = self.overlays.bar_field();
         let input = ChromeInput {
             px: pixels.px,
             scale,
@@ -335,10 +330,7 @@ impl Capture {
             ui: pixels.fonts.ui_metrics(),
             theme: &theme,
             status: &parts,
-            prompt: prompt.as_ref().map(|(text, cursor)| BarField {
-                text,
-                cursor: *cursor,
-            }),
+            prompt: self.overlays.bar_field(),
             layout: self.layout.as_ref(),
             hover: None,
             overlays: Some(&self.overlays),
