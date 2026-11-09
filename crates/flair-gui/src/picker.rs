@@ -113,10 +113,10 @@ impl Picker {
             .enumerate()
         {
             let marker = if index == self.selected { ">" } else { " " };
-            let state = if entry.open { "open" } else { "dir " };
-            let name_width = width.saturating_sub(12).min(24);
+            let open = if entry.open { "*" } else { " " };
+            let name_width = (width.saturating_sub(4) / 2).min(24);
             let name: String = entry.name.chars().take(name_width).collect();
-            let prefix = format!("{marker} {state} {name:name_width$} ");
+            let prefix = format!("{marker}{open} {name:name_width$} ");
             let path = tail(
                 &entry.root.to_string_lossy(),
                 width.saturating_sub(prefix.chars().count()),
