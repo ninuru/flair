@@ -27,12 +27,12 @@ impl Terminal {
                 if line < range.start.line || line > range.end.line {
                     return None;
                 }
-                let start = if line == range.start.line {
+                let start = if range.is_block || line == range.start.line {
                     range.start.column.0
                 } else {
                     0
                 };
-                let end = if line == range.end.line {
+                let end = if range.is_block || line == range.end.line {
                     range.end.column.0
                 } else {
                     usize::from(self.size.cols - 1)

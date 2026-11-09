@@ -86,16 +86,50 @@ impl Terminal {
         if !self.copy_mode() {
             return;
         }
-        let (Some(anchor), Some(ty)) = (
-            self.copy_anchor,
-            self.term.selection.as_ref().map(|selection| selection.ty),
-        ) else {
+        let Some(anchor) = self.copy_anchor else {
             return;
         };
-        let cursor = self.term.vi_mode_cursor.point;
-        self.start_copy_selection(ty, cursor);
-        self.copy_anchor = Some(cursor);
+        let Some((ty, range)) = self.term.selection.as_ref().and_then(|selection| {
+            selection
+                .to_range(&self.term)
+                .map(|range| (selection.ty, range))
+        }) else {
+            return;
+        };
+        let line = if anchor.line == range.start.line {
+            range.end.line
+        } else {
+            range.start.line
+        };
+        let moving = match ty {
+            SelectionType::Lines => Point::new(line, self.term.vi_mode_cursor.point.column),
+            SelectionType::Block => Point::new(
+                line,
+                if anchor.column == range.start.column {
+                    range.end.column
+                } else {
+                    range.start.column
+                },
+            ),
+            SelectionType::Simple | SelectionType::Semantic => {
+                if anchor == range.start {
+                    range.end
+                } else {
+                    range.start
+                }
+            }
+        };
+        self.start_copy_selection(ty, moving);
+        self.copy_anchor = Some(moving);
         self.term.vi_goto_point(anchor);
+    }
+
+    pub(crate) fn selection_end_line(&self) -> Option<Line> {
+        self.term
+            .selection
+            .as_ref()
+            .and_then(|selection| selection.to_range(&self.term))
+            .map(|range| range.end.line)
     }
 
     fn start_copy_selection(&mut self, ty: SelectionType, point: Point) {

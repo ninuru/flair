@@ -3,6 +3,7 @@ use flair_core::{
     command::{CopyMotion, SelectionKind},
     geom::{CellPoint, GridSize},
     ids::PaneId,
+    proto::SelectionSpan,
 };
 
 fn term(cols: u16, rows: u16, text: &str) -> Terminal {
@@ -236,4 +237,61 @@ fn alt_screen_copy_mode_covers_only_the_visible_screen() {
     assert_eq!(term.selection_text().as_deref(), Some("alt0\nalt1\nalt2"));
     term.copy_search("line", false).unwrap();
     assert_eq!(cursor(&mut term), at(3, 2));
+}
+
+#[test]
+fn block_selection_highlights_only_its_rectangle() {
+    let mut term = term(20, 3, "alpha beta\r\ngamma delta");
+    moves(&mut term, &[CopyMotion::Up, CopyMotion::StartOfLine]);
+    moves(&mut term, &[CopyMotion::NextWord]);
+    term.copy_select(SelectionKind::Block);
+    moves(
+        &mut term,
+        &[CopyMotion::Down, CopyMotion::Right, CopyMotion::Right],
+    );
+    assert_eq!(term.selection_text().as_deref(), Some("bet\ndel"));
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().selection,
+        vec![
+            SelectionSpan {
+                row: 0,
+                start: 6,
+                end: 8
+            },
+            SelectionSpan {
+                row: 1,
+                start: 6,
+                end: 8
+            },
+        ]
+    );
+}
+
+#[test]
+fn other_end_survives_output_that_scrolls_the_grid() {
+    for scrollback in [100, 2] {
+        for kind in [
+            SelectionKind::Simple,
+            SelectionKind::Lines,
+            SelectionKind::Block,
+        ] {
+            let mut term = Terminal::new(GridSize { cols: 10, rows: 4 }, scrollback);
+            term.advance(numbered(6).as_bytes());
+            term.enter_copy_mode();
+            moves(&mut term, &[CopyMotion::Up, CopyMotion::StartOfLine]);
+            term.copy_select(kind);
+            moves(
+                &mut term,
+                &[CopyMotion::Up, CopyMotion::Right, CopyMotion::Right],
+            );
+            let before = term.selection_text();
+            assert!(before.is_some());
+            term.advance(b"\r\nmore\r\nmore");
+            assert_eq!(term.selection_text(), before, "{kind:?} {scrollback}");
+            term.copy_other_end();
+            assert_eq!(term.selection_text(), before, "{kind:?} {scrollback}");
+            term.copy_other_end();
+            assert_eq!(term.selection_text(), before, "{kind:?} {scrollback}");
+        }
+    }
 }
