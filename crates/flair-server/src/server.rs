@@ -228,6 +228,12 @@ impl Server {
                 self.touch(now, id, out);
                 self.command(now, id, command, out);
             }
+            ClientMsg::Palette(palette) => {
+                for pane in self.panes.values_mut() {
+                    pane.terminal.set_palette(&palette);
+                }
+                self.clients.get_mut(&id).unwrap().palette = palette;
+            }
             ClientMsg::Detach => {
                 self.remove_client(id, out);
                 out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::Detached)));

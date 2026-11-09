@@ -14,7 +14,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 5;
+pub const PROTOCOL: u32 = 6;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -33,6 +33,7 @@ pub enum ClientMsg {
         seq: u64,
     },
     Command(Command),
+    Palette(Theme),
     Detach,
     Control(Control),
 }
@@ -61,6 +62,7 @@ pub enum ServerMsg {
     },
     Sessions(Vec<SessionInfo>),
     ChooseWindow,
+    ChooseTheme,
     PasteClipboard,
     PromptRename {
         current: String,

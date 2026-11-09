@@ -75,6 +75,7 @@ impl Server {
                 }
             }
             Command::ChooseWindow => out.push(Effect::Send(id, ServerMsg::ChooseWindow)),
+            Command::ChooseTheme => out.push(Effect::Send(id, ServerMsg::ChooseTheme)),
             Command::RenameWindow(name) => {
                 let window = self.clients[&id].view.window;
                 if let Some(name) = name {
@@ -146,6 +147,7 @@ impl Server {
                         | Command::LastSession
                         | Command::Sessionizer
                         | Command::ChooseSession
+                        | Command::ChooseTheme
                         | Command::CopySelection
                         | Command::Detach
                         | Command::NewWindow
