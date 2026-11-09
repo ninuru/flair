@@ -390,13 +390,13 @@ fn rows_pair_title_and_description_with_the_source_left_of_the_control() {
         ),
         (712.0, 198.0, surfaces.muted, TextFace::Small)
     );
-    let chip = rect(1240.0, 175.0, 200.0, 24.0);
+    let chip = rect(1200.0, 175.0, 240.0, 24.0);
     assert_quad(&scene, chip_quad(chip));
     assert_hit(&scene, SettingsHit::Cycle(0), chip);
     let value = text(&scene, "flair-dark").unwrap();
     assert_eq!(
         (value.x, value.baseline, value.color),
-        (1250.0, 191.0, theme().foreground)
+        (1210.0, 191.0, theme().foreground)
     );
     let mark = text(&scene, "▾").unwrap();
     assert_eq!(
@@ -406,16 +406,16 @@ fn rows_pair_title_and_description_with_the_source_left_of_the_control() {
     let source = text(&scene, "flair.toml").unwrap();
     assert_eq!(
         (source.x, source.color, source.face),
-        (1193.0, surfaces.muted, TextFace::Small)
+        (1153.0, surfaces.muted, TextFace::Small)
     );
-    let chip = rect(1240.0, 231.0, 200.0, 24.0);
+    let chip = rect(1200.0, 231.0, 240.0, 24.0);
     assert_hit(&scene, SettingsHit::Edit(1), chip);
     assert_quad(&scene, chip_quad(chip));
-    assert_eq!(text(&scene, "#030303").unwrap().x, 1270.0);
+    assert_eq!(text(&scene, "#030303").unwrap().x, 1230.0);
     for index in 2..6 {
         assert_eq!(
             control(&scene, SettingsHit::Edit(index)),
-            rect(1240.0, 175.0 + 56.0 * index as f32, 200.0, 24.0)
+            rect(1200.0, 175.0 + 56.0 * index as f32, 240.0, 24.0)
         );
     }
     let sources: Vec<f32> = scene
@@ -424,7 +424,7 @@ fn rows_pair_title_and_description_with_the_source_left_of_the_control() {
         .filter(|run| run.text == "default")
         .map(|run| run.x)
         .collect();
-    assert_eq!(sources, vec![1204.0; 5]);
+    assert_eq!(sources, vec![1164.0; 5]);
 }
 
 #[test]
@@ -437,14 +437,14 @@ fn toggles_and_steppers_sit_on_the_control_column() {
         let knob = rect(right - 14.0, 181.0, 12.0, 12.0);
         assert_quad(&scene, plain(knob, theme().foreground, 6.0));
         assert_hit(&scene, SettingsHit::Toggle(0), track);
-        let chip = rect(right - 200.0, 287.0, 200.0, 24.0);
+        let chip = rect(right - 240.0, 287.0, 240.0, 24.0);
         assert_quad(&scene, chip_quad(chip));
         let down = rect(chip.x, chip.y, 20.0, 24.0);
-        let up = rect(chip.x + 180.0, chip.y, 20.0, 24.0);
+        let up = rect(chip.x + 220.0, chip.y, 20.0, 24.0);
         assert_hit(&scene, SettingsHit::Decrease(2), down);
         assert_hit(&scene, SettingsHit::Increase(2), up);
         assert_eq!(scene.hits.hit_test(centre(chip)), OverlayHit::Row(2));
-        assert_eq!(text(&scene, "1500").unwrap().x, chip.x + 86.0);
+        assert_eq!(text(&scene, "1500").unwrap().x, chip.x + 106.0);
         let down_mark = text(&scene, "‹").unwrap();
         assert_eq!(
             (
@@ -458,6 +458,13 @@ fn toggles_and_steppers_sit_on_the_control_column() {
         assert_eq!(text(&scene, "›").unwrap().color, surfaces.muted);
         let source = text(&scene, "flair.toml").unwrap();
         assert_eq!(source.x, chip.x - 12.0 - 35.0);
+        let defaults: Vec<f32> = scene
+            .text
+            .iter()
+            .filter(|run| run.text == "default")
+            .map(|run| run.x)
+            .collect();
+        assert_eq!(defaults, vec![chip.x - 12.0 - 24.0; 2]);
     }
 }
 
@@ -563,19 +570,19 @@ fn the_editor_is_a_prompt_field_with_an_accent_caret() {
     let mut sheet = keys(0);
     sheet.groups[0].entries[2] = setting("Prefix timeout", "flair.toml", editor("1500"));
     let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let field = rect(1240.0, 287.0, 200.0, 24.0);
+    let field = rect(1200.0, 287.0, 240.0, 24.0);
     assert_quad(
         &scene,
         outlined(field, theme().background, 6.0, surfaces.outline),
     );
-    let caret = rect(1278.0, 292.0, 1.0, 14.0);
+    let caret = rect(1238.0, 292.0, 1.0, 14.0);
     assert_quad(&scene, plain(caret, theme().accent, 0.0));
     let value = text(&scene, "1500").unwrap();
     assert_eq!(
         (value.x, value.baseline, value.color),
-        (1250.0, 303.0, theme().foreground)
+        (1210.0, 303.0, theme().foreground)
     );
-    assert_eq!(text(&scene, "flair.toml").unwrap().x, 1193.0);
+    assert_eq!(text(&scene, "flair.toml").unwrap().x, 1153.0);
 }
 
 #[test]
@@ -748,7 +755,7 @@ fn narrow_windows_ellipsize_descriptions_left_of_the_source_label() {
     assert_inside(&scene, (960, 600));
     assert_eq!(
         control(&scene, SettingsHit::Edit(1)),
-        rect(704.0, 231.0, 200.0, 24.0)
+        rect(664.0, 231.0, 240.0, 24.0)
     );
     let description = scene
         .text
@@ -761,7 +768,7 @@ fn narrow_windows_ellipsize_descriptions_left_of_the_source_label() {
         .iter()
         .find(|run| run.text == "default" && run.baseline > 231.0 && run.baseline < 271.0)
         .unwrap();
-    assert_eq!(label.x, 668.0);
+    assert_eq!(label.x, 628.0);
     let end = description.x + measure(&description.text, false) * 0.5;
     assert!(end <= label.x - 12.0, "{end} {}", label.x);
 }

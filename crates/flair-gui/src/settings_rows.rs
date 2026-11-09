@@ -294,7 +294,7 @@ fn toggle(
         .quads
         .push(rounded(rect, knob_color, KNOB / 2.0, scale));
     scene.hits.controls.push((SettingsHit::Toggle(item), track));
-    track.x
+    (at.0 - chip_width(at, scale)).round()
 }
 
 fn stepper(
