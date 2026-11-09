@@ -296,3 +296,83 @@ fn copy_badge_is_bold_at_the_right_next_to_the_prefix_badge() {
     let line = &compose_status(&copy, 4, &theme).grid.to_lines()[0];
     assert_eq!(line, "COPY");
 }
+
+#[test]
+fn status_parts_split_chip_tabs_and_badges() {
+    let status = StatusLine {
+        hidden: 2,
+        running: true,
+        finished: false,
+        copy: true,
+        ..second_view(&fixture())
+    };
+    let parts = status_parts(&status);
+    assert_eq!(
+        parts.chip,
+        ChipParts {
+            session: "main".into(),
+            hidden: 2,
+            running: true,
+            finished: false,
+        }
+    );
+    assert_eq!(
+        parts.tabs,
+        [
+            TabParts {
+                window: WindowId(1),
+                index: 1,
+                name: "shell".into(),
+                active: false,
+            },
+            TabParts {
+                window: WindowId(2),
+                index: 2,
+                name: "editor".into(),
+                active: true,
+            },
+        ]
+    );
+    assert_eq!(
+        parts.badges,
+        [
+            BadgeParts {
+                kind: BadgeKind::Copy,
+                text: "COPY".into(),
+            },
+            BadgeParts {
+                kind: BadgeKind::Prefix,
+                text: "^A".into(),
+            },
+        ]
+    );
+    assert!(status_parts(&fixture()).badges.is_empty());
+}
+
+#[test]
+fn status_text_keeps_the_old_row_and_adds_chip_marks() {
+    let text = status_text(&status_parts(&fixture()), 40);
+    assert_eq!(text, " 1:shell 2:editor                | main ");
+    let chip = StatusLine {
+        hidden: 2,
+        running: true,
+        finished: true,
+        ..fixture()
+    };
+    let text = status_text(&status_parts(&chip), 40);
+    assert_eq!(text.chars().count(), 40);
+    assert!(text.starts_with(" 1:shell 2:editor "), "{text:?}");
+    assert!(text.ends_with("| main +2 * ! "), "{text:?}");
+    let both = StatusLine {
+        copy: true,
+        ..second_view(&fixture())
+    };
+    let text = status_text(&status_parts(&both), 40);
+    assert!(text.ends_with(" COPY ^A"), "{text:?}");
+    for cols in 0..=40 {
+        assert_eq!(
+            status_text(&status_parts(&chip), cols).chars().count(),
+            usize::from(cols)
+        );
+    }
+}

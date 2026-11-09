@@ -1,6 +1,7 @@
 mod app;
 pub mod atlas;
 pub mod cellgrid;
+pub mod chrome_layout;
 mod clipboard;
 pub mod compose;
 mod font;
