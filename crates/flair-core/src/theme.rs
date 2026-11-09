@@ -105,6 +105,15 @@ impl Theme {
     }
 }
 
+pub const BUILTIN_THEMES: [(&str, &str); 3] = [
+    (
+        "catppuccin-mocha",
+        include_str!("themes/catppuccin-mocha.toml"),
+    ),
+    ("flair-dark", include_str!("themes/flair-dark.toml")),
+    ("gruvbox-dark", include_str!("themes/gruvbox-dark.toml")),
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Surfaces {
     pub surface1: Rgb,
