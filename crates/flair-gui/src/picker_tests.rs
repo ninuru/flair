@@ -1,5 +1,9 @@
 use super::*;
-use flair_core::{config::Config, geom::GridSize, proto::SessionInfo};
+use flair_core::{
+    config::Config,
+    geom::{CellPoint, CellRect, GridSize},
+    proto::SessionInfo,
+};
 
 fn picker() -> Picker {
     Picker::new(
@@ -32,6 +36,18 @@ fn grid(cols: u16, rows: u16) -> CellGrid {
     }
 }
 
+fn full(size: GridSize) -> CellRect {
+    CellRect {
+        origin: CellPoint::default(),
+        size,
+    }
+}
+
+fn draw(picker: &Picker, grid: &mut CellGrid) -> CellRect {
+    let area = full(grid.size);
+    picker.draw(grid, area, &Config::default().theme())
+}
+
 #[test]
 fn empty_enter_uses_last_session_and_query_selects_match() {
     let mut picker = picker();
@@ -46,7 +62,7 @@ fn empty_enter_uses_last_session_and_query_selects_match() {
 fn overlay_shows_search_results_and_clear_empty_state() {
     let mut picker = picker();
     let mut screen = grid(80, 24);
-    picker.draw(&mut screen, &Config::default().theme());
+    draw(&picker, &mut screen);
     assert!(
         screen
             .to_lines()
@@ -56,7 +72,7 @@ fn overlay_shows_search_results_and_clear_empty_state() {
     assert!(screen.to_lines().iter().any(|line| line.contains("flair")));
     assert!(screen.cursor.is_none());
     picker.insert("missing");
-    picker.draw(&mut screen, &Config::default().theme());
+    draw(&picker, &mut screen);
     assert!(
         screen
             .to_lines()
@@ -70,7 +86,7 @@ fn overlay_clips_to_tiny_grids_without_changing_dimensions() {
     for (cols, rows) in [(0, 0), (1, 1), (8, 3), (20, 8)] {
         let picker = picker();
         let mut screen = grid(cols, rows);
-        picker.draw(&mut screen, &Config::default().theme());
+        draw(&picker, &mut screen);
         assert_eq!(screen.cells.len(), usize::from(cols) * usize::from(rows));
         assert_eq!(screen.size, GridSize { cols, rows });
     }
@@ -84,7 +100,7 @@ fn long_query_paths_and_unicode_backspace_remain_bounded() {
     assert!(picker.query.is_empty());
     picker.insert(&"q".repeat(1000));
     let mut screen = grid(40, 12);
-    picker.draw(&mut screen, &Config::default().theme());
+    draw(&picker, &mut screen);
     assert!(
         screen
             .to_lines()
@@ -97,7 +113,7 @@ fn long_query_paths_and_unicode_backspace_remain_bounded() {
 fn picker_hints_match_available_actions_and_fit_compact_width() {
     let mut picker = picker();
     let mut screen = grid(40, 12);
-    picker.draw(&mut screen, &Config::default().theme());
+    draw(&picker, &mut screen);
     assert!(
         screen
             .to_lines()
@@ -106,7 +122,7 @@ fn picker_hints_match_available_actions_and_fit_compact_width() {
     );
     picker.insert("missing");
     let mut screen = grid(40, 12);
-    picker.draw(&mut screen, &Config::default().theme());
+    draw(&picker, &mut screen);
     assert!(
         screen
             .to_lines()
@@ -120,7 +136,7 @@ fn picker_hints_match_available_actions_and_fit_compact_width() {
             .any(|line| line.contains("Enter switch"))
     );
     let mut narrow = grid(20, 12);
-    picker.draw(&mut narrow, &Config::default().theme());
+    draw(&picker, &mut narrow);
     assert!(
         narrow
             .to_lines()
@@ -154,7 +170,7 @@ fn sessionizer() -> Picker {
 
 fn rendered(picker: &Picker, cols: u16, rows: u16) -> Vec<String> {
     let mut screen = grid(cols, rows);
-    picker.draw(&mut screen, &Config::default().theme());
+    draw(picker, &mut screen);
     screen.to_lines()
 }
 
@@ -272,5 +288,73 @@ fn compact_session_chooser_keeps_current_marker_and_hint() {
         lines
             .iter()
             .any(|line| line.contains("Enter switch  Esc cancel"))
+    );
+}
+
+fn area() -> CellRect {
+    CellRect {
+        origin: CellPoint { col: 10, row: 3 },
+        size: GridSize { cols: 50, rows: 12 },
+    }
+}
+
+#[test]
+fn draw_stays_inside_the_area_and_returns_the_lifted_rect() {
+    let theme = Config::default().theme();
+    let mut screen = grid(80, 24);
+    let before = screen.clone();
+    let lifted = chooser().draw(&mut screen, area(), &theme);
+    assert_eq!(
+        lifted,
+        CellRect {
+            origin: CellPoint { col: 10, row: 5 },
+            size: GridSize { cols: 50, rows: 7 },
+        }
+    );
+    for row in 0..24 {
+        for col in 0..80 {
+            let index = usize::from(row) * 80 + usize::from(col);
+            if !lifted.contains(CellPoint { col, row }) {
+                assert_eq!(screen.cells[index], before.cells[index]);
+            }
+        }
+    }
+}
+
+#[test]
+fn draw_centres_a_capped_width_inside_a_wide_area() {
+    let mut screen = grid(120, 30);
+    let lifted = draw(&chooser(), &mut screen);
+    assert_eq!(lifted.size.cols, 90);
+    assert_eq!(lifted.origin.col, 15);
+    assert_eq!(lifted.origin.row, (30 - lifted.size.rows) / 2);
+}
+
+#[test]
+fn lifted_cells_use_surface1_and_the_selected_row_surface3() {
+    let theme = Config::default().theme();
+    let surfaces = theme.surfaces();
+    let mut screen = grid(80, 24);
+    let lifted = chooser().draw(&mut screen, area(), &theme);
+    let lines = screen.to_lines();
+    let selected = lines
+        .iter()
+        .position(|line| line.contains(">* work"))
+        .unwrap();
+    for row in lifted.origin.row..lifted.origin.row + lifted.size.rows {
+        for col in lifted.origin.col..lifted.origin.col + lifted.size.cols {
+            let cell = &screen.cells[usize::from(row) * 80 + usize::from(col)];
+            if usize::from(row) == selected {
+                assert_eq!(cell.bg, surfaces.surface3);
+                assert_eq!(cell.fg, theme.foreground);
+            } else {
+                assert_eq!(cell.bg, surfaces.surface1);
+            }
+        }
+    }
+    let hint = usize::from(lifted.origin.row + lifted.size.rows - 1);
+    assert_eq!(
+        screen.cells[hint * 80 + usize::from(lifted.origin.col)].fg,
+        surfaces.muted
     );
 }

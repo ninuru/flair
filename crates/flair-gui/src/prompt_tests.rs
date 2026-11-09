@@ -1,7 +1,7 @@
 use super::*;
 use flair_core::{
     config::Config,
-    geom::GridSize,
+    geom::{CellPoint, CellRect, GridSize},
     ids::WindowId,
     key::{Locks, Mods},
 };
@@ -96,14 +96,69 @@ fn chooser_ignores_releases() {
     assert_eq!(prompt.key(&release), Outcome::Pending);
 }
 
+fn full(size: GridSize) -> CellRect {
+    CellRect {
+        origin: CellPoint::default(),
+        size,
+    }
+}
+
 #[test]
-fn chooser_draws_entries_below_the_status_row() {
-    let mut cells = grid(12, 3);
-    Prompt::choose(&status()).draw(&mut cells, &Config::default().theme());
+fn chooser_draws_inside_the_area_and_returns_the_lifted_rect() {
+    let theme = Config::default().theme();
+    let surfaces = theme.surfaces();
+    let mut cells = grid(80, 24);
+    let before = cells.clone();
+    let area = CellRect {
+        origin: CellPoint { col: 4, row: 2 },
+        size: GridSize { cols: 70, rows: 20 },
+    };
+    let lifted = Prompt::choose(&status())
+        .draw(&mut cells, area, &theme)
+        .unwrap();
+    assert_eq!(
+        lifted,
+        CellRect {
+            origin: CellPoint { col: 9, row: 9 },
+            size: GridSize { cols: 60, rows: 5 },
+        }
+    );
     let lines = cells.to_lines();
-    assert_eq!(lines[0], "............");
-    assert_eq!(lines[1], " 1: w1");
-    assert_eq!(lines[2], " 2: w2");
+    assert!(lines[10].contains(" 1: w1"));
+    assert!(lines[11].contains(" 2: w2"));
+    assert!(lines[12].contains(" 3: w3"));
+    for row in 0..24 {
+        for col in 0..80 {
+            let index = usize::from(row) * 80 + usize::from(col);
+            let cell = &cells.cells[index];
+            if !lifted.contains(CellPoint { col, row }) {
+                assert_eq!(*cell, before.cells[index]);
+            } else if row == 11 {
+                assert_eq!(cell.bg, surfaces.surface3);
+                assert_eq!(cell.fg, theme.foreground);
+            } else {
+                assert_eq!(cell.bg, surfaces.surface1);
+            }
+        }
+    }
+}
+
+#[test]
+fn chooser_clips_to_a_small_area() {
+    let mut cells = grid(12, 3);
+    let area = full(cells.size);
+    let lifted = Prompt::choose(&status())
+        .draw(&mut cells, area, &Config::default().theme())
+        .unwrap();
+    assert_eq!(
+        lifted,
+        CellRect {
+            origin: CellPoint::default(),
+            size: GridSize { cols: 12, rows: 3 },
+        }
+    );
+    assert_eq!(cells.cells.len(), 36);
+    assert!(cells.to_lines()[1].contains(" 2: w2"));
 }
 
 #[test]
@@ -119,11 +174,17 @@ fn rename_edits_text_and_submits_it() {
 }
 
 #[test]
-fn rename_draws_on_the_status_row() {
+fn rename_draws_nothing_and_gives_bar_text() {
     let mut cells = grid(30, 2);
-    Prompt::rename("nvim".to_owned()).draw(&mut cells, &Config::default().theme());
-    assert_eq!(cells.to_lines()[0], "(rename-window) nvim");
-    assert_eq!(cells.to_lines()[1], "..............................");
+    let before = cells.clone();
+    let prompt = Prompt::rename("nvim".to_owned());
+    assert_eq!(
+        prompt.draw(&mut cells, full(before.size), &Config::default().theme()),
+        None
+    );
+    assert_eq!(cells.cells, before.cells);
+    assert_eq!(prompt.bar_text().as_deref(), Some("(rename-window) nvim"));
+    assert_eq!(Prompt::choose(&status()).bar_text(), None);
 }
 
 #[test]
@@ -159,16 +220,18 @@ fn search_edits_text_and_submits_a_copy_search() {
 }
 
 #[test]
-fn search_draws_its_direction_on_the_status_row() {
+fn search_draws_nothing_and_gives_its_direction_as_bar_text() {
     let mut cells = grid(12, 2);
+    let before = cells.clone();
     let mut prompt = Prompt::search(true);
     prompt.insert("err");
-    prompt.draw(&mut cells, &Config::default().theme());
-    assert_eq!(cells.to_lines()[0], "/err");
-    let mut cells = grid(12, 2);
+    assert_eq!(
+        prompt.draw(&mut cells, full(before.size), &Config::default().theme()),
+        None
+    );
+    assert_eq!(cells.cells, before.cells);
+    assert_eq!(prompt.bar_text().as_deref(), Some("/err"));
     let mut prompt = Prompt::search(false);
     prompt.insert("x");
-    prompt.draw(&mut cells, &Config::default().theme());
-    assert_eq!(cells.to_lines()[0], "?x");
-    assert_eq!(cells.to_lines()[1], "............");
+    assert_eq!(prompt.bar_text().as_deref(), Some("?x"));
 }

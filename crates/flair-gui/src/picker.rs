@@ -1,6 +1,7 @@
 use std::{env, fs, path::PathBuf};
 
 use flair_core::{
+    geom::{CellPoint, CellRect, GridSize},
     proto::{CellFlags, SessionInfo, Target},
     sessionizer::{self, Candidate},
     theme::Theme,
@@ -88,31 +89,33 @@ impl Picker {
             .map(|entry| entry.target())
     }
 
-    pub fn draw(&self, grid: &mut CellGrid, theme: &Theme) {
+    pub fn draw(&self, grid: &mut CellGrid, area: CellRect, theme: &Theme) -> CellRect {
         grid.cursor = None;
-        let width = usize::from(grid.size.cols).min(90);
+        let width = usize::from(area.size.cols).min(90);
         let entries = sessionizer::rank(&self.entries, &self.query);
-        let height = usize::from(grid.size.rows)
+        let height = usize::from(area.size.rows)
             .min(18)
             .min(entries.len().max(1) + 4);
+        let rect = centred(area, width, height);
         if width == 0 || height == 0 {
-            return;
+            return rect;
         }
-        let left = (usize::from(grid.size.cols) - width) / 2;
-        let top = (usize::from(grid.size.rows) - height) / 2;
+        let left = usize::from(rect.origin.col);
+        let top = usize::from(rect.origin.row);
+        let surfaces = theme.surfaces();
         for y in top..top + height {
             for x in left..left + width {
                 grid.cells[y * usize::from(grid.size.cols) + x] = DrawCell {
                     c: ' ',
                     extra: None,
                     fg: theme.foreground,
-                    bg: theme.background,
+                    bg: surfaces.surface1,
                     flags: CellFlags::empty(),
                 };
             }
         }
-        let write = |grid: &mut CellGrid, row, text: &str, selected| {
-            write_row(grid, (left, top + row, width), text, selected, theme);
+        let write = |grid: &mut CellGrid, row, text: &str, style| {
+            write_row(grid, (left, top + row, width), text, style, theme);
         };
         let title = match self.current {
             Some(_) => "Sessions",
@@ -122,14 +125,14 @@ impl Picker {
             grid,
             0,
             &format!("{title}  {} matches", entries.len()),
-            false,
+            Style::Normal,
         );
         if height > 1 {
             let query = tail(&self.query, width.saturating_sub(4));
-            write(grid, 1, &format!("> {query}_"), false);
+            write(grid, 1, &format!("> {query}_"), Style::Normal);
         }
         if height < 4 {
-            return;
+            return rect;
         }
         let capacity = height - 4;
         let first = self.selected.saturating_sub(capacity.saturating_sub(1));
@@ -153,19 +156,19 @@ impl Picker {
                 &entry.root.to_string_lossy(),
                 width.saturating_sub(prefix.chars().count()),
             );
-            write(
-                grid,
-                3 + row,
-                &format!("{prefix}{path}"),
-                index == self.selected,
-            );
+            let style = if index == self.selected {
+                Style::Selected
+            } else {
+                Style::Muted(prefix.chars().count())
+            };
+            write(grid, 3 + row, &format!("{prefix}{path}"), style);
         }
         if entries.is_empty() {
             write(
                 grid,
                 3.min(height - 2),
                 "No matches. Edit your search.",
-                false,
+                Style::Normal,
             );
         }
         let hint = if self.query.is_empty()
@@ -199,7 +202,27 @@ impl Picker {
         } else {
             &hint
         };
-        write(grid, height - 1, hint, false);
+        write(grid, height - 1, hint, Style::Muted(0));
+        rect
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Style {
+    Normal,
+    Muted(usize),
+    Selected,
+}
+
+pub(crate) fn centred(area: CellRect, width: usize, height: usize) -> CellRect {
+    let cols = u16::try_from(width).unwrap_or(area.size.cols);
+    let rows = u16::try_from(height).unwrap_or(area.size.rows);
+    CellRect {
+        origin: CellPoint {
+            col: area.origin.col + (area.size.cols - cols) / 2,
+            row: area.origin.row + (area.size.rows - rows) / 2,
+        },
+        size: GridSize { cols, rows },
     }
 }
 
@@ -230,23 +253,20 @@ fn write_row(
     grid: &mut CellGrid,
     rect: (usize, usize, usize),
     text: &str,
-    selected: bool,
+    style: Style,
     theme: &Theme,
 ) {
     let (left, row, width) = rect;
+    let surfaces = theme.surfaces();
     let start = row * usize::from(grid.size.cols) + left;
     let mut chars = text.chars().filter(|c| !c.is_control());
-    for cell in &mut grid.cells[start..start + width] {
+    for (col, cell) in grid.cells[start..start + width].iter_mut().enumerate() {
         cell.c = chars.next().unwrap_or(' ');
-        cell.fg = if selected {
-            theme.background
-        } else {
-            theme.foreground
-        };
-        cell.bg = if selected {
-            theme.accent
-        } else {
-            theme.background
+        (cell.fg, cell.bg) = match style {
+            Style::Normal => (theme.foreground, surfaces.surface1),
+            Style::Muted(from) if col >= from => (surfaces.muted, surfaces.surface1),
+            Style::Muted(_) => (theme.foreground, surfaces.surface1),
+            Style::Selected => (theme.foreground, surfaces.surface3),
         };
     }
 }

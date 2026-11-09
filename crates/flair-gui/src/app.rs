@@ -3,7 +3,7 @@ use std::{error::Error, fmt, sync::mpsc::Sender, time::Instant};
 use flair_core::{
     command::{Command, WindowRef},
     config::Config,
-    geom::{CellPoint, GridSize},
+    geom::{CellPoint, CellRect, GridSize},
     ids::PaneId,
     key::{InputEvent, Key, KeyAction, KeyInput, MouseAction, MouseButton, MouseInput, NamedKey},
     link::ClientLink,
@@ -255,11 +255,15 @@ impl App {
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
             (None, None) => return,
         };
+        let area = CellRect {
+            origin: CellPoint::default(),
+            size: grid.size,
+        };
         if let Some(picker) = &self.picker {
-            picker.draw(&mut grid, &theme);
+            picker.draw(&mut grid, area, &theme);
         }
         if let Some(prompt) = &self.prompt {
-            prompt.draw(&mut grid, &theme);
+            prompt.draw(&mut grid, area, &theme);
         }
         let padding = self.padding(
             self.surface
