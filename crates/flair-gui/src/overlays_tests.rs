@@ -173,6 +173,7 @@ fn hits(rows: usize) -> OverlayHits {
         rows: (0..rows)
             .map(|index| (index, rect(150.0 + 40.0 * index as f32, 32.0)))
             .collect(),
+        controls: Vec::new(),
     }
 }
 

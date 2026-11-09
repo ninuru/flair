@@ -19,6 +19,8 @@ pub mod picker;
 pub mod probe;
 pub mod prompt;
 pub mod renderer;
+pub mod settings_layout;
+mod settings_rows;
 pub mod status;
 mod theme_file;
 pub mod theme_picker;
