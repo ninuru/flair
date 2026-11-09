@@ -238,3 +238,95 @@ fn drag_selection_keeps_rotated_anchor_when_output_scrolls() {
     term.select_update(CellPoint { col: 3, row: 0 });
     assert_eq!(term.selection_text().as_deref(), Some("beta"));
 }
+
+fn scrolled_copy_mode() -> Terminal {
+    let mut term = Terminal::new(GridSize { cols: 10, rows: 2 }, 100);
+    term.advance(b"one\r\ntwo\r\nthree\r\nfour");
+    term.snapshot(PaneId(1), false).unwrap();
+    term.enter_copy_mode();
+    term.scroll(2);
+    term.select_start(CellPoint { col: 0, row: 0 }, 1);
+    term.select_update(CellPoint { col: 2, row: 0 });
+    assert!(term.copy_mode());
+    term
+}
+
+fn assert_left_copy_mode(term: &mut Terminal) {
+    assert!(!term.copy_mode());
+    assert_eq!(term.selection_text(), None);
+    let frame = term.snapshot(PaneId(1), false).unwrap();
+    assert!(frame.full);
+    assert!(!frame.flags.copy_mode);
+    assert_eq!(frame.flags.display_offset, 0);
+}
+
+#[test]
+fn copy_mode_puts_the_vi_cursor_in_the_snapshot_and_exit_restores_the_view() {
+    let mut term = Terminal::new(GridSize { cols: 10, rows: 2 }, 100);
+    term.advance(b"one\r\ntwo\r\nthree\r\nfour");
+    term.snapshot(PaneId(1), false).unwrap();
+    assert!(!term.copy_mode());
+    term.enter_copy_mode();
+    assert!(term.copy_mode());
+    let frame = term.snapshot(PaneId(1), false).unwrap();
+    assert!(frame.full && frame.flags.copy_mode);
+    assert!(frame.cursor.visible);
+    term.scroll(2);
+    let frame = term.snapshot(PaneId(1), false).unwrap();
+    assert_eq!(frame.flags.display_offset, 2);
+    assert_eq!(frame.rows[0].1[0].c, 'o');
+    assert!(frame.cursor.visible);
+    term.exit_copy_mode();
+    assert_left_copy_mode(&mut term);
+}
+
+#[test]
+fn hidden_terminal_cursor_still_shows_the_vi_cursor() {
+    let mut term = Terminal::new(GridSize { cols: 10, rows: 2 }, 100);
+    term.advance(b"\x1b[?25l");
+    assert!(!term.snapshot(PaneId(1), false).unwrap().cursor.visible);
+    term.enter_copy_mode();
+    assert!(term.snapshot(PaneId(1), false).unwrap().cursor.visible);
+}
+
+#[test]
+fn resize_leaves_copy_mode() {
+    let mut term = scrolled_copy_mode();
+    term.resize(GridSize { cols: 12, rows: 2 });
+    assert_left_copy_mode(&mut term);
+}
+
+#[test]
+fn clear_sequences_leave_copy_mode_even_when_split() {
+    for chunks in [
+        &[&b"\x1b[2J"[..]][..],
+        &[b"\x1b[3J"],
+        &[b"\x1bc"],
+        &[b"x\x1b", b"[2", b"J"],
+        &[b"\x1b[", b"3J"],
+        &[b"\x1b", b"c"],
+    ] {
+        let mut term = scrolled_copy_mode();
+        for chunk in chunks {
+            term.advance(chunk);
+        }
+        assert_left_copy_mode(&mut term);
+    }
+}
+
+#[test]
+fn other_output_keeps_copy_mode() {
+    let mut term = scrolled_copy_mode();
+    term.advance(b"\x1b[2K\x1b[J\x1b[1Jmore\x1b[22J");
+    assert!(term.copy_mode());
+}
+
+#[test]
+fn alt_screen_switch_leaves_copy_mode() {
+    let mut term = scrolled_copy_mode();
+    term.advance(b"\x1b[?1049h");
+    assert!(!term.copy_mode());
+    term.enter_copy_mode();
+    term.advance(b"\x1b[?1049l");
+    assert_left_copy_mode(&mut term);
+}

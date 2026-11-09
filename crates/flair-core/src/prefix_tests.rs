@@ -165,6 +165,7 @@ fn all_default_bindings_dispatch_published_commands() {
         ('f', Command::Sessionizer),
         ('s', Command::ChooseSession),
         ('r', Command::ReloadConfig),
+        ('[', Command::CopyMode),
         (
             'h',
             Command::SelectPane(PaneRef::Direction(Direction::Left)),

@@ -158,6 +158,7 @@ fn fixture() -> StatusLine {
             },
         ],
         pending: None,
+        copy: false,
     }
 }
 
@@ -265,4 +266,30 @@ fn tiny_grids_prioritize_pending_and_never_offer_an_unlabelled_target() {
     for cols in 0..=3 {
         assert!(compose_status(&fixture(), cols, &theme).windows.is_empty());
     }
+}
+
+#[test]
+fn copy_badge_is_bold_at_the_right_next_to_the_prefix_badge() {
+    let theme = Config::default().theme();
+    let copy = StatusLine {
+        copy: true,
+        ..fixture()
+    };
+    let row = compose_status(&copy, 40, &theme);
+    let line = &row.grid.to_lines()[0];
+    assert!(line.ends_with("| main  COPY"), "{line:?}");
+    assert!(
+        row.grid.cells[36..]
+            .iter()
+            .all(|cell| cell.flags.contains(CellFlags::BOLD))
+    );
+    let both = StatusLine {
+        copy: true,
+        ..second_view(&fixture())
+    };
+    let line = &compose_status(&both, 40, &theme).grid.to_lines()[0];
+    assert!(line.ends_with(" COPY ^A"), "{line:?}");
+    assert!(line.starts_with(" 1:shell 2:editor"));
+    let line = &compose_status(&copy, 4, &theme).grid.to_lines()[0];
+    assert_eq!(line, "COPY");
 }

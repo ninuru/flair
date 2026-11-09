@@ -74,8 +74,13 @@ impl Server {
             self.select_pane(id, PaneRef::Id(pane), out);
         }
         mouse.point = local_point(mouse.point, placement);
+        let copy = self.panes[&pane].terminal.copy_mode();
+        let wheel = matches!(mouse.button, MouseButton::WheelUp | MouseButton::WheelDown);
+        if copy && mouse.action == MouseAction::Press && is_button(mouse.button) {
+            self.exit_copy_mode(pane);
+        }
         let modes = self.panes[&pane].terminal.modes();
-        if modes.mouse != MouseMode::Off && !mouse.mods.shift {
+        if modes.mouse != MouseMode::Off && !mouse.mods.shift && !(copy && wheel) {
             if mouse.action == MouseAction::Press && is_button(mouse.button) {
                 self.clients.get_mut(&id).unwrap().mouse =
                     Some(MouseCapture::Reporting { pane, input: mouse });
@@ -102,14 +107,7 @@ impl Server {
                 pane.dirty = true;
             }
             (MouseButton::WheelUp | MouseButton::WheelDown, MouseAction::Press) => {
-                let pane = self.panes.get_mut(&pane).unwrap();
-                pane.terminal
-                    .scroll(if mouse.button == MouseButton::WheelUp {
-                        3
-                    } else {
-                        -3
-                    });
-                pane.dirty = true;
+                self.copy_wheel(pane, mouse.button == MouseButton::WheelUp);
             }
             (MouseButton::Left, MouseAction::Motion | MouseAction::Release)
             | (

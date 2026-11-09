@@ -42,12 +42,12 @@ pub fn compose_status(status: &StatusLine, cols: u16, theme: &Theme) -> StatusRo
         bg: Rgb::default(),
         flags: CellFlags::empty(),
     };
-    let pending = text_cells(
-        status.pending.as_deref().unwrap_or(""),
-        width,
-        CellFlags::BOLD,
-        theme,
-    );
+    let badges = [status.copy.then_some("COPY"), status.pending.as_deref()]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" ");
+    let pending = text_cells(&badges, width, CellFlags::BOLD, theme);
     let pending_space = usize::from(!pending.is_empty() && pending.len() < width);
     let remaining = width - pending.len() - pending_space;
     let suffix_width = if status.windows.is_empty() {

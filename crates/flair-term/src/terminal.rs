@@ -22,6 +22,7 @@ pub struct Terminal {
     pub(crate) term: Term<Collector>,
     processor: Processor,
     osc: OscSniffer,
+    clear: u8,
     events: Rc<RefCell<Vec<TermEvent>>>,
     palette: Rc<RefCell<Theme>>,
     title: Option<String>,
@@ -90,6 +91,7 @@ impl Terminal {
             term: Term::new(config, &Size(size), collector),
             processor: Processor::new(),
             osc: OscSniffer::default(),
+            clear: 0,
             events,
             palette,
             title: None,
@@ -111,9 +113,31 @@ impl Terminal {
                 TermEvent::Bell | TermEvent::PtyWrite(_) | TermEvent::Mark(_, _) => (),
             }
         }
-        self.force_full |= old_alt != self.modes().alt_screen;
+        let alt_changed = old_alt != self.modes().alt_screen;
+        if sniff_clear(&mut self.clear, bytes) || alt_changed {
+            self.exit_copy_mode();
+        }
+        self.force_full |= alt_changed;
+    }
+    pub fn copy_mode(&self) -> bool {
+        self.term.mode().contains(TermMode::VI)
+    }
+    pub fn enter_copy_mode(&mut self) {
+        if !self.copy_mode() {
+            self.term.toggle_vi_mode();
+            self.force_full = true;
+        }
+    }
+    pub fn exit_copy_mode(&mut self) {
+        if self.copy_mode() {
+            self.term.toggle_vi_mode();
+            self.clear_selection();
+            self.term.scroll_display(Scroll::Bottom);
+            self.force_full = true;
+        }
     }
     pub fn resize(&mut self, size: GridSize) {
+        self.exit_copy_mode();
         self.clear_selection();
         self.size = GridSize {
             cols: size.cols.max(1),
@@ -125,6 +149,9 @@ impl Terminal {
     pub fn scroll(&mut self, lines: i32) {
         self.term.scroll_display(Scroll::Delta(lines));
         self.force_full = true;
+    }
+    pub fn display_offset(&self) -> usize {
+        self.term.grid().display_offset()
     }
     pub fn scroll_to_bottom(&mut self) {
         if self.term.grid().display_offset() != 0 {
@@ -198,6 +225,22 @@ impl Terminal {
     pub fn take_events(&mut self) -> Vec<TermEvent> {
         std::mem::take(&mut self.events.borrow_mut())
     }
+}
+fn sniff_clear(state: &mut u8, bytes: &[u8]) -> bool {
+    let mut seen = false;
+    for &b in bytes {
+        *state = match (*state, b) {
+            (_, 27) => 1,
+            (1, b'c') | (3, b'J') => {
+                seen = true;
+                0
+            }
+            (1, b'[') => 2,
+            (2, b'2' | b'3') => 3,
+            _ => 0,
+        };
+    }
+    seen
 }
 struct Size(GridSize);
 impl Dimensions for Size {

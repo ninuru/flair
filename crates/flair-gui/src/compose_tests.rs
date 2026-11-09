@@ -308,6 +308,7 @@ fn gpu_draws_status_split_panes_and_active_cursor() {
     let status = StatusLine {
         session: "main".into(),
         pending: Some("^A".into()),
+        copy: false,
         windows: vec![
             StatusWindow {
                 id: WindowId(1),

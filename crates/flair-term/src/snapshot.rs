@@ -111,6 +111,7 @@ impl Terminal {
                 alt_screen: self.modes().alt_screen,
                 display_offset: offset.min(u32::MAX as usize) as u32,
                 mouse_reporting: self.modes().mouse != crate::terminal::MouseMode::Off,
+                copy_mode: self.copy_mode(),
             },
         };
         let force = full

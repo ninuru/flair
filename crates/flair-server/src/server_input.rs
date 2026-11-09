@@ -129,6 +129,8 @@ impl Server {
             }
             Command::PasteClipboard => out.push(Effect::Send(id, ServerMsg::PasteClipboard)),
             Command::ReloadConfig => self.reload_config(out),
+            Command::CopyMode => self.enter_copy_mode(id),
+            Command::Copy(command) => self.copy_command(id, command),
             Command::ScrollLines(_) | Command::ScrollPages(_) | Command::ScrollToBottom => {
                 if let Some(pane) = self
                     .client_pane(id)
@@ -159,7 +161,9 @@ impl Server {
                         | Command::ClosePane
                         | Command::ToggleZoom
                         | Command::PasteClipboard
-                        | Command::ReloadConfig => unreachable!(),
+                        | Command::ReloadConfig
+                        | Command::CopyMode
+                        | Command::Copy(_) => unreachable!(),
                     }
                     pane.dirty = true;
                 }
@@ -179,6 +183,9 @@ impl Server {
             InputEvent::Ime(composing) => self.set_ime(id, composing, out),
             InputEvent::Text(_) | InputEvent::Paste(_) => {
                 self.cancel_prefix(id, out);
+                if let Some(pane) = self.client_pane(id) {
+                    self.exit_copy_mode(pane);
+                }
                 self.forward(id, input, out);
             }
             InputEvent::Mouse(mouse) => self.mouse_input(now, id, mouse, out),

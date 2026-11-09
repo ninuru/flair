@@ -9,6 +9,7 @@ pub struct StatusLine {
     pub session: String,
     pub windows: Vec<StatusWindow>,
     pub pending: Option<String>,
+    pub copy: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
