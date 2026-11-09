@@ -1,8 +1,10 @@
 use std::collections::BTreeMap;
 
 use flair_core::{
+    config::Config,
     geom::GridSize,
     ids::{ClientId, PaneId, SessionId, WindowId},
+    prefix::PrefixMachine,
     proto::{ClientKind, ClientMsg, Control, ExitReason, PROTOCOL, ServerMsg, Target},
     time::Millis,
     tree::Tree,
@@ -22,6 +24,8 @@ mod lifecycle;
 mod mouse;
 #[path = "server_sessions.rs"]
 mod sessions;
+#[path = "server_status.rs"]
+mod status;
 #[path = "server_windows.rs"]
 mod windows;
 
@@ -87,24 +91,13 @@ impl Server {
                     pane.exited = true;
                 }
             }
-            Event::Timer(timer) => {
-                if let Ok(id) = u32::try_from(timer) {
-                    let id = ClientId(id);
-                    if self
-                        .clients
-                        .get(&id)
-                        .and_then(|c| c.prefix_until)
-                        .is_some_and(|until| now >= until)
-                    {
-                        self.clients.get_mut(&id).unwrap().prefix_until = None;
-                        self.send_title(id, out);
-                    }
-                }
-            }
+            Event::Timer(timer) => self.prefix_timer(now, timer, out),
+            Event::ConfigRead(result) => self.config_read(result, out),
         }
         if !self.stopping {
             self.reap_sessions(now, out);
             self.flush_frames(out);
+            self.flush_status(out);
         }
     }
 
@@ -158,7 +151,8 @@ impl Server {
                         layout: None,
                         env,
                         palette,
-                        prefix_until: None,
+                        prefix: PrefixMachine::default(),
+                        status: None,
                         last_click: None,
                         selecting: false,
                         mouse: None,
@@ -209,6 +203,8 @@ impl Server {
                 self.clients.get_mut(&id).unwrap().focused = focused;
                 if focused {
                     self.touch(now, id, out);
+                } else {
+                    self.cancel_prefix(id, out);
                 }
                 if let Some(pane) = self.client_pane(id)
                     && let Some(bytes) = encode_focus(focused, &self.panes[&pane].terminal.modes())
@@ -307,12 +303,22 @@ impl Server {
                     .session(client.view.session)
                     .map_or("flair", |session| session.name.as_str())
             });
-        let title = if client.prefix_until.is_some() {
-            format!("{title} ^A")
+        let title = if client.prefix.pending() {
+            format!("{title} {}", prefix_label(&self.config.keys.key))
         } else {
             title.to_owned()
         };
         out.push(Effect::Send(id, ServerMsg::Title(title)));
+    }
+}
+
+fn prefix_label(key: &str) -> String {
+    match key.strip_prefix("C-").map(|rest| {
+        let mut chars = rest.chars();
+        (chars.next(), chars.next())
+    }) {
+        Some((Some(c), None)) => format!("^{}", c.to_ascii_uppercase()),
+        Some(_) | None => key.to_owned(),
     }
 }
 

@@ -1,0 +1,63 @@
+program = "/bin/sh"
+args = ["-i"]
+cols = 80
+rows = 12
+
+[env]
+PS1 = "ready> "
+
+[[steps]]
+action = "wait"
+text = "ready> "
+
+[[steps]]
+action = "text"
+text = "stty size\r"
+
+[[steps]]
+action = "wait"
+text = "12 80"
+
+[[steps]]
+action = "key"
+key = "Enter"
+ctrl = true
+shift = true
+
+[[steps]]
+action = "text"
+text = "stty size\r"
+
+[[steps]]
+action = "wait"
+text = "12 40"
+
+[[steps]]
+action = "key"
+key = "a"
+ctrl = true
+
+[[steps]]
+action = "key"
+key = "c"
+
+[[steps]]
+action = "wait"
+text = "2:env"
+
+[[steps]]
+action = "text"
+text = "echo second-window\r"
+
+[[steps]]
+action = "wait"
+text = "second-window"
+
+[[steps]]
+action = "key"
+key = "1"
+alt = true
+
+[[steps]]
+action = "wait"
+text = "12 80"

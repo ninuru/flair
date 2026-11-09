@@ -584,13 +584,23 @@ fn sessionizer_prefix_expires_and_restores_title() {
         Event::Client(ClientId(1), key('a', true)),
         &mut out,
     );
+    let (token, until) = out
+        .iter()
+        .find_map(|effect| {
+            if let Effect::SetTimer(token, until) = effect {
+                Some((*token, *until))
+            } else {
+                None
+            }
+        })
+        .unwrap();
     out.clear();
-    server.handle(Millis(1001), Event::Timer(1), &mut out);
+    server.handle(until, Event::Timer(token), &mut out);
     assert!(out.iter().any(
         |effect| matches!(effect,Effect::Send(_,ServerMsg::Title(title)) if !title.contains("^A"))
     ));
     server.handle(
-        Millis(1002),
+        until + Millis(1),
         Event::Client(ClientId(1), key('f', false)),
         &mut out,
     );

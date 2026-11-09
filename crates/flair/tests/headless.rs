@@ -64,6 +64,41 @@ fn real_scenarios_run_without_display_and_capture_cells() {
 }
 
 #[test]
+fn windows_scenario_frames_status_split_and_window_switch() {
+    let output = OutputDir::new();
+    let run = Command::new("timeout")
+        .args([
+            "10s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--scenario",
+        ])
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/windows.toml"))
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let frame = fs::read_to_string(output.0.join("frame.txt")).unwrap();
+    let rows: Vec<&str> = frame.lines().collect();
+    assert_eq!(rows.len(), 13);
+    assert!(rows[0].starts_with(" 1:env 2:env "));
+    assert!(rows[0].ends_with("| main "));
+    assert!(rows[1..].iter().all(|row| row.chars().nth(39) == Some('│')));
+    assert!(
+        rows[1..]
+            .iter()
+            .any(|row| row.trim_end().ends_with("12 40"))
+    );
+}
+
+#[test]
 fn timeout_reports_failure_and_reaps_shell() {
     let output = OutputDir::new();
     let pid_path = output.0.join("shell.pid");

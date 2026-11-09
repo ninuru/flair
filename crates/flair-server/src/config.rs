@@ -1,4 +1,4 @@
-use flair_core::config::Config;
+use flair_core::{config::Config, keys::KeysConfig};
 use std::{env, path::PathBuf};
 
 #[derive(Debug, Clone)]
@@ -8,6 +8,8 @@ pub struct ServerConfig {
     pub cwd: PathBuf,
     pub env: Vec<(String, String)>,
     pub scrollback: usize,
+    pub keys: KeysConfig,
+    pub path: PathBuf,
 }
 
 impl ServerConfig {
@@ -24,6 +26,17 @@ impl ServerConfig {
             cwd: env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
             env,
             scrollback: config.scrollback.lines,
+            keys: config.keys.clone(),
+            path: Config::default_path(),
         }
+    }
+
+    pub fn reloaded(&self, config: &Config) -> ServerConfig {
+        let mut next = ServerConfig::from_config(config);
+        next.cwd = self.cwd.clone();
+        next.path = self.path.clone();
+        next.env
+            .extend(self.env.iter().filter(|(key, _)| key == "FLAIR").cloned());
+        next
     }
 }

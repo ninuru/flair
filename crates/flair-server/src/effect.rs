@@ -5,6 +5,7 @@ use flair_core::{
     time::Millis,
 };
 use flair_term::pty::SpawnSpec;
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Effect {
@@ -15,5 +16,6 @@ pub enum Effect {
     KillPty(PaneId),
     Send(ClientId, ServerMsg),
     SetTimer(u64, Millis),
+    ReadConfig(PathBuf),
     Shutdown,
 }

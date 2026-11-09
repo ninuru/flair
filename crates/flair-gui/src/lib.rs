@@ -9,6 +9,7 @@ pub mod mirror;
 pub mod mouse;
 pub mod picker;
 pub mod probe;
+pub mod prompt;
 pub mod renderer;
 pub mod status;
 

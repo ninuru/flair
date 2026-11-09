@@ -12,4 +12,5 @@ pub enum Event {
     PtyExited(PaneId),
     PtySpawnFailed(PaneId),
     Timer(u64),
+    ConfigRead(Result<String, String>),
 }

@@ -6,9 +6,13 @@ use flair_core::{
     ids::PaneId,
     key::InputEvent,
     link::{ClientLink, channel_pair},
-    proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target},
+    proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
+    status::StatusLine,
 };
-use flair_gui::{compose::compose, mirror::Mirror};
+use flair_gui::{
+    compose::{compose, compose_frame},
+    mirror::Mirror,
+};
 use flair_server::{ServerConfig, runtime::spawn_in_process};
 use serde::Serialize;
 use std::{
@@ -41,9 +45,35 @@ impl Drop for TempHome {
     }
 }
 
+fn lines(grid: &flair_gui::cellgrid::CellGrid) -> String {
+    grid.cells
+        .chunks(usize::from(grid.size.cols).max(1))
+        .map(|row| {
+            row.iter()
+                .filter(|cell| {
+                    !cell
+                        .flags
+                        .contains(flair_core::proto::CellFlags::WIDE_SPACER)
+                })
+                .map(|cell| {
+                    let mut text = cell.c.to_string();
+                    if let Some(extra) = &cell.extra {
+                        text.push_str(extra);
+                    }
+                    text
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 struct Capture {
     mirror: Mirror,
     pane: Option<PaneId>,
+    layout: Option<WindowLayout>,
+    status: StatusLine,
+    size: GridSize,
     ended: bool,
     theme: flair_core::theme::Theme,
 }
@@ -56,15 +86,21 @@ impl Capture {
             | ServerMsg::SetClipboard { .. }
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::Sessions(_)
-            | ServerMsg::Layout(_)
-            | ServerMsg::Status(_)
             | ServerMsg::ChooseWindow
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Done => {}
+            ServerMsg::Layout(layout) => {
+                self.mirror.retain_layout(&layout);
+                self.pane = Some(layout.active);
+                self.layout = Some(layout);
+            }
+            ServerMsg::Status(status) => self.status = status,
             ServerMsg::Frame { seq, panes } => {
-                self.pane = panes.first().map(|pane| pane.pane).or(self.pane);
+                if self.layout.is_none() {
+                    self.pane = panes.first().map(|pane| pane.pane).or(self.pane);
+                }
                 self.mirror.apply(&panes);
                 tx.send(ClientMsg::FrameAck { seq })
                     .map_err(|e| e.to_string())?;
@@ -78,27 +114,21 @@ impl Capture {
         let Some(pane) = self.pane else {
             return String::new();
         };
-        let grid = compose(&self.mirror, pane, &self.theme, true);
-        grid.cells
-            .chunks(usize::from(grid.size.cols).max(1))
-            .map(|row| {
-                row.iter()
-                    .filter(|cell| {
-                        !cell
-                            .flags
-                            .contains(flair_core::proto::CellFlags::WIDE_SPACER)
-                    })
-                    .map(|cell| {
-                        let mut text = cell.c.to_string();
-                        if let Some(extra) = &cell.extra {
-                            text.push_str(extra);
-                        }
-                        text
-                    })
-                    .collect::<String>()
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
+        lines(&compose(&self.mirror, pane, &self.theme, true))
+    }
+
+    fn frame(&self) -> String {
+        match &self.layout {
+            Some(layout) => lines(&compose_frame(
+                &self.mirror,
+                layout,
+                &self.status,
+                self.size,
+                &self.theme,
+                true,
+            )),
+            None => self.screen(),
+        }
     }
 
     fn wait(
@@ -183,6 +213,9 @@ pub fn run(scenario: Scenario, output: &Path, timeout: Duration) -> Result<(), S
     let mut capture = Capture {
         mirror: Mirror::default(),
         pane: None,
+        layout: None,
+        status: StatusLine::default(),
+        size: client_size(scenario.cols, scenario.rows)?,
         ended: false,
         theme: config.theme(),
     };
@@ -213,7 +246,7 @@ pub fn run(scenario: Scenario, output: &Path, timeout: Duration) -> Result<(), S
             }
             let message = match step {
                 Step::Wait { text } => {
-                    capture.wait(&link, deadline, |capture| capture.screen().contains(text))?;
+                    capture.wait(&link, deadline, |capture| capture.frame().contains(text))?;
                     None
                 }
                 Step::Cursor { col, row } => {
@@ -237,7 +270,10 @@ pub fn run(scenario: Scenario, output: &Path, timeout: Duration) -> Result<(), S
                 )?))),
                 Step::Text { text } => Some(ClientMsg::Input(InputEvent::Text(text.clone()))),
                 Step::Paste { text } => Some(ClientMsg::Input(InputEvent::Paste(text.clone()))),
-                Step::Resize { cols, rows } => Some(ClientMsg::Resize(client_size(*cols, *rows)?)),
+                Step::Resize { cols, rows } => {
+                    capture.size = client_size(*cols, *rows)?;
+                    Some(ClientMsg::Resize(capture.size))
+                }
                 Step::Scroll { lines } => Some(ClientMsg::Command(Command::ScrollLines(*lines))),
             };
             if let Some(message) = message {
@@ -287,6 +323,7 @@ pub fn run(scenario: Scenario, output: &Path, timeout: Duration) -> Result<(), S
         elapsed_ms: start.elapsed().as_millis() as u64,
     };
     fs::write(output.join("screen.txt"), capture.screen()).map_err(|e| e.to_string())?;
+    fs::write(output.join("frame.txt"), capture.frame()).map_err(|e| e.to_string())?;
     fs::write(
         output.join("result.toml"),
         toml::to_string(&report).map_err(|e| e.to_string())?,
