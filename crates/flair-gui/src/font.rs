@@ -1,4 +1,4 @@
-use std::{error::Error, fmt};
+use std::{collections::HashMap, error::Error, fmt};
 
 use crossfont::{BitmapBuffer, FontDesc, Rasterize, Slant, Weight};
 use flair_core::config::FontConfig;
@@ -8,6 +8,10 @@ pub struct Fonts {
     faces: [crossfont::FontKey; 4],
     size: crossfont::Size,
     metrics: CellMetrics,
+    ui_faces: [crossfont::FontKey; 2],
+    ui_size: crossfont::Size,
+    ui_metrics: UiMetrics,
+    ui_advances: HashMap<(char, Style), f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -15,6 +19,12 @@ pub struct CellMetrics {
     pub width: f32,
     pub height: f32,
     pub baseline: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UiMetrics {
+    pub height: f32,
+    pub ascent: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -90,11 +100,48 @@ impl Fonts {
             height,
             baseline: height + raw.descent - (height - raw.line_height as f32) / 2.0,
         };
+        let ui_size = crossfont::Size::new(config.ui_size * scale as f32);
+        let mut ui_faces = Vec::new();
+        for weight in [Weight::Normal, Weight::Bold] {
+            let style = crossfont::Style::Description {
+                slant: Slant::Normal,
+                weight,
+            };
+            let face = rasterizer
+                .load_font(&FontDesc::new(&config.ui_family, style.clone()), ui_size)
+                .or_else(|_| {
+                    log::warn!(
+                        "font {} unavailable; using sans-serif fallback",
+                        config.ui_family
+                    );
+                    rasterizer.load_font(&FontDesc::new("sans-serif", style), ui_size)
+                })
+                .map_err(|e| FontError(e.to_string()))?;
+            ui_faces.push(face);
+        }
+        rasterizer
+            .get_glyph(crossfont::GlyphKey {
+                character: 'm',
+                font_key: ui_faces[0],
+                size: ui_size,
+            })
+            .map_err(|e| FontError(e.to_string()))?;
+        let raw = rasterizer
+            .metrics(ui_faces[0], ui_size)
+            .map_err(|e| FontError(e.to_string()))?;
+        let ui_metrics = UiMetrics {
+            height: (raw.line_height as f32).ceil().max(1.0),
+            ascent: raw.line_height as f32 + raw.descent,
+        };
         Ok(Fonts {
             rasterizer,
             faces: faces.try_into().unwrap(),
             size,
             metrics,
+            ui_faces: ui_faces.try_into().unwrap(),
+            ui_size,
+            ui_metrics,
+            ui_advances: HashMap::new(),
         })
     }
 
@@ -114,13 +161,58 @@ impl Fonts {
             font_key: self.faces[index],
             size: self.size,
         };
-        let glyph = match self.rasterizer.get_glyph(key) {
-            Ok(glyph) | Err(crossfont::Error::MissingGlyph(glyph)) => glyph,
-            Err(error) => {
-                log::debug!("glyph {c:?}: {error}");
-                return None;
-            }
+        self.raster(key)
+    }
+
+    pub fn ui_metrics(&self) -> UiMetrics {
+        self.ui_metrics
+    }
+
+    pub fn ui_advance(&mut self, c: char, style: Style) -> f32 {
+        if let Some(advance) = self.ui_advances.get(&(c, style)) {
+            return *advance;
+        }
+        let advance = self
+            .glyph(self.ui_key(c, style))
+            .map_or(0.0, |glyph| glyph.advance.0 as f32);
+        self.ui_advances.insert((c, style), advance);
+        advance
+    }
+
+    pub fn ui_width(&mut self, text: &str, bold: bool) -> f32 {
+        let style = if bold { Style::Bold } else { Style::Regular };
+        text.chars().map(|c| self.ui_advance(c, style)).sum()
+    }
+
+    pub fn rasterize_ui(&mut self, c: char, style: Style) -> Option<RasterGlyph> {
+        self.raster(self.ui_key(c, style))
+    }
+
+    fn ui_key(&self, c: char, style: Style) -> crossfont::GlyphKey {
+        let index = match style {
+            Style::Regular | Style::Italic => 0,
+            Style::Bold | Style::BoldItalic => 1,
         };
+        crossfont::GlyphKey {
+            character: c,
+            font_key: self.ui_faces[index],
+            size: self.ui_size,
+        }
+    }
+
+    fn glyph(&mut self, key: crossfont::GlyphKey) -> Option<crossfont::RasterizedGlyph> {
+        match self.rasterizer.get_glyph(key) {
+            Ok(glyph) | Err(crossfont::Error::MissingGlyph(glyph)) => Some(glyph),
+            Err(error) => {
+                let c = key.character;
+                log::debug!("glyph {c:?}: {error}");
+                None
+            }
+        }
+    }
+
+    fn raster(&mut self, key: crossfont::GlyphKey) -> Option<RasterGlyph> {
+        let glyph = self.glyph(key)?;
         if glyph.width <= 0 || glyph.height <= 0 {
             return None;
         }

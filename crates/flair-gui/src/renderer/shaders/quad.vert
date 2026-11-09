@@ -6,6 +6,9 @@ layout(location = 3) in float kind;
 uniform vec2 viewport;
 out vec2 uv;
 out vec4 tint;
+out vec2 local;
+flat out vec2 half_size;
+flat out float radius;
 flat out int mode;
 const vec2 corners[6] = vec2[6](vec2(0,0),vec2(1,0),vec2(0,1),vec2(0,1),vec2(1,0),vec2(1,1));
 void main() {
@@ -14,5 +17,8 @@ void main() {
     gl_Position = vec4(pixel.x / viewport.x * 2.0 - 1.0, 1.0 - pixel.y / viewport.y * 2.0, 0.0, 1.0);
     uv = texture_rect.xy + corner * texture_rect.zw;
     tint = color;
+    half_size = rect.zw * 0.5;
+    local = corner * rect.zw - half_size;
+    radius = texture_rect.x;
     mode = int(kind);
 }

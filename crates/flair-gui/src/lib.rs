@@ -14,4 +14,4 @@ pub mod renderer;
 pub mod status;
 
 pub use app::{GuiError, run, run_target};
-pub use font::{CellMetrics, FontError, Fonts, RasterGlyph, Style};
+pub use font::{CellMetrics, FontError, Fonts, RasterGlyph, Style, UiMetrics};
