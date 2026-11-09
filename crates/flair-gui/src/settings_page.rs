@@ -402,9 +402,10 @@ impl SettingsPage {
         let Some(index) = self.selected() else {
             return SettingsOutcome::Pending;
         };
+        let seed = self.seed(index);
         self.editor = Some(Editor {
             setting: index,
-            text: TextCursor::new(&self.seed(index)).with_limit(EDITOR_LIMIT),
+            text: TextCursor::new(&seed).with_limit(EDITOR_LIMIT.max(seed.len())),
         });
         SettingsOutcome::Pending
     }
