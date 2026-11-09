@@ -290,6 +290,16 @@ impl Renderer {
             (bottom, extend.y + extend.h - bottom),
         ];
         let bg = |col: usize, row: usize| opaque(grid.cells[row * cols + col].bg);
+        let edge = |row: usize| {
+            dominant(
+                grid.cells[row * cols..(row + 1) * cols]
+                    .iter()
+                    .map(|cell| cell.bg),
+            )
+        };
+        let (Some(top), Some(bottom)) = (edge(0), edge(rows - 1)) else {
+            return out;
+        };
         let mut push = |x: (f32, f32), y: (f32, f32), color| {
             if x.1 > 0.0 && y.1 > 0.0 {
                 instance(&mut out, [x.0, y.0, x.1, y.1], [0.0; 4], color, 0.0);
@@ -300,16 +310,9 @@ impl Renderer {
             push(xs[0], y, bg(0, row));
             push(xs[1], y, bg(cols - 1, row));
         }
-        for col in 0..cols {
-            let x = (origin.0 + col as f32 * m.width, m.width);
-            push(x, ys[0], bg(col, 0));
-            push(x, ys[1], bg(col, rows - 1));
-        }
-        for (x, col) in [(xs[0], 0), (xs[1], cols - 1)] {
-            for (y, row) in [(ys[0], 0), (ys[1], rows - 1)] {
-                push(x, y, bg(col, row));
-            }
-        }
+        let width = (extend.x, extend.w);
+        push(width, ys[0], opaque(top));
+        push(width, ys[1], opaque(bottom));
         out
     }
     fn cells(
@@ -453,6 +456,26 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         self.pipeline.destroy(&self.gl);
     }
+}
+
+fn dominant(colors: impl Iterator<Item = Rgb>) -> Option<Rgb> {
+    let mut counts: Vec<(Rgb, usize)> = Vec::new();
+    for color in colors {
+        match counts.iter_mut().find(|(seen, _)| *seen == color) {
+            Some((_, count)) => *count += 1,
+            None => counts.push((color, 1)),
+        }
+    }
+    counts
+        .into_iter()
+        .fold(
+            None,
+            |best: Option<(Rgb, usize)>, (color, count)| match best {
+                Some((_, most)) if most >= count => best,
+                _ => Some((color, count)),
+            },
+        )
+        .map(|(color, _)| color)
 }
 
 fn scissor_box(clip: PxRect, height: u32) -> (i32, i32, i32, i32) {

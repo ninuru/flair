@@ -361,8 +361,8 @@ impl Default for FontConfig {
 impl Default for WindowConfig {
     fn default() -> WindowConfig {
         WindowConfig {
-            padding_x: 16,
-            padding_y: 8,
+            padding_x: 8,
+            padding_y: 0,
         }
     }
 }
