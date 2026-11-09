@@ -34,9 +34,47 @@ pub enum Command {
     Copy(CopyCommand),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CopyCommand {
     Cancel,
+    Move(CopyMotion),
+    Select(SelectionKind),
+    OtherEnd,
+    SearchPrompt { forward: bool },
+    Search { pattern: String, forward: bool },
+    SearchAgain,
+    SearchReverse,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CopyMotion {
+    Left,
+    Down,
+    Up,
+    Right,
+    NextWord,
+    PreviousWord,
+    NextWordEnd,
+    NextSpace,
+    PreviousSpace,
+    NextSpaceEnd,
+    StartOfLine,
+    BackToIndentation,
+    EndOfLine,
+    HistoryTop,
+    HistoryBottom,
+    HalfPageUp,
+    HalfPageDown,
+    TopLine,
+    MiddleLine,
+    BottomLine,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SelectionKind {
+    Simple,
+    Lines,
+    Block,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

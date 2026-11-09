@@ -1,5 +1,6 @@
 use super::*;
 use flair_core::{
+    command::{Command, CopyCommand},
     geom::{CellPoint, GridSize},
     key::{
         InputEvent, Key, KeyAction, KeyInput, Locks, Mods, MouseAction, MouseButton, MouseInput,
@@ -326,4 +327,151 @@ fn resize_and_clear_leave_copy_mode() {
     let out = output(&mut server, b"\x1b[2J");
     assert!(!copy_mode(&server));
     assert!(!status(&out).unwrap().copy);
+}
+
+fn shifted(server: &mut Server, c: char) -> Vec<Effect> {
+    chord(
+        server,
+        Key::Char(c),
+        Mods {
+            shift: true,
+            ..Mods::default()
+        },
+    )
+}
+
+fn cursor(server: &Server) -> CellPoint {
+    server.panes[&PaneId(1)]
+        .cached
+        .as_ref()
+        .unwrap()
+        .cursor
+        .point
+}
+
+fn selection(server: &Server) -> Option<String> {
+    server.panes[&PaneId(1)].terminal.selection_text()
+}
+
+fn copy_setup() -> Server {
+    let mut server = setup();
+    output(&mut server, b"\r\nfoo bar");
+    enter(&mut server);
+    server
+}
+
+#[test]
+fn motion_keys_including_shifted_ones_move_the_vi_cursor() {
+    let mut server = copy_setup();
+    let mut written = Vec::new();
+    written.extend(press(&mut server, Key::Char('0')));
+    assert_eq!(cursor(&server), CellPoint { col: 0, row: 3 });
+    written.extend(shifted(&mut server, 'W'));
+    assert_eq!(cursor(&server), CellPoint { col: 4, row: 3 });
+    written.extend(shifted(&mut server, 'B'));
+    assert_eq!(cursor(&server), CellPoint { col: 0, row: 3 });
+    written.extend(shifted(&mut server, 'E'));
+    assert_eq!(cursor(&server), CellPoint { col: 2, row: 3 });
+    written.extend(shifted(&mut server, 'H'));
+    assert_eq!(cursor(&server).row, 0);
+    written.extend(shifted(&mut server, 'M'));
+    assert_eq!(cursor(&server).row, 1);
+    written.extend(shifted(&mut server, 'L'));
+    assert_eq!(cursor(&server).row, 3);
+    written.extend(press(&mut server, Key::Char('g')));
+    assert!(offset(&server) > 0);
+    assert_eq!(cursor(&server).row, 0);
+    written.extend(shifted(&mut server, 'G'));
+    assert_eq!(offset(&server), 0);
+    assert_eq!(cursor(&server).row, 3);
+    written.extend(chord(&mut server, Key::Char('u'), ctrl()));
+    assert_eq!(offset(&server), 2);
+    written.extend(chord(&mut server, Key::Char('d'), ctrl()));
+    assert_eq!(offset(&server), 0);
+    written.extend(press(&mut server, Key::Char('k')));
+    assert_eq!(cursor(&server).row, 2);
+    written.extend(press(&mut server, Key::Named(NamedKey::Down)));
+    assert_eq!(cursor(&server).row, 3);
+    assert!(writes(&written).is_empty());
+    assert!(copy_mode(&server));
+}
+
+#[test]
+fn selection_keys_select_convert_clear_and_swap() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('0'));
+    shifted(&mut server, 'V');
+    assert!(selection(&server).unwrap().starts_with("foo bar"));
+    chord(&mut server, Key::Char('v'), ctrl());
+    assert_eq!(selection(&server).as_deref(), Some("f"));
+    press(&mut server, Key::Char('v'));
+    press(&mut server, Key::Char('l'));
+    press(&mut server, Key::Char('l'));
+    assert_eq!(selection(&server).as_deref(), Some("foo"));
+    press(&mut server, Key::Char('o'));
+    assert_eq!(cursor(&server), CellPoint { col: 0, row: 3 });
+    assert_eq!(selection(&server).as_deref(), Some("foo"));
+    press(&mut server, Key::Char('v'));
+    assert_eq!(selection(&server), None);
+}
+
+#[test]
+fn search_keys_prompt_the_client_and_search_runs_from_the_command() {
+    let mut server = copy_setup();
+    let out = press(&mut server, Key::Char('/'));
+    assert!(out.iter().any(|effect| matches!(
+        effect,
+        Effect::Send(ClientId(1), ServerMsg::PromptSearch { forward: true })
+    )));
+    let out = shifted(&mut server, '?');
+    assert!(out.iter().any(|effect| matches!(
+        effect,
+        Effect::Send(ClientId(1), ServerMsg::PromptSearch { forward: false })
+    )));
+    assert!(writes(&out).is_empty());
+    press(&mut server, Key::Char('0'));
+    send(
+        &mut server,
+        ClientMsg::Command(Command::Copy(CopyCommand::Search {
+            pattern: "o".into(),
+            forward: false,
+        })),
+    );
+    assert_eq!(cursor(&server), CellPoint { col: 4, row: 2 });
+    press(&mut server, Key::Char('n'));
+    assert_eq!(cursor(&server), CellPoint { col: 2, row: 3 });
+    shifted(&mut server, 'N');
+    assert_eq!(cursor(&server), CellPoint { col: 4, row: 2 });
+}
+
+#[test]
+fn invalid_search_is_ignored_without_an_error() {
+    let mut server = copy_setup();
+    let before = cursor(&server);
+    let out = send(
+        &mut server,
+        ClientMsg::Command(Command::Copy(CopyCommand::Search {
+            pattern: "(".into(),
+            forward: true,
+        })),
+    );
+    assert!(!out.iter().any(|effect| matches!(
+        effect,
+        Effect::Send(_, ServerMsg::Error(_) | ServerMsg::Exit(_))
+    )));
+    assert_eq!(cursor(&server), before);
+    assert!(copy_mode(&server));
+}
+
+#[test]
+fn copy_commands_outside_copy_mode_do_nothing() {
+    let mut server = setup();
+    let out = send(
+        &mut server,
+        ClientMsg::Command(Command::Copy(CopyCommand::SearchPrompt { forward: true })),
+    );
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptSearch { .. })))
+    );
 }

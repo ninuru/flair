@@ -1,5 +1,5 @@
 use flair_core::{
-    command::{Command, WindowRef},
+    command::{Command, CopyCommand, WindowRef},
     key::{Key, KeyAction, KeyInput, NamedKey},
     proto::CellFlags,
     status::{StatusLine, StatusWindow},
@@ -18,6 +18,10 @@ pub enum Prompt {
     },
     Rename {
         text: String,
+    },
+    Search {
+        text: String,
+        forward: bool,
     },
 }
 
@@ -44,10 +48,17 @@ impl Prompt {
         Prompt::Rename { text: current }
     }
 
+    pub fn search(forward: bool) -> Prompt {
+        Prompt::Search {
+            text: String::new(),
+            forward,
+        }
+    }
+
     pub fn insert(&mut self, input: &str) {
         match self {
             Prompt::Choose { .. } => {}
-            Prompt::Rename { text } => push_name(text, input),
+            Prompt::Rename { text } | Prompt::Search { text, .. } => push_name(text, input),
         }
     }
 
@@ -77,11 +88,17 @@ impl Prompt {
                 )),
                 Key::Char(_) | Key::Named(_) => Outcome::Pending,
             },
-            Prompt::Rename { text } => match key.key {
+            Prompt::Rename { text } if key.key == Key::Named(NamedKey::Enter) => {
+                Outcome::Run(Command::RenameWindow(Some(text.clone())))
+            }
+            Prompt::Search { text, forward } if key.key == Key::Named(NamedKey::Enter) => {
+                Outcome::Run(Command::Copy(CopyCommand::Search {
+                    pattern: text.clone(),
+                    forward: *forward,
+                }))
+            }
+            Prompt::Rename { text } | Prompt::Search { text, .. } => match key.key {
                 Key::Named(NamedKey::Escape) => Outcome::Close,
-                Key::Named(NamedKey::Enter) => {
-                    Outcome::Run(Command::RenameWindow(Some(text.clone())))
-                }
                 Key::Named(NamedKey::Backspace) => {
                     text.pop();
                     Outcome::Pending
@@ -128,6 +145,16 @@ impl Prompt {
                     grid,
                     0,
                     &format!("(rename-window) {text}"),
+                    theme.foreground,
+                    Rgb::default(),
+                );
+            }
+            Prompt::Search { text, forward } => {
+                let label = if *forward { '/' } else { '?' };
+                write_row(
+                    grid,
+                    0,
+                    &format!("{label}{text}"),
                     theme.foreground,
                     Rgb::default(),
                 );

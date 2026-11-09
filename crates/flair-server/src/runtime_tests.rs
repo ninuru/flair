@@ -70,6 +70,7 @@ fn wait_text(client: &flair_core::link::ClientLink, text: &str) {
             | ServerMsg::ChooseWindow
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
+            | ServerMsg::PromptSearch { .. }
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Done => {}
         }

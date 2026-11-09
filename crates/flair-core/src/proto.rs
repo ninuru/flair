@@ -65,6 +65,9 @@ pub enum ServerMsg {
     PromptRename {
         current: String,
     },
+    PromptSearch {
+        forward: bool,
+    },
     ReloadConfig {
         toml: String,
     },

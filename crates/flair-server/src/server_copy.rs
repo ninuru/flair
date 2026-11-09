@@ -47,12 +47,34 @@ impl Server {
         }
     }
 
-    pub(super) fn copy_command(&mut self, id: ClientId, command: CopyCommand) {
-        let Some(pane) = self.copy_pane(id) else {
+    pub(super) fn copy_command(
+        &mut self,
+        id: ClientId,
+        command: CopyCommand,
+        out: &mut Vec<Effect>,
+    ) {
+        let Some(pane_id) = self.copy_pane(id) else {
             return;
         };
+        let pane = self.panes.get_mut(&pane_id).unwrap();
         match command {
-            CopyCommand::Cancel => self.exit_copy_mode(pane),
+            CopyCommand::Cancel => self.exit_copy_mode(pane_id),
+            CopyCommand::Move(motion) => pane.terminal.copy_move(motion),
+            CopyCommand::Select(kind) => pane.terminal.copy_select(kind),
+            CopyCommand::OtherEnd => pane.terminal.copy_other_end(),
+            CopyCommand::SearchPrompt { forward } => {
+                out.push(Effect::Send(id, ServerMsg::PromptSearch { forward }));
+            }
+            CopyCommand::Search { pattern, forward } => {
+                if let Err(error) = pane.terminal.copy_search(&pattern, forward) {
+                    log::warn!("copy-mode search {pattern:?} is not a valid regex: {error}");
+                }
+            }
+            CopyCommand::SearchAgain => pane.terminal.copy_search_again(false),
+            CopyCommand::SearchReverse => pane.terminal.copy_search_again(true),
+        }
+        if let Some(pane) = self.panes.get_mut(&pane_id) {
+            pane.dirty = true;
         }
     }
 

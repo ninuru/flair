@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    command::CopyCommand,
+    command::{CopyCommand, CopyMotion, SelectionKind},
     key::{KeyAction, Locks},
 };
 
@@ -173,4 +173,190 @@ fn copy_mode_overrides_rebind_and_unbind() {
         ..plain(Key::Char('c'))
     };
     assert_eq!(config.copy_binding(&ctrl_c), Some(CopyCommand::Cancel));
+}
+
+fn with_mods(key: Key, ctrl: bool, shift: bool) -> KeyInput {
+    KeyInput {
+        mods: Mods {
+            ctrl,
+            shift,
+            ..Mods::default()
+        },
+        ..plain(key)
+    }
+}
+
+#[test]
+fn copy_mode_defaults_cover_motions_selection_and_search() {
+    let config = KeysConfig::default();
+    let motion = CopyCommand::Move;
+    for (key, ctrl, shift, expected) in [
+        (Key::Char('h'), false, false, motion(CopyMotion::Left)),
+        (Key::Char('j'), false, false, motion(CopyMotion::Down)),
+        (Key::Char('k'), false, false, motion(CopyMotion::Up)),
+        (Key::Char('l'), false, false, motion(CopyMotion::Right)),
+        (
+            Key::Named(NamedKey::Left),
+            false,
+            false,
+            motion(CopyMotion::Left),
+        ),
+        (
+            Key::Named(NamedKey::Down),
+            false,
+            false,
+            motion(CopyMotion::Down),
+        ),
+        (
+            Key::Named(NamedKey::Up),
+            false,
+            false,
+            motion(CopyMotion::Up),
+        ),
+        (
+            Key::Named(NamedKey::Right),
+            false,
+            false,
+            motion(CopyMotion::Right),
+        ),
+        (Key::Char('w'), false, false, motion(CopyMotion::NextWord)),
+        (
+            Key::Char('b'),
+            false,
+            false,
+            motion(CopyMotion::PreviousWord),
+        ),
+        (
+            Key::Char('e'),
+            false,
+            false,
+            motion(CopyMotion::NextWordEnd),
+        ),
+        (Key::Char('W'), false, true, motion(CopyMotion::NextSpace)),
+        (
+            Key::Char('B'),
+            false,
+            true,
+            motion(CopyMotion::PreviousSpace),
+        ),
+        (
+            Key::Char('E'),
+            false,
+            true,
+            motion(CopyMotion::NextSpaceEnd),
+        ),
+        (
+            Key::Char('0'),
+            false,
+            false,
+            motion(CopyMotion::StartOfLine),
+        ),
+        (
+            Key::Char('^'),
+            false,
+            true,
+            motion(CopyMotion::BackToIndentation),
+        ),
+        (Key::Char('$'), false, true, motion(CopyMotion::EndOfLine)),
+        (Key::Char('g'), false, false, motion(CopyMotion::HistoryTop)),
+        (
+            Key::Char('G'),
+            false,
+            true,
+            motion(CopyMotion::HistoryBottom),
+        ),
+        (Key::Char('u'), true, false, motion(CopyMotion::HalfPageUp)),
+        (
+            Key::Char('d'),
+            true,
+            false,
+            motion(CopyMotion::HalfPageDown),
+        ),
+        (Key::Char('H'), false, true, motion(CopyMotion::TopLine)),
+        (Key::Char('M'), false, true, motion(CopyMotion::MiddleLine)),
+        (Key::Char('L'), false, true, motion(CopyMotion::BottomLine)),
+        (
+            Key::Char('v'),
+            false,
+            false,
+            CopyCommand::Select(SelectionKind::Simple),
+        ),
+        (
+            Key::Char('V'),
+            false,
+            true,
+            CopyCommand::Select(SelectionKind::Lines),
+        ),
+        (
+            Key::Char('v'),
+            true,
+            false,
+            CopyCommand::Select(SelectionKind::Block),
+        ),
+        (Key::Char('o'), false, false, CopyCommand::OtherEnd),
+        (
+            Key::Char('/'),
+            false,
+            false,
+            CopyCommand::SearchPrompt { forward: true },
+        ),
+        (
+            Key::Char('?'),
+            false,
+            true,
+            CopyCommand::SearchPrompt { forward: false },
+        ),
+        (Key::Char('n'), false, false, CopyCommand::SearchAgain),
+        (Key::Char('N'), false, true, CopyCommand::SearchReverse),
+    ] {
+        assert_eq!(
+            config.copy_binding(&with_mods(key, ctrl, shift)),
+            Some(expected),
+            "{key:?}"
+        );
+    }
+    assert_eq!(
+        config.copy_binding(&with_mods(Key::Char('w'), false, true)),
+        Some(motion(CopyMotion::NextSpace))
+    );
+    assert_eq!(
+        config.copy_binding(&with_mods(Key::Char('j'), true, false)),
+        None
+    );
+}
+
+#[test]
+fn copy_mode_command_names_follow_tmux() {
+    for (name, expected) in [
+        (
+            "next-space-end",
+            CopyCommand::Move(CopyMotion::NextSpaceEnd),
+        ),
+        (
+            "back-to-indentation",
+            CopyCommand::Move(CopyMotion::BackToIndentation),
+        ),
+        ("halfpage-down", CopyCommand::Move(CopyMotion::HalfPageDown)),
+        (
+            "rectangle-toggle",
+            CopyCommand::Select(SelectionKind::Block),
+        ),
+        ("other-end", CopyCommand::OtherEnd),
+        (
+            "search-backward",
+            CopyCommand::SearchPrompt { forward: false },
+        ),
+        ("search-reverse", CopyCommand::SearchReverse),
+    ] {
+        assert_eq!(parse_copy_command(name), Some(expected));
+    }
+    let config = KeysConfig {
+        copy_mode: [("x".to_owned(), "select-line".to_owned())].into(),
+        ..KeysConfig::default()
+    };
+    assert!(config.validate().is_ok());
+    assert_eq!(
+        config.copy_binding(&plain(Key::Char('x'))),
+        Some(CopyCommand::Select(SelectionKind::Lines))
+    );
 }

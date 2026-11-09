@@ -99,7 +99,7 @@ fn windows_scenario_frames_status_split_and_window_switch() {
 }
 
 #[test]
-fn copy_scenario_shows_the_badge_and_swallows_keys_until_q() {
+fn copy_scenario_shows_the_badge_jumps_through_history_and_swallows_keys_until_q() {
     let output = OutputDir::new();
     let run = Command::new("timeout")
         .args([

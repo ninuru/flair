@@ -130,7 +130,7 @@ impl Server {
             Command::PasteClipboard => out.push(Effect::Send(id, ServerMsg::PasteClipboard)),
             Command::ReloadConfig => self.reload_config(out),
             Command::CopyMode => self.enter_copy_mode(id),
-            Command::Copy(command) => self.copy_command(id, command),
+            Command::Copy(command) => self.copy_command(id, command, out),
             Command::ScrollLines(_) | Command::ScrollPages(_) | Command::ScrollToBottom => {
                 if let Some(pane) = self
                     .client_pane(id)
