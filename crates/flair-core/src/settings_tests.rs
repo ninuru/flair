@@ -94,7 +94,7 @@ fn source_labels() {
 fn keys_enabled_warns_about_the_lock_out() {
     assert_eq!(
         setting("keys.enabled").description,
-        "Prefix and root bindings. Off also disables prefix S; turn it back on by editing flair.toml."
+        "Prefix and root bindings. Off also disables prefix S; re-enable it in flair.toml."
     );
     assert_eq!(setting("keys.enabled").kind, Kind::Toggle);
 }
