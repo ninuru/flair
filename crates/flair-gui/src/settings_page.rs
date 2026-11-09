@@ -573,6 +573,7 @@ impl SettingsPage {
                 Some(group) => group.entries.push(entry),
                 None => groups.push(Group {
                     heading,
+                    disabled: heading == Some(BINDINGS) && !self.config.keys.enabled,
                     entries: vec![entry],
                 }),
             }
@@ -592,6 +593,7 @@ impl SettingsPage {
                 .as_ref()
                 .filter(|(at, _)| *at == index)
                 .map(|(_, message)| message.clone()),
+            pending: self.pending.as_ref().is_some_and(|(at, _)| *at == index),
         }
     }
 
@@ -612,9 +614,8 @@ impl SettingsPage {
             Kind::Toggle => Control::Toggle(value == Value::Bool(true)),
             Kind::Integer { .. } | Kind::Float { .. } => Control::Number(value.display()),
             Kind::Choice(_) => Control::Choice(value.display()),
-            Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => {
-                Control::Text(value.display())
-            }
+            Kind::Text | Kind::Font | Kind::Words => Control::Text(value.display()),
+            Kind::Color { .. } => Control::Color(value.display()),
         }
     }
 
@@ -629,6 +630,7 @@ impl SettingsPage {
             unbound: binding.command.is_none(),
             table: binding.table.name(),
             source: binding.source.label(),
+            disabled: !self.config.keys.enabled,
         }
     }
 

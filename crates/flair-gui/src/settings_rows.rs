@@ -1,3 +1,5 @@
+use flair_core::theme::{Rgb, Rgba};
+
 use crate::{
     chrome_bar::{baseline, ellipsize, opaque, rounded, small_text, ui_text},
     overlay_layout::{Field, OverlayInput, OverlayScene, cap, inside, search},
@@ -6,10 +8,13 @@ use crate::{
     ui::{
         CHIP_MIN, CHOICE_MARK, CHORD_COLUMN, CONTROL_GAP, CONTROL_MAX, ENTRY_HEIGHT, ENTRY_PAD,
         ENTRY_TOP, ERROR_HEIGHT, HIGHLIGHT_INSET, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, KNOB,
-        KNOB_INSET, LINE, LINE_BOX, ROW_HEIGHT, ROW_RADIUS, STEP_DOWN, STEP_UP, STEP_ZONE,
-        TOGGLE_HEIGHT, TOGGLE_RADIUS, TOGGLE_WIDTH, px,
+        KNOB_INSET, LINE, LINE_BOX, ROW_HEIGHT, ROW_RADIUS, STEP_DOWN, STEP_UP, STEP_ZONE, SWATCH,
+        SWATCH_RADIUS, TOGGLE_HEIGHT, TOGGLE_RADIUS, TOGGLE_WIDTH, px,
     },
 };
+
+const UNSAVED: &str = "unsaved";
+const FILE_SOURCE: &str = "flair.toml";
 
 pub(crate) fn entry_height(entry: &Entry, scale: f32) -> f32 {
     match entry {
@@ -41,6 +46,7 @@ pub(crate) fn entry_row(
             source,
             control,
             error,
+            pending,
         } => {
             let column = PxRect {
                 h: px(ENTRY_HEIGHT, scale),
@@ -68,9 +74,15 @@ pub(crate) fn entry_row(
                     scene,
                     measure,
                 ),
+                Control::Color(value) => swatch_chip(value, item, at, input, scene, measure),
                 Control::Editor(field) => editor(field, at, input, scene, measure),
             };
-            let label_left = label(source, (left - gap, column), input, scene, measure);
+            let muted = theme.surfaces().muted;
+            let (source, color) = match pending {
+                true => (UNSAVED, theme.foreground),
+                false => (*source, muted),
+            };
+            let label_left = label(source, color, (left - gap, column), input, scene, measure);
             describe(
                 (title, description),
                 (label_left - gap, column),
@@ -88,13 +100,18 @@ pub(crate) fn entry_row(
             unbound,
             table,
             source,
+            disabled,
         } => {
+            let muted = theme.surfaces().muted;
             cap(chord, (rect.x + pad, rect), input, scene, measure);
-            let source_left = label(source, (right, rect), input, scene, measure);
-            let table_left = label(table, (source_left - gap, rect), input, scene, measure);
+            let table_right = match *source == FILE_SOURCE {
+                true => label(source, muted, (right, rect), input, scene, measure) - gap,
+                false => right,
+            };
+            let table_left = label(table, muted, (table_right, rect), input, scene, measure);
             let x = rect.x + pad + px(CHORD_COLUMN, scale);
-            let color = match unbound {
-                true => theme.surfaces().muted,
+            let color = match *unbound || *disabled {
+                true => muted,
                 false => theme.foreground,
             };
             scene.text.push(ui_text(
@@ -130,6 +147,7 @@ fn highlight(rect: PxRect, focused: bool, input: &OverlayInput, scene: &mut Over
 
 fn label(
     text: &str,
+    color: Rgb,
     at: (f32, PxRect),
     input: &OverlayInput,
     scene: &mut OverlayScene,
@@ -137,13 +155,9 @@ fn label(
 ) -> f32 {
     let (right, row) = at;
     let x = (right - measure(text, false) * input.ui.small).round();
-    scene.text.push(small_text(
-        x,
-        row,
-        text.to_owned(),
-        input.theme.surfaces().muted,
-        input.ui,
-    ));
+    scene
+        .text
+        .push(small_text(x, row, text.to_owned(), color, input.ui));
     x
 }
 
@@ -249,9 +263,9 @@ fn toggle(
     let width = px(TOGGLE_WIDTH, scale);
     let track = centred(at, width, px(TOGGLE_HEIGHT, scale));
     let surfaces = theme.surfaces();
-    let (color, border) = match on {
-        true => (theme.accent, theme.accent),
-        false => (surfaces.surface3, surfaces.outline_strong),
+    let (color, border, knob_color) = match on {
+        true => (theme.accent, theme.accent, theme.foreground),
+        false => (theme.background, surfaces.outline_strong, surfaces.muted),
     };
     scene.quads.push(Quad {
         border: Some(Border {
@@ -274,7 +288,7 @@ fn toggle(
     };
     scene
         .quads
-        .push(rounded(rect, theme.foreground, KNOB / 2.0, scale));
+        .push(rounded(rect, knob_color, KNOB / 2.0, scale));
     scene.hits.controls.push((SettingsHit::Toggle(item), track));
     track.x
 }
@@ -301,13 +315,13 @@ fn stepper(
         (STEP_UP, rect.x + width - zone, SettingsHit::Increase(item)),
     ] {
         let area = PxRect { x, w: zone, ..rect };
-        let glyph_width = measure(glyph, false) * input.ui.small;
-        scene.text.push(small_text(
+        let glyph_width = measure(glyph, false);
+        scene.text.push(ui_text(
             (x + (zone - glyph_width) / 2.0).round(),
-            area,
+            baseline(area, input.ui),
             glyph.to_owned(),
             muted,
-            input.ui,
+            false,
         ));
         scene.hits.controls.push((hit, area));
     }
@@ -341,7 +355,9 @@ fn chip(
         measure,
     );
     let value_width = measure(&value, false);
-    let width = (pad * 2.0 + value_width + mark_width).round();
+    let width = (pad * 2.0 + value_width + mark_width)
+        .max(px(CHIP_MIN, scale))
+        .round();
     let rect = centred(at, width, px(ITEM_HEIGHT, scale));
     shell(rect, input, scene);
     scene.text.push(ui_text(
@@ -361,6 +377,61 @@ fn chip(
         ));
     }
     scene.hits.controls.push((hit, rect));
+    rect.x
+}
+
+fn swatch_chip(
+    value: &str,
+    item: usize,
+    at: (f32, PxRect),
+    input: &OverlayInput,
+    scene: &mut OverlayScene,
+    measure: &mut impl FnMut(&str, bool) -> f32,
+) -> f32 {
+    let Ok(color) = Rgba::from_hex(value) else {
+        return chip(
+            value,
+            None,
+            SettingsHit::Edit(item),
+            at,
+            input,
+            scene,
+            measure,
+        );
+    };
+    let scale = input.scale;
+    let pad = px(ITEM_PAD, scale);
+    let size = px(SWATCH, scale);
+    let lead = size + px(ITEM_GAP, scale);
+    let value = ellipsize(value, room(at, scale) - pad * 2.0 - lead, false, measure);
+    let value_width = measure(&value, false);
+    let width = (pad * 2.0 + lead + value_width)
+        .max(px(CHIP_MIN, scale))
+        .round();
+    let rect = centred(at, width, px(ITEM_HEIGHT, scale));
+    shell(rect, input, scene);
+    scene.quads.push(Quad {
+        rect: PxRect {
+            x: rect.x + pad,
+            y: (rect.y + (rect.h - size) / 2.0).round(),
+            w: size,
+            h: size,
+        },
+        color,
+        radius: px(SWATCH_RADIUS, scale),
+        border: Some(Border {
+            color: opaque(input.theme.surfaces().outline_strong),
+            width: px(LINE, scale),
+        }),
+    });
+    scene.text.push(ui_text(
+        (rect.x + pad + lead).round(),
+        baseline(rect, input.ui),
+        value,
+        input.theme.foreground,
+        false,
+    ));
+    scene.hits.controls.push((SettingsHit::Edit(item), rect));
     rect.x
 }
 

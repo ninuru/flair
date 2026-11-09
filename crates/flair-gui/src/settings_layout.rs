@@ -5,16 +5,16 @@ use crate::{
     renderer::{Border, PxRect, Quad},
     settings_rows::{entry_height, entry_row},
     ui::{
-        CAP_HEIGHT, CAP_PAD, CONTENT_INSET, CONTENT_MARGIN, CONTENT_WIDTH, CONTROL_MAX, CRUMB_GAP,
-        ENTRY_HEIGHT, ESCAPE_KEY, FIELD_GAP, FIELD_HEIGHT, FOOTER_GAP, FOOTER_RULE_GAP, GROUP_GAP,
-        HEADER_GAP, HEADING_GAP, ITEM_GAP, ITEM_HEIGHT, LINE, NAV_BREAKPOINT, NAV_NARROW,
-        NAV_PAD_X, NAV_WIDTH, PANEL_PAD_Y, PANEL_RADIUS, ROW_GAP, ROW_PAD, ROW_RADIUS,
-        SECTION_HEIGHT, px,
+        CAP_HEIGHT, CAP_PAD, CONTENT_INSET, CONTENT_WIDTH, CONTROL_MAX, CRUMB_GAP, ENTRY_HEIGHT,
+        ESCAPE_KEY, FIELD_GAP, FIELD_HEIGHT, FOOTER_GAP, FOOTER_RULE_GAP, GROUP_GAP, HEADER_GAP,
+        HEADING_GAP, ITEM_GAP, ITEM_HEIGHT, LINE, NAV_BREAKPOINT, NAV_NARROW, NAV_PAD_X, NAV_WIDTH,
+        PANEL_PAD_Y, PANEL_RADIUS, ROW_GAP, ROW_PAD, ROW_RADIUS, SECTION_HEIGHT, px,
     },
 };
 
 const TITLE: &str = "Settings";
 const CLOSE: &str = "close";
+const OFF: &str = " off";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsSheet {
@@ -31,6 +31,7 @@ pub struct SettingsSheet {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
     pub heading: Option<&'static str>,
+    pub disabled: bool,
     pub entries: Vec<Entry>,
 }
 
@@ -42,6 +43,7 @@ pub enum Entry {
         source: &'static str,
         control: Control,
         error: Option<String>,
+        pending: bool,
     },
     Binding {
         chord: String,
@@ -49,6 +51,7 @@ pub enum Entry {
         unbound: bool,
         table: &'static str,
         source: &'static str,
+        disabled: bool,
     },
 }
 
@@ -58,6 +61,7 @@ pub enum Control {
     Number(String),
     Choice(String),
     Text(String),
+    Color(String),
     Editor(Field),
 }
 
@@ -90,7 +94,7 @@ struct Placed<'a> {
 }
 
 enum Line<'a> {
-    Heading(&'static str),
+    Heading(&'static str, bool),
     Entry(usize, &'a Entry),
 }
 
@@ -115,7 +119,7 @@ pub fn layout(
         .hits
         .controls
         .push((SettingsHit::Search, frame.search));
-    content(sheet, &frame, input, &mut scene, measure);
+    let hidden = content(sheet, &frame, input, &mut scene, measure);
     if let Some(caps) = frame.footer {
         let scale = input.scale;
         let rule = PxRect {
@@ -127,7 +131,7 @@ pub fn layout(
         scene.quads.push(fill(rule, input.theme.surfaces().outline));
         footer(
             &sheet.keys,
-            0,
+            hidden,
             input,
             (rule.x, caps, rule.w),
             &mut scene,
@@ -163,7 +167,7 @@ fn frame(input: &OverlayInput) -> Frame {
     .min(width);
     let remaining = width - nav_width;
     let w = px(CONTENT_WIDTH, scale)
-        .min(remaining - px(CONTENT_MARGIN, scale))
+        .min(remaining - px(CONTENT_INSET, scale) * 2.0)
         .max(0.0);
     let x = nav_width + px(CONTENT_INSET, scale).max(((remaining - w) / 2.0).floor());
     let header = PxRect {
@@ -213,7 +217,7 @@ fn place(sheet: &SettingsSheet, scale: f32) -> Vec<Placed<'_>> {
             let height = px(ITEM_HEIGHT, scale);
             placed.push(Placed {
                 group,
-                line: Line::Heading(heading),
+                line: Line::Heading(heading, entries.disabled),
                 top,
                 height,
             });
@@ -238,7 +242,7 @@ fn offset(placed: &[Placed], focus: Option<usize>, room: f32) -> f32 {
     placed
         .iter()
         .find(|line| match line.line {
-            Line::Heading(_) => false,
+            Line::Heading(..) => false,
             Line::Entry(item, _) => Some(item) == focus,
         })
         .map_or(0.0, |line| (line.top + line.height - room).max(0.0))
@@ -370,19 +374,25 @@ fn content(
     input: &OverlayInput,
     scene: &mut OverlayScene,
     measure: &mut impl FnMut(&str, bool) -> f32,
-) {
+) -> usize {
     let scale = input.scale;
     let theme = input.theme;
     let surfaces = theme.surfaces();
     let viewport = frame.viewport;
     if viewport.h < px(ENTRY_HEIGHT, scale) {
-        return;
+        return 0;
     }
     let placed = place(sheet, scale);
     let offset = offset(&placed, sheet.focus, viewport.h);
+    let visible =
+        |line: &Placed| line.top >= offset && line.top + line.height <= offset + viewport.h;
+    let hidden = placed
+        .iter()
+        .filter(|line| entry(line) && !visible(line))
+        .count();
     let shown: Vec<(&Placed, PxRect)> = placed
         .iter()
-        .filter(|line| line.top >= offset && line.top + line.height <= offset + viewport.h)
+        .filter(|line| visible(line))
         .map(|line| {
             let rect = PxRect {
                 y: viewport.y + line.top - offset,
@@ -393,21 +403,7 @@ fn content(
         })
         .collect();
     let panels: Vec<Option<PxRect>> = (0..sheet.groups.len())
-        .map(|group| {
-            let mut rows = shown.iter().filter(|(line, _)| {
-                line.group == group
-                    && match line.line {
-                        Line::Heading(_) => false,
-                        Line::Entry(..) => true,
-                    }
-            });
-            let first = rows.next()?.1;
-            let last = rows.next_back().map_or(first, |(_, rect)| *rect);
-            Some(PxRect {
-                h: last.y + last.h - first.y,
-                ..first
-            })
-        })
+        .map(|group| panel(group, &placed, &shown, scale))
         .collect();
     for panel in panels.iter().flatten() {
         scene.quads.push(Quad {
@@ -421,13 +417,9 @@ fn content(
     let line = px(LINE, scale);
     for (placed, rect) in shown {
         match placed.line {
-            Line::Heading(heading) => scene.text.push(ui_text(
-                rect.x,
-                baseline(rect, input.ui),
-                ellipsize(heading, rect.w, true, measure),
-                theme.foreground,
-                true,
-            )),
+            Line::Heading(heading, disabled) => {
+                heading_line(heading, disabled, rect, input, scene, measure)
+            }
             Line::Entry(item, entry) => {
                 if panels[placed.group].is_some_and(|panel| panel.y < rect.y) {
                     scene.quads.push(fill(
@@ -445,6 +437,71 @@ fn content(
                 scene.hits.rows.push((item, rect));
             }
         }
+    }
+    hidden
+}
+
+fn entry(line: &Placed) -> bool {
+    match line.line {
+        Line::Heading(..) => false,
+        Line::Entry(..) => true,
+    }
+}
+
+fn panel(
+    group: usize,
+    placed: &[Placed],
+    shown: &[(&Placed, PxRect)],
+    scale: f32,
+) -> Option<PxRect> {
+    let mut rows = shown
+        .iter()
+        .filter(|(line, _)| line.group == group && entry(line));
+    let (first_line, first) = *rows.next()?;
+    let (last_line, last) = rows.next_back().copied().unwrap_or((first_line, first));
+    let entries = || {
+        placed
+            .iter()
+            .filter(|line| line.group == group && entry(line))
+    };
+    let radius = px(PANEL_RADIUS, scale);
+    let above = match entries().any(|line| line.top < first_line.top) {
+        true => radius,
+        false => 0.0,
+    };
+    let below = match entries().any(|line| line.top > last_line.top) {
+        true => radius,
+        false => 0.0,
+    };
+    Some(PxRect {
+        y: first.y - above,
+        h: last.y + last.h - first.y + above + below,
+        ..first
+    })
+}
+
+fn heading_line(
+    heading: &str,
+    disabled: bool,
+    rect: PxRect,
+    input: &OverlayInput,
+    scene: &mut OverlayScene,
+    measure: &mut impl FnMut(&str, bool) -> f32,
+) {
+    let line = baseline(rect, input.ui);
+    let shown = ellipsize(heading, rect.w, true, measure);
+    let end = rect.x + measure(&shown, true);
+    scene
+        .text
+        .push(ui_text(rect.x, line, shown, input.theme.foreground, true));
+    if disabled {
+        scene.text.push(ui_text(
+            end.round(),
+            line,
+            ellipsize(OFF, rect.x + rect.w - end, false, measure),
+            input.theme.surfaces().muted,
+            false,
+        ));
     }
 }
 

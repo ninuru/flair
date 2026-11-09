@@ -219,7 +219,7 @@ fn unset_colours_show_the_theme_value_as_default() {
     let mut page = page("");
     page.focus(1);
     let theme = Config::default().theme();
-    assert_eq!(control(&page), Control::Text(theme.background.hex()));
+    assert_eq!(control(&page), Control::Color(theme.background.hex()));
     assert_eq!(source(&page), "default");
 }
 
@@ -245,6 +245,7 @@ fn the_keys_section_lists_settings_then_key_bindings() {
             unbound: true,
             table: "prefix",
             source: "flair.toml",
+            disabled: false,
         }
     );
     assert_eq!(
@@ -255,6 +256,7 @@ fn the_keys_section_lists_settings_then_key_bindings() {
             unbound: false,
             table: "prefix",
             source: "default",
+            disabled: false,
         }
     );
 }

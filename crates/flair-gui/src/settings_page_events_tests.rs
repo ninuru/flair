@@ -328,6 +328,6 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
     let track = control(SettingsHit::Toggle(0));
     assert_eq!(
         at(track.x + track.w - 4.0, track.y + track.h / 2.0),
-        rgb(surfaces.surface3)
+        rgb(theme.background)
     );
 }

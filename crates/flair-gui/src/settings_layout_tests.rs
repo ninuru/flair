@@ -51,6 +51,7 @@ fn setting(title: &'static str, source: &'static str, control: Control) -> Entry
         source,
         control,
         error: None,
+        pending: false,
     }
 }
 
@@ -79,12 +80,13 @@ fn sheet(section: usize, crumb: &'static str, groups: Vec<Group>) -> SettingsShe
 }
 
 fn appearance() -> SettingsSheet {
-    let text = |value: &str| Control::Text(value.into());
+    let text = |value: &str| Control::Color(value.into());
     sheet(
         0,
         "Appearance",
         vec![Group {
             heading: None,
+            disabled: false,
             entries: vec![
                 setting("Theme", "flair.toml", Control::Choice("flair-dark".into())),
                 setting("Background", "default", text("#030303")),
@@ -112,6 +114,7 @@ fn binding(index: usize) -> Entry {
         unbound: false,
         table: "prefix",
         source: "default",
+        disabled: false,
     }
 }
 
@@ -122,6 +125,7 @@ fn keys(bindings: usize) -> SettingsSheet {
         vec![
             Group {
                 heading: None,
+                disabled: false,
                 entries: vec![
                     setting("Bindings", "default", Control::Toggle(true)),
                     setting("Prefix key", "default", Control::Text("C-a".into())),
@@ -134,6 +138,7 @@ fn keys(bindings: usize) -> SettingsSheet {
             },
             Group {
                 heading: Some("Key bindings"),
+                disabled: false,
                 entries: (0..bindings).map(binding).collect(),
             },
         ],
@@ -286,7 +291,7 @@ fn nav_shows_the_title_and_section_rows_with_the_selection() {
 #[test]
 fn header_shows_the_breadcrumb_and_a_close_mark() {
     let surfaces = theme().surfaces();
-    for (px, x, right) in [((1920, 1200), 696.0, 1456.0), ((960, 600), 200.0, 952.0)] {
+    for (px, x, right) in [((1920, 1200), 696.0, 1456.0), ((960, 600), 200.0, 920.0)] {
         let scene = run(&appearance(), px, 1.0, None);
         let root = styled(&scene, "Settings", false);
         assert_eq!(
@@ -322,7 +327,7 @@ fn search_field_sits_below_the_header() {
     let surfaces = theme().surfaces();
     for (px, field) in [
         ((1920, 1200), rect(696.0, 103.0, 760.0, 32.0)),
-        ((960, 600), rect(200.0, 103.0, 752.0, 32.0)),
+        ((960, 600), rect(200.0, 103.0, 720.0, 32.0)),
     ] {
         let scene = run(&appearance(), px, 1.0, None);
         assert_quad(
@@ -341,7 +346,7 @@ fn search_field_sits_below_the_header() {
 #[test]
 fn the_group_panel_tiles_rows_with_hairlines_between_them() {
     let surfaces = theme().surfaces();
-    for (px, x, w) in [((1920, 1200), 696.0, 760.0), ((960, 600), 200.0, 752.0)] {
+    for (px, x, w) in [((1920, 1200), 696.0, 760.0), ((960, 600), 200.0, 720.0)] {
         let scene = run(&appearance(), px, 1.0, None);
         let panel = rect(x, 159.0, w, 336.0);
         assert_quad(
@@ -385,52 +390,57 @@ fn rows_pair_title_and_description_with_the_source_left_of_the_control() {
         ),
         (712.0, 198.0, surfaces.muted, TextFace::Small)
     );
-    let chip = rect(1340.0, 175.0, 100.0, 24.0);
+    let chip = rect(1336.0, 175.0, 104.0, 24.0);
     assert_quad(&scene, chip_quad(chip));
     assert_hit(&scene, SettingsHit::Cycle(0), chip);
     let value = text(&scene, "flair-dark").unwrap();
     assert_eq!(
         (value.x, value.baseline, value.color),
-        (1350.0, 191.0, theme().foreground)
+        (1346.0, 191.0, theme().foreground)
     );
     let mark = text(&scene, "▾").unwrap();
     assert_eq!(
         (mark.x, mark.color, mark.face),
-        (1426.0, surfaces.muted, TextFace::Small)
+        (1422.0, surfaces.muted, TextFace::Small)
     );
     let source = text(&scene, "flair.toml").unwrap();
     assert_eq!(
         (source.x, source.color, source.face),
-        (1293.0, surfaces.muted, TextFace::Small)
+        (1289.0, surfaces.muted, TextFace::Small)
     );
-    let chip = rect(1371.0, 231.0, 69.0, 24.0);
+    let chip = rect(1336.0, 231.0, 104.0, 24.0);
     assert_hit(&scene, SettingsHit::Edit(1), chip);
     assert_quad(&scene, chip_quad(chip));
-    assert_eq!(text(&scene, "#030303").unwrap().x, 1381.0);
+    assert_eq!(text(&scene, "#030303").unwrap().x, 1366.0);
 }
 
 #[test]
 fn toggles_and_steppers_sit_on_the_control_column() {
     let surfaces = theme().surfaces();
-    for (px, right) in [((1920, 1200), 1440.0), ((960, 600), 936.0)] {
+    for (px, right) in [((1920, 1200), 1440.0), ((960, 600), 904.0)] {
         let scene = run(&keys(4), px, 1.0, None);
         let track = rect(right - 28.0, 179.0, 28.0, 16.0);
         assert_quad(&scene, outlined(track, theme().accent, 8.0, theme().accent));
         let knob = rect(right - 14.0, 181.0, 12.0, 12.0);
         assert_quad(&scene, plain(knob, theme().foreground, 6.0));
         assert_hit(&scene, SettingsHit::Toggle(0), track);
-        let chip = rect(right - 80.0, 287.0, 80.0, 24.0);
+        let chip = rect(right - 104.0, 287.0, 104.0, 24.0);
         assert_quad(&scene, chip_quad(chip));
         let down = rect(chip.x, chip.y, 20.0, 24.0);
-        let up = rect(chip.x + 60.0, chip.y, 20.0, 24.0);
+        let up = rect(chip.x + 84.0, chip.y, 20.0, 24.0);
         assert_hit(&scene, SettingsHit::Decrease(2), down);
         assert_hit(&scene, SettingsHit::Increase(2), up);
         assert_eq!(scene.hits.hit_test(centre(chip)), OverlayHit::Row(2));
-        assert_eq!(text(&scene, "1500").unwrap().x, chip.x + 26.0);
+        assert_eq!(text(&scene, "1500").unwrap().x, chip.x + 38.0);
         let down_mark = text(&scene, "‹").unwrap();
         assert_eq!(
-            (down_mark.color, down_mark.face),
-            (surfaces.muted, TextFace::Small)
+            (
+                down_mark.x,
+                down_mark.baseline,
+                down_mark.color,
+                down_mark.face
+            ),
+            (chip.x + 7.0, 303.0, surfaces.muted, TextFace::Ui)
         );
         assert_eq!(text(&scene, "›").unwrap().color, surfaces.muted);
         let source = text(&scene, "flair.toml").unwrap();
@@ -439,7 +449,7 @@ fn toggles_and_steppers_sit_on_the_control_column() {
 }
 
 #[test]
-fn an_off_toggle_has_a_surface3_track_and_the_knob_at_the_start() {
+fn an_off_toggle_has_a_background_track_and_a_muted_knob_at_the_start() {
     let surfaces = theme().surfaces();
     let mut sheet = keys(0);
     sheet.groups[0].entries[0] = setting("Bindings", "default", Control::Toggle(false));
@@ -447,10 +457,10 @@ fn an_off_toggle_has_a_surface3_track_and_the_knob_at_the_start() {
     let track = rect(1412.0, 179.0, 28.0, 16.0);
     assert_quad(
         &scene,
-        outlined(track, surfaces.surface3, 8.0, surfaces.outline_strong),
+        outlined(track, theme().background, 8.0, surfaces.outline_strong),
     );
     let knob = rect(1414.0, 181.0, 12.0, 12.0);
-    assert_quad(&scene, plain(knob, theme().foreground, 6.0));
+    assert_quad(&scene, plain(knob, surfaces.muted, 6.0));
 }
 
 #[test]
@@ -463,6 +473,7 @@ fn bindings_follow_a_heading_with_a_chord_cap_and_the_command() {
         unbound: true,
         table: "root",
         source: "flair.toml",
+        disabled: false,
     };
     let scene = run(&sheet, (1920, 1200), 1.0, None);
     let heading = text(&scene, "Key bindings").unwrap();
@@ -496,6 +507,14 @@ fn bindings_follow_a_heading_with_a_chord_cap_and_the_command() {
         (table.x, table.color, table.face),
         (1379.0, surfaces.muted, TextFace::Small)
     );
+    let defaults = scene
+        .text
+        .iter()
+        .filter(|run| run.text == "default" && run.baseline > 380.0)
+        .count();
+    assert_eq!(defaults, 0);
+    let table = text(&scene, "prefix").unwrap();
+    assert_eq!((table.x, table.baseline), (1419.0, 401.0));
 }
 
 #[test]
@@ -556,6 +575,7 @@ fn an_error_extends_its_row_with_an_attention_line() {
         source: "flair.toml",
         control: Control::Choice("flair-dark".into()),
         error: Some("flair.toml does not parse".into()),
+        pending: false,
     };
     let scene = run(&sheet, (1920, 1200), 1.0, None);
     let error = text(&scene, "flair.toml does not parse").unwrap();
@@ -579,10 +599,12 @@ fn a_search_shows_every_group_under_its_heading_without_a_section() {
         vec![
             Group {
                 heading: Some("Font"),
+                disabled: false,
                 entries: vec![setting("Size", "default", Control::Number("13".into()))],
             },
             Group {
                 heading: Some("Window"),
+                disabled: false,
                 entries: vec![
                     setting("Padding X", "default", Control::Number("8".into())),
                     setting("Padding Y", "default", Control::Number("0".into())),
@@ -632,7 +654,7 @@ fn the_footer_draws_a_rule_and_key_caps_at_the_bottom() {
     let surfaces = theme().surfaces();
     for (px, x, w, rule) in [
         ((1920, 1200), 696.0, 760.0, 1147.0),
-        ((960, 600), 200.0, 752.0, 547.0),
+        ((960, 600), 200.0, 720.0, 547.0),
     ] {
         let scene = run(&appearance(), px, 1.0, None);
         let line = rect(x, rule, w, 1.0);
@@ -671,8 +693,10 @@ fn scrolling_keeps_the_focused_entry_on_the_last_visible_row() {
             assert!(run.baseline > 159.0 && run.baseline < bottom, "{run:?}");
         }
         let panel = scene.quads.iter().find(|quad| quad.radius == 10.0).unwrap();
-        assert_eq!(panel.rect.y, scene.hits.rows[0].1.y);
+        assert_eq!(panel.rect.y, scene.hits.rows[0].1.y - 10.0);
         assert_eq!(panel.rect.y + panel.rect.h, bottom);
+        let more = text(&scene, &format!("+{first} more")).unwrap();
+        assert_eq!(more.color, theme().surfaces().muted);
         let focused = rect(last.x + 4.0, last.y + 4.0, last.w - 8.0, 24.0);
         assert!(quad_at(&scene, focused).is_some());
     }
@@ -695,12 +719,13 @@ fn narrow_windows_ellipsize_descriptions_left_of_the_source_label() {
         source: "default",
         control: Control::Text("#030303".into()),
         error: None,
+        pending: false,
     };
     let scene = run(&sheet, (960, 600), 1.0, None);
     assert_inside(&scene, (960, 600));
     assert_eq!(
         control(&scene, SettingsHit::Edit(1)),
-        rect(867.0, 231.0, 69.0, 24.0)
+        rect(800.0, 231.0, 104.0, 24.0)
     );
     let description = scene
         .text
@@ -713,87 +738,10 @@ fn narrow_windows_ellipsize_descriptions_left_of_the_source_label() {
         .iter()
         .find(|run| run.text == "default" && run.baseline > 231.0 && run.baseline < 271.0)
         .unwrap();
-    assert_eq!(label.x, 831.0);
+    assert_eq!(label.x, 764.0);
     let end = description.x + measure(&description.text, false) * 0.5;
     assert!(end <= label.x - 12.0, "{end} {}", label.x);
 }
 
-#[test]
-fn long_text_values_ellipsize_inside_the_chip() {
-    let mut sheet = appearance();
-    sheet.groups[0].entries[1] = setting("Background", "default", Control::Text("x".repeat(80)));
-    let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let chip = control(&scene, SettingsHit::Edit(1));
-    assert_eq!(chip.x + chip.w, 1440.0);
-    assert!(chip.w <= 240.0, "{chip:?}");
-    let value = scene
-        .text
-        .iter()
-        .find(|run| run.text.starts_with("xxx"))
-        .unwrap();
-    assert!(value.text.ends_with(ELLIPSIS));
-    assert_eq!(value.x, chip.x + 10.0);
-    assert!(value.x + measure(&value.text, false) <= chip.x + chip.w - 10.0);
-}
-
-#[test]
-fn every_rect_and_text_lands_on_whole_pixels_at_scale_one_and_a_half() {
-    let mut editing = keys(12);
-    editing.groups[0].entries[1] = setting("Prefix key", "default", editor("C-b"));
-    for sheet in [appearance(), keys(12), editing] {
-        let scene = run(&sheet, (1500, 900), 1.5, Some((700.0, 400.0)));
-        assert_inside(&scene, (1500, 900));
-        let whole = |rect: PxRect| {
-            [rect.x, rect.y, rect.w, rect.h]
-                .iter()
-                .all(|v| v.fract() == 0.0)
-        };
-        for quad in &scene.quads {
-            assert!(whole(quad.rect) && quad.radius.fract() == 0.0, "{quad:?}");
-        }
-        for run in &scene.text {
-            assert_eq!((run.x.fract(), run.baseline.fract()), (0.0, 0.0), "{run:?}");
-        }
-        for (_, rect) in &scene.hits.rows {
-            assert!(whole(*rect), "{rect:?}");
-        }
-        for (_, rect) in &scene.hits.controls {
-            assert!(whole(*rect), "{rect:?}");
-        }
-        assert!(!scene.hits.rows.is_empty());
-    }
-}
-
-#[test]
-fn small_windows_never_panic_and_keep_every_quad_inside() {
-    for (px, scale) in [
-        ((200, 100), 1.0),
-        ((50, 40), 1.0),
-        ((400, 300), 1.0),
-        ((960, 200), 1.0),
-        ((1300, 150), 1.0),
-        ((300, 220), 1.5),
-        ((1, 1), 2.0),
-        ((0, 0), 1.0),
-    ] {
-        for sheet in [appearance(), keys(20)] {
-            let scene = run(&sheet, px, scale, Some((10.0, 60.0)));
-            assert_inside(&scene, px);
-        }
-    }
-    let scene = run(&appearance(), (200, 100), 1.0, None);
-    assert!(scene.hits.rows.is_empty());
-    assert!(text(&scene, "space").is_none());
-    let scene = run(&appearance(), (960, 200), 1.0, None);
-    assert!(scene.hits.rows.is_empty());
-    assert!(text(&scene, "space").is_none());
-    assert!(text(&scene, "Search settings").is_some());
-}
-
-#[test]
-fn a_short_window_drops_the_footer_before_the_entries() {
-    let scene = run(&appearance(), (960, 260), 1.0, None);
-    assert_eq!(scene.hits.rows.len(), 1);
-    assert!(text(&scene, "space").is_none());
-    assert_inside(&scene, (960, 260));
-}
+#[path = "settings_layout_more_tests.rs"]
+mod more;
