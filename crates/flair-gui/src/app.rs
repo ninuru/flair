@@ -551,6 +551,10 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if self.picker.is_some() || self.prompt.is_some() {
+                    if state == ElementState::Released {
+                        self.capture = Capture::Idle;
+                        self.button = MouseButton::NoButton;
+                    }
                     return;
                 }
                 if button == winit::event::MouseButton::Middle
