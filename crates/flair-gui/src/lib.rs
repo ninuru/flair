@@ -13,6 +13,7 @@ pub mod probe;
 pub mod prompt;
 pub mod renderer;
 pub mod status;
+mod theme_picker;
 
 pub use app::{GuiError, run, run_target};
 pub use font::{CellMetrics, FontError, Fonts, RasterGlyph, Style, UiMetrics};
