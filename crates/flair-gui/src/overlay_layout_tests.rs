@@ -342,6 +342,27 @@ fn hit_test_finds_rows_the_panel_and_outside() {
     assert_eq!(scene.hits.hit_test((300.0, 20.0)), OverlayHit::Outside);
     assert_eq!(scene.hits.page(), 3);
     assert_eq!(OverlayHits::default().page(), 1);
+    assert!(scene.hits.controls.is_empty());
+}
+
+#[test]
+fn hit_test_prefers_controls_over_rows() {
+    let mut hits = run(&three(), (960, 600), 1.0, None).hits;
+    let row = hits.rows[1].1;
+    hits.controls.push((
+        SettingsHit::Toggle(1),
+        rect(row.x + row.w - 40.0, row.y, 40.0, row.h),
+    ));
+    let y = f64::from(row.y + 4.0);
+    assert_eq!(
+        hits.hit_test((f64::from(row.x + row.w - 10.0), y)),
+        OverlayHit::Settings(SettingsHit::Toggle(1))
+    );
+    assert_eq!(
+        hits.hit_test((f64::from(row.x + 10.0), y)),
+        OverlayHit::Row(1)
+    );
+    assert_eq!(hits.page(), 3);
 }
 
 #[test]

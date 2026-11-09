@@ -228,6 +228,7 @@ impl Overlays {
             OverlayHit::Panel => OverlayEvent::Ignored,
             OverlayHit::Outside => self.dismiss(),
             OverlayHit::Row(index) => self.choose(index),
+            OverlayHit::Settings(_) => OverlayEvent::Ignored,
         }
     }
 

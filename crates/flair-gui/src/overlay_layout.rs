@@ -7,6 +7,7 @@ use crate::{
     },
     chrome_layout::chrome_bottom,
     renderer::{Border, PxRect, Quad, TextRun},
+    settings_layout::SettingsHit,
     ui::{
         BACKDROP, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CARET_GAP, DOCK_INSET, DOCK_WIDTH, FIELD_GAP,
         FIELD_HEIGHT, FIELD_RADIUS, FOOTER_GAP, FOOTER_RULE_GAP, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD,
@@ -66,6 +67,7 @@ pub struct Sheet {
 pub struct OverlayHits {
     pub panel: PxRect,
     pub rows: Vec<(usize, PxRect)>,
+    pub controls: Vec<(SettingsHit, PxRect)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -73,6 +75,7 @@ pub enum OverlayHit {
     Row(usize),
     Panel,
     Outside,
+    Settings(SettingsHit),
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -85,6 +88,9 @@ pub struct OverlayScene {
 impl OverlayHits {
     pub fn hit_test(&self, pos: (f64, f64)) -> OverlayHit {
         let point = (pos.0 as f32, pos.1 as f32);
+        if let Some((hit, _)) = self.controls.iter().find(|(_, rect)| inside(*rect, point)) {
+            return OverlayHit::Settings(*hit);
+        }
         if let Some((index, _)) = self.rows.iter().find(|(_, rect)| inside(*rect, point)) {
             return OverlayHit::Row(*index);
         }
@@ -127,7 +133,13 @@ pub fn layout(
     title(sheet, input, (x, y, width), &mut scene, measure);
     y += px(ITEM_HEIGHT, scale) + px(ITEM_GAP, scale);
     if has_field && let Some(field) = &sheet.field {
-        search(field, input, (x, y, width), &mut scene, measure);
+        let rect = PxRect {
+            x,
+            y,
+            w: width,
+            h: px(FIELD_HEIGHT, scale),
+        };
+        search(field, rect, input, &mut scene, measure);
         y += px(FIELD_HEIGHT, scale) + px(FIELD_GAP, scale);
     }
     let first = sheet.selected.saturating_sub(capacity.saturating_sub(1));
@@ -334,24 +346,17 @@ fn title(
     ));
 }
 
-fn search(
+pub(crate) fn search(
     field: &Field,
+    rect: PxRect,
     input: &OverlayInput,
-    area: (f32, f32, f32),
     scene: &mut OverlayScene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
-    let (x, y, width) = area;
     let scale = input.scale;
     let theme = input.theme;
     let surfaces = theme.surfaces();
     let line = px(LINE, scale);
-    let rect = PxRect {
-        x,
-        y,
-        w: width,
-        h: px(FIELD_HEIGHT, scale),
-    };
     scene.quads.push(Quad {
         border: Some(Border {
             color: opaque(surfaces.outline),
@@ -360,8 +365,8 @@ fn search(
         ..rounded(rect, theme.background, FIELD_RADIUS, scale)
     });
     let pad = px(ITEM_PAD, scale);
-    let text_x = x + pad;
-    let room = (width - pad * 2.0 - line).max(0.0);
+    let text_x = rect.x + pad;
+    let room = (rect.w - pad * 2.0 - line).max(0.0);
     let (text, offset, caret, color) = match field.text.is_empty() {
         true => {
             let gap = px(CARET_GAP, scale);
@@ -536,7 +541,7 @@ fn mark(
     size
 }
 
-fn cap(
+pub(crate) fn cap(
     text: &str,
     at: (f32, PxRect),
     input: &OverlayInput,
@@ -572,7 +577,7 @@ fn cap(
     width
 }
 
-fn footer(
+pub(crate) fn footer(
     keys: &[(&'static str, String)],
     hidden: usize,
     input: &OverlayInput,
@@ -630,7 +635,7 @@ fn footer(
     }
 }
 
-fn inside(rect: PxRect, point: (f32, f32)) -> bool {
+pub(crate) fn inside(rect: PxRect, point: (f32, f32)) -> bool {
     point.0 >= rect.x && point.0 < rect.x + rect.w && point.1 >= rect.y && point.1 < rect.y + rect.h
 }
 
