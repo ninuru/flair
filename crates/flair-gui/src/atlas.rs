@@ -50,7 +50,14 @@ impl Atlas {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Face {
+    Cell,
+    Ui,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphKey {
+    pub face: Face,
     pub c: char,
     pub style: Style,
 }

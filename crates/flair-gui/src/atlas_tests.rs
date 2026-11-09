@@ -55,6 +55,7 @@ fn oversized_or_empty_glyph_does_not_consume_space() {
 fn cache_rasterizes_once_and_recovers_after_clear() {
     let mut cache = GlyphCache::new(8);
     let key = GlyphKey {
+        face: Face::Cell,
         c: 'x',
         style: Style::Regular,
     };
@@ -76,4 +77,45 @@ fn cache_rasterizes_once_and_recovers_after_clear() {
     );
     cache.clear();
     assert!(cache.get_or_insert(key, raster).is_some());
+}
+
+#[test]
+fn cell_and_ui_faces_cache_the_same_char_separately() {
+    let mut cache = GlyphCache::new(8);
+    let raster = || {
+        Some(RasterGlyph {
+            width: 2,
+            height: 2,
+            left: 0,
+            top: 2,
+            colored: false,
+            pixels: vec![255; 16],
+        })
+    };
+    let cell = cache
+        .get_or_insert(
+            GlyphKey {
+                face: Face::Cell,
+                c: 'a',
+                style: Style::Regular,
+            },
+            raster,
+        )
+        .unwrap();
+    let mut rasterized = false;
+    let ui = cache
+        .get_or_insert(
+            GlyphKey {
+                face: Face::Ui,
+                c: 'a',
+                style: Style::Regular,
+            },
+            || {
+                rasterized = true;
+                raster()
+            },
+        )
+        .unwrap();
+    assert!(rasterized);
+    assert_ne!(cell.rect, ui.rect);
 }

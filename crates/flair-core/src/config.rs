@@ -41,6 +41,8 @@ pub struct FontConfig {
     pub family: String,
     pub size: f32,
     pub line_height: f32,
+    pub ui_family: String,
+    pub ui_size: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -153,6 +155,7 @@ impl Config {
         config.keys.validate().map_err(ConfigError::Keys)?;
         positive("font.size", config.font.size)?;
         positive("font.line_height", config.font.line_height)?;
+        positive("font.ui_size", config.font.ui_size)?;
         Ok(config)
     }
 
@@ -218,6 +221,8 @@ impl Default for FontConfig {
             family: "JetBrainsMono Nerd Font Mono".to_owned(),
             size: 13.0,
             line_height: 1.0,
+            ui_family: "sans-serif".to_owned(),
+            ui_size: 12.0,
         }
     }
 }
