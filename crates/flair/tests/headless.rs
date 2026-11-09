@@ -99,6 +99,47 @@ fn windows_scenario_frames_status_split_and_window_switch() {
 }
 
 #[test]
+fn status_names_windows_after_directory_and_command_at_any_width() {
+    let fixture = fs::read_to_string(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/names.toml"),
+    )
+    .unwrap();
+    for (cols, end) in [(80, "| main "), (24, " | main ")] {
+        let output = OutputDir::new();
+        let scenario = output.0.join("names.toml");
+        fs::write(
+            &scenario,
+            fixture.replace("cols = 80", &format!("cols = {cols}")),
+        )
+        .unwrap();
+        let run = Command::new("timeout")
+            .args([
+                "10s",
+                env!("CARGO_BIN_EXE_flair"),
+                "test-headless",
+                "--scenario",
+            ])
+            .arg(scenario)
+            .arg("--output")
+            .arg(&output.0)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .output()
+            .unwrap();
+        assert!(
+            run.status.success(),
+            "{cols}: {}",
+            String::from_utf8_lossy(&run.stderr)
+        );
+        let frame = fs::read_to_string(output.0.join("frame.txt")).unwrap();
+        let status = frame.lines().next().unwrap();
+        assert_eq!(status.chars().count(), cols);
+        assert!(status.starts_with(" 1:flair 2:htop "), "{status:?}");
+        assert!(status.ends_with(end), "{status:?}");
+    }
+}
+
+#[test]
 fn timeout_reports_failure_and_reaps_shell() {
     let output = OutputDir::new();
     let pid_path = output.0.join("shell.pid");

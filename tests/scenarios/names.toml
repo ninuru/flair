@@ -1,0 +1,40 @@
+program = "/bin/sh"
+args = ["-i"]
+cols = 80
+rows = 6
+
+[env]
+PS1 = "ready> "
+
+[[steps]]
+action = "wait"
+text = "ready> "
+
+[[steps]]
+action = "text"
+text = "printf '\\033]0;user@host:~/x/flair\\007'\r"
+
+[[steps]]
+action = "wait"
+text = "1:flair"
+
+[[steps]]
+action = "key"
+key = "a"
+ctrl = true
+
+[[steps]]
+action = "key"
+key = "c"
+
+[[steps]]
+action = "wait"
+text = "2:env"
+
+[[steps]]
+action = "text"
+text = "printf '\\033]0;/usr/bin/htop -d 5\\007'\r"
+
+[[steps]]
+action = "wait"
+text = "2:htop"

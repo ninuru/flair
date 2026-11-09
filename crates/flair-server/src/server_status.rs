@@ -23,6 +23,7 @@ impl Server {
                         self.panes
                             .get(&window.active_pane)
                             .and_then(|pane| pane.terminal.title())
+                            .and_then(window_label)
                             .map(str::to_owned)
                     })
                     .unwrap_or_else(|| self.program_name()),
@@ -164,6 +165,32 @@ impl Server {
             ));
         }
     }
+}
+
+fn window_label(title: &str) -> Option<&str> {
+    let title = title.trim();
+    let path = match title.split_once(':') {
+        Some((prompt, path)) if prompt.contains('@') && !prompt.contains(char::is_whitespace) => {
+            Some(path.trim_start())
+        }
+        Some(_) | None => {
+            (title.starts_with(['~', '/']) && !title.contains(char::is_whitespace)).then_some(title)
+        }
+    };
+    let label = match path {
+        Some(path) if path.starts_with('/') && path.trim_matches('/').is_empty() => "/",
+        Some(path) => path
+            .trim_end_matches('/')
+            .rsplit('/')
+            .next()
+            .unwrap_or_default(),
+        None => title
+            .split_whitespace()
+            .next()
+            .and_then(|word| word.rsplit('/').next())
+            .unwrap_or_default(),
+    };
+    (!label.is_empty()).then_some(label)
 }
 
 fn timer_token(id: ClientId, generation: u64) -> u64 {
