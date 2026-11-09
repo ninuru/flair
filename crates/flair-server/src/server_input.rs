@@ -14,9 +14,8 @@ impl Server {
             Command::Switch(target) => {
                 let state = &self.clients[&id];
                 let size = state.size;
-                let palette = state.palette.clone();
                 let env = state.env.clone();
-                match self.resolve_target(target, size, &palette, &env, out) {
+                match self.resolve_target(target, size, &env, out) {
                     Ok(session) => self.switch_to(now, id, session, out),
                     Err(error) => out.push(Effect::Send(id, ServerMsg::Error(error))),
                 }

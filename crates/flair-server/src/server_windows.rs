@@ -2,7 +2,6 @@ use super::*;
 use flair_core::{
     command::{PaneRef, WindowRef},
     geom::Axis,
-    theme::Theme,
     tree::Window,
 };
 use flair_term::{Terminal, pty::SpawnSpec};
@@ -14,7 +13,6 @@ impl Server {
         id: PaneId,
         cwd: PathBuf,
         size: GridSize,
-        palette: &Theme,
         env: &[(String, String)],
         no_history: bool,
     ) -> SpawnSpec {
@@ -23,7 +21,7 @@ impl Server {
             rows: size.rows.max(1),
         };
         let mut terminal = Terminal::new(size, self.config.scrollback);
-        terminal.set_palette(palette);
+        terminal.set_palette(&self.palette);
         self.panes.insert(
             id,
             Pane {
@@ -63,11 +61,11 @@ impl Server {
         let session = self.tree.session(client.view.session).unwrap();
         let (root, no_history, session_id) =
             (session.root.clone(), session.name == "H", session.id);
-        let (size, palette, env) = (client.size, client.palette.clone(), client.env.clone());
+        let (size, env) = (client.size, client.env.clone());
         let number = self.next_id;
         self.next_id += 1;
         let (window, pane) = (WindowId(number), PaneId(number));
-        let spec = self.spawn_pane(pane, root, size, &palette, &env, no_history);
+        let spec = self.spawn_pane(pane, root, size, &env, no_history);
         self.tree
             .sessions
             .iter_mut()
@@ -167,9 +165,9 @@ impl Server {
         let reported = pane.terminal.cwd().map(PathBuf::from);
         let cwd = reported.clone().unwrap_or_else(|| pane.cwd.clone());
         let client = &self.clients[&id];
-        let (size, palette, env) = (client.size, client.palette.clone(), client.env.clone());
+        let (size, env) = (client.size, client.env.clone());
         let no_history = self.tree.session(client.view.session).unwrap().name == "H";
-        let mut spec = self.spawn_pane(new, cwd, size, &palette, &env, no_history);
+        let mut spec = self.spawn_pane(new, cwd, size, &env, no_history);
         let placement = self
             .tree
             .window(window_id)

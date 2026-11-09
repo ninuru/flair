@@ -55,12 +55,13 @@ impl ThemePicker {
             Key::Char('p' | 'P') if key.mods.ctrl => self.step(-1),
             Key::Char('n' | 'N') if key.mods.ctrl => self.step(1),
             Key::Char('u' | 'U') if key.mods.ctrl => {
+                let changed = !self.query.is_empty();
                 self.query.clear();
-                self.filtered()
+                self.filtered(changed)
             }
             Key::Named(NamedKey::Backspace) => {
-                self.query.pop();
-                self.filtered()
+                let changed = self.query.pop().is_some();
+                self.filtered(changed)
             }
             Key::Char(_) if plain => match &key.text {
                 Some(text) => self.insert(text),
@@ -71,8 +72,14 @@ impl ThemePicker {
     }
 
     pub fn insert(&mut self, text: &str) -> ThemeOutcome {
+        let before = self.query.len();
         self.query.extend(text.chars().filter(|c| !c.is_control()));
-        self.filtered()
+        self.filtered(self.query.len() != before)
+    }
+
+    pub fn refresh(&mut self, current: &str) -> ThemeOutcome {
+        current.clone_into(&mut self.current);
+        self.preview()
     }
 
     pub fn matches(&self) -> Vec<&str> {
@@ -158,7 +165,10 @@ impl ThemePicker {
         self.preview()
     }
 
-    fn filtered(&mut self) -> ThemeOutcome {
+    fn filtered(&mut self, changed: bool) -> ThemeOutcome {
+        if !changed {
+            return ThemeOutcome::Pending;
+        }
         self.selected = 0;
         self.preview()
     }

@@ -1,7 +1,11 @@
 use std::{
     error::Error,
-    fmt, fs, io,
+    fmt,
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
+    process,
     sync::mpsc::Sender,
     time::Instant,
 };
@@ -509,10 +513,17 @@ impl ApplicationHandler<UserEvent> for App {
                         self.send(ClientMsg::Input(InputEvent::Paste(text)));
                     }
                 }
-                ServerMsg::ReloadConfig { toml } => match Config::from_toml(&toml) {
-                    Ok(config) => self.reload(config, event_loop),
-                    Err(error) => log::warn!("ignoring reloaded config: {error}"),
-                },
+                ServerMsg::ReloadConfig { toml } => {
+                    let text = fs::read_to_string(&self.config_path).unwrap_or(toml);
+                    match Config::from_toml(&text) {
+                        Ok(config) => self.reload(config, event_loop),
+                        Err(error) => log::warn!("ignoring reloaded config: {error}"),
+                    }
+                    if let Some(picker) = &mut self.theme_picker {
+                        let outcome = picker.refresh(&self.config.theme);
+                        self.theme_outcome(outcome, event_loop);
+                    }
+                }
                 ServerMsg::ChooseTheme => {
                     self.theme_picker = Some(ThemePicker::new(
                         theme_names(&Config::themes_dir(&self.config_path)),
@@ -768,9 +779,14 @@ fn capture_after(
 }
 
 fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
-    let text = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+    let path = match fs::canonicalize(path) {
+        Ok(real) => real,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_owned(),
+        Err(error) => return Err(error),
+    };
+    let (text, permissions) = match fs::read_to_string(&path) {
+        Ok(text) => (text, Some(fs::metadata(&path)?.permissions())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (String::new(), None),
         Err(error) => return Err(error),
     };
     let text = set_theme(&text, name);
@@ -779,10 +795,33 @@ fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
         fs::create_dir_all(dir)?;
     }
     let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    fs::write(&tmp, text)?;
-    fs::rename(&tmp, path)?;
-    Ok(config)
+    tmp.push(format!(".{}.tmp", process::id()));
+    let tmp = PathBuf::from(tmp);
+    let replaced = replace_file(&tmp, &path, &text, permissions);
+    if replaced.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    replaced.map(|()| config)
+}
+
+fn replace_file(
+    tmp: &Path,
+    path: &Path,
+    text: &str,
+    permissions: Option<fs::Permissions>,
+) -> io::Result<()> {
+    let mode = permissions.as_ref().map_or(0o666, |p| p.mode() & 0o7777);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(tmp)?;
+    file.write_all(text.as_bytes())?;
+    if let Some(permissions) = permissions {
+        file.set_permissions(permissions)?;
+    }
+    drop(file);
+    fs::rename(tmp, path)
 }
 
 fn resolve_theme(config: &Config, path: &Path) -> Theme {

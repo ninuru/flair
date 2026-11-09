@@ -386,3 +386,27 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
     assert_eq!(at(panel.rect.x + 4.0, bottom), rgb(surfaces.surface1));
     assert_eq!(at(W as f32 - 2.0, bottom), rgb(surfaces.surface1));
 }
+
+#[test]
+fn clearing_an_empty_query_keeps_the_selection() {
+    let mut picker = ThemePicker::new(names(), "flair-dark");
+    assert_eq!(picker.key(&named(NamedKey::Down)), preview("gruvbox-dark"));
+    assert_eq!(
+        picker.key(&named(NamedKey::Backspace)),
+        ThemeOutcome::Pending
+    );
+    assert_eq!(picker.key(&ctrl('u')), ThemeOutcome::Pending);
+    assert_eq!(
+        picker.key(&named(NamedKey::Enter)),
+        ThemeOutcome::Save("gruvbox-dark".into())
+    );
+}
+
+#[test]
+fn refresh_moves_the_saved_marker_and_previews_the_selection_again() {
+    let mut picker = ThemePicker::new(names(), "flair-dark");
+    assert_eq!(picker.key(&named(NamedKey::Down)), preview("gruvbox-dark"));
+    assert_eq!(picker.refresh("catppuccin-mocha"), preview("gruvbox-dark"));
+    assert_eq!(picker.entry("catppuccin-mocha", 0), "  catppuccin-mocha *");
+    assert_eq!(picker.entry("flair-dark", 1), "  flair-dark");
+}

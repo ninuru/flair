@@ -81,3 +81,36 @@ fn result_parses() {
         assert_eq!(config.theme, "gruvbox-dark", "{text:?}");
     }
 }
+
+#[test]
+fn a_leading_bom_stays_first() {
+    let replaced = set_theme("\u{feff}theme = \"a\"\n[font]\n", "b");
+    assert_eq!(replaced, "\u{feff}theme = \"b\"\n[font]\n");
+    assert_eq!(Config::from_toml(&replaced).unwrap().theme, "b");
+    let inserted = set_theme("\u{feff}[font]\nsize = 13\n", "b");
+    assert_eq!(inserted, "\u{feff}theme = \"b\"\n[font]\nsize = 13\n");
+    assert_eq!(Config::from_toml(&inserted).unwrap().theme, "b");
+}
+
+#[test]
+fn quoted_theme_keys_are_replaced() {
+    for text in [
+        "\"theme\" = \"a\"\n",
+        "'theme' = \"a\"\n",
+        "  \"theme\"= 'a'\n",
+    ] {
+        let replaced = set_theme(text, "b");
+        assert_eq!(replaced, "theme = \"b\"\n", "{text:?}");
+        assert_eq!(Config::from_toml(&replaced).unwrap().theme, "b");
+    }
+}
+
+#[test]
+fn a_trailing_comment_is_kept() {
+    let replaced = set_theme("theme = \"a\" # mine\r\n[font]\r\n", "b");
+    assert_eq!(replaced, "theme = \"b\" # mine\r\n[font]\r\n");
+    assert_eq!(Config::from_toml(&replaced).unwrap().theme, "b");
+    let hashed = set_theme("theme = \"a#b\"  # note\n", "c");
+    assert_eq!(hashed, "theme = \"c\" # note\n");
+    assert_eq!(Config::from_toml(&hashed).unwrap().theme, "c");
+}
