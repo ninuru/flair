@@ -497,16 +497,23 @@ fn gpu_frame_draws_bar_border_pane_border_and_grid_below_the_bar() {
     assert_eq!(chrome.chrome.origin, origin);
     assert_eq!(frame.at(origin.0 + 1.0, origin.1), rgb(theme.foreground));
     let above = if origin.1 > 35.0 {
-        rgb(theme.foreground)
+        rgb(theme.background)
     } else {
         rgb(surfaces.outline)
     };
-    assert_eq!(frame.at(origin.0 + 1.0, origin.1 - 1.0), above);
+    for y in [35.0, origin.1 - 1.0] {
+        assert_eq!(frame.at(origin.0 + 1.0, y), above, "top margin at {y}");
+    }
     assert_eq!(
         frame.at(origin.0 - 1.0, origin.1 + 1.0),
         rgb(theme.foreground)
     );
     let size = grid_size((800, 300), padding, 1.0, metrics);
+    let bottom = origin.1 + f32::from(size.rows) * metrics.height;
+    assert!(
+        (300.0 - padding.1 - bottom).abs() < 1.0,
+        "{bottom} {padding:?}"
+    );
     let gap = origin.0 + f32::from((size.cols - 1) / 2) * metrics.width;
     let line = (gap + (metrics.width - 1.0) / 2.0).round();
     let y = origin.1 + metrics.height * 3.5;

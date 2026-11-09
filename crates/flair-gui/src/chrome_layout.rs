@@ -106,7 +106,7 @@ pub fn grid_origin(
     let height = px.1 as f32 - top - padding.1 - f32::from(size.rows) * metrics.height;
     (
         padding.0 + (width.max(0.0) / 2.0).floor(),
-        top + (height.max(0.0) / 2.0).floor(),
+        top + height.max(0.0).floor(),
     )
 }
 

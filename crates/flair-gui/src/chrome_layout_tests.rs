@@ -132,11 +132,11 @@ fn grid_starts_below_bar_and_border() {
     assert_eq!(bar_height(1.5), 51.0);
     assert_eq!(
         grid_origin((800, 600), (8.0, 4.0), 1.0, metrics(1.0)),
-        (8.0, 45.0)
+        (8.0, 52.0)
     );
     assert_eq!(
         grid_origin((1600, 1200), (16.0, 8.0), 2.0, metrics(2.0)),
-        (16.0, 91.0)
+        (16.0, 104.0)
     );
     assert_eq!(
         grid_size((800, 600), (8.0, 4.0), 1.0, metrics(1.0)),
@@ -151,18 +151,18 @@ fn grid_starts_below_bar_and_border() {
         GridSize { cols: 1, rows: 1 }
     );
     let layout = run_layout(1.0, 800, &parts(), None, &[], None);
-    assert_eq!(layout.chrome.origin, (8.0, 45.0));
+    assert_eq!(layout.chrome.origin, (8.0, 52.0));
     assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 784.0, 557.0));
     assert_eq!(layout.chrome.extend, rect(0.0, 35.0, 800.0, 565.0));
     let layout = run_layout(2.0, 800, &parts(), None, &[], None);
-    assert_eq!(layout.chrome.origin, (16.0, 91.0));
+    assert_eq!(layout.chrome.origin, (16.0, 104.0));
     assert_eq!(layout.chrome.clip, rect(16.0, 78.0, 1568.0, 1114.0));
     assert_eq!(layout.chrome.extend, rect(0.0, 70.0, 1600.0, 1130.0));
 }
 
 #[test]
-fn grid_origin_splits_the_unused_remainder_evenly() {
-    for (scale, width, origin) in [(1.0, 803, (9.0, 45.0)), (2.0, 803, (19.0, 91.0))] {
+fn grid_origin_centres_columns_and_puts_the_last_row_on_the_bottom_edge() {
+    for (scale, width, origin) in [(1.0, 803, (9.0, 52.0)), (2.0, 803, (19.0, 104.0))] {
         let px = (width * scale as u32, 600 * scale as u32);
         let padding = (8.0 * scale, 4.0 * scale);
         let size = grid_size(px, padding, scale, metrics(scale));
@@ -176,7 +176,7 @@ fn grid_origin_splits_the_unused_remainder_evenly() {
             origin.0
         );
         assert!(
-            (bottom - (origin.1 - 35.0 * scale)).abs() <= 1.0,
+            (bottom - padding.1).abs() < 1.0,
             "top {} bottom {bottom}",
             origin.1
         );
@@ -186,7 +186,7 @@ fn grid_origin_splits_the_unused_remainder_evenly() {
 }
 
 #[test]
-fn zero_padding_puts_the_grid_below_the_bar_line_plus_half_the_leftover() {
+fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
     for (scale, width) in [(1.0, 803), (2.0, 803)] {
         let px = (width * scale as u32, 600 * scale as u32);
         let cell = metrics(scale);
@@ -199,7 +199,7 @@ fn zero_padding_puts_the_grid_below_the_bar_line_plus_half_the_leftover() {
         assert!(leftover.0 >= 0.0 && leftover.1 >= 0.0, "{leftover:?}");
         assert_eq!(
             grid_origin(px, (0.0, 0.0), scale, cell),
-            ((leftover.0 / 2.0).floor(), top + (leftover.1 / 2.0).floor())
+            ((leftover.0 / 2.0).floor(), top + leftover.1.floor())
         );
         let theme = Config::default().theme();
         let status = parts();
@@ -526,13 +526,13 @@ fn separators_become_lines_centred_in_the_gap() {
     for (scale, vertical, horizontal) in [
         (
             1.0,
-            rect(92.0, 45.0, 1.0, 320.0),
-            rect(8.0, 133.0, 80.0, 1.0),
+            rect(92.0, 52.0, 1.0, 320.0),
+            rect(8.0, 140.0, 80.0, 1.0),
         ),
         (
             2.0,
-            rect(183.0, 91.0, 2.0, 640.0),
-            rect(16.0, 266.0, 160.0, 2.0),
+            rect(183.0, 104.0, 2.0, 640.0),
+            rect(16.0, 279.0, 160.0, 2.0),
         ),
     ] {
         let layout = run_layout(scale, 800, &parts(), None, &separators, None);
@@ -558,8 +558,8 @@ fn centred_modal_grows_the_lifted_rect_over_a_backdrop() {
         size: GridSize { cols: 20, rows: 5 },
     };
     for (scale, expected) in [
-        (1.0, rect(64.0, 53.0, 208.0, 128.0)),
-        (2.0, rect(128.0, 107.0, 416.0, 256.0)),
+        (1.0, rect(64.0, 60.0, 208.0, 128.0)),
+        (2.0, rect(128.0, 120.0, 416.0, 256.0)),
     ] {
         let layout = run_layout(
             scale,
@@ -755,6 +755,6 @@ fn separators_are_clipped_to_the_grid_area() {
     assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 184.0, 557.0));
     assert_eq!(
         borders,
-        [rect(92.0, 45.0, 1.0, 551.0), rect(8.0, 133.0, 184.0, 1.0)]
+        [rect(92.0, 52.0, 1.0, 544.0), rect(8.0, 140.0, 184.0, 1.0)]
     );
 }
