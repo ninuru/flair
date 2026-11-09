@@ -1,5 +1,5 @@
 use std::{
-    fs,
+    fs, io,
     path::{Path, PathBuf},
 };
 
@@ -110,11 +110,19 @@ impl Overlays {
                 ));
             }
             ServerMsg::Settings => {
+                let text = match fs::read_to_string(config_path) {
+                    Ok(text) => text,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+                    Err(error) => {
+                        self.notice = Some(Notice::error(format!("settings: {error}")));
+                        return true;
+                    }
+                };
                 let dir = Config::themes_dir(config_path);
                 self.settings = Some(SettingsPage::new(
                     config,
                     config.load_theme(&dir).0,
-                    fs::read_to_string(config_path).unwrap_or_default(),
+                    text,
                     theme_names(&dir),
                 ));
             }

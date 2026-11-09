@@ -390,28 +390,28 @@ fn rows_pair_title_and_description_with_the_source_left_of_the_control() {
         ),
         (712.0, 198.0, surfaces.muted, TextFace::Small)
     );
-    let chip = rect(1336.0, 175.0, 104.0, 24.0);
+    let chip = rect(1316.0, 175.0, 124.0, 24.0);
     assert_quad(&scene, chip_quad(chip));
     assert_hit(&scene, SettingsHit::Cycle(0), chip);
     let value = text(&scene, "flair-dark").unwrap();
     assert_eq!(
         (value.x, value.baseline, value.color),
-        (1346.0, 191.0, theme().foreground)
+        (1326.0, 191.0, theme().foreground)
     );
     let mark = text(&scene, "▾").unwrap();
     assert_eq!(
         (mark.x, mark.color, mark.face),
-        (1422.0, surfaces.muted, TextFace::Small)
+        (1402.0, surfaces.muted, TextFace::Small)
     );
     let source = text(&scene, "flair.toml").unwrap();
     assert_eq!(
         (source.x, source.color, source.face),
-        (1289.0, surfaces.muted, TextFace::Small)
+        (1269.0, surfaces.muted, TextFace::Small)
     );
-    let chip = rect(1336.0, 231.0, 104.0, 24.0);
+    let chip = rect(1316.0, 231.0, 124.0, 24.0);
     assert_hit(&scene, SettingsHit::Edit(1), chip);
     assert_quad(&scene, chip_quad(chip));
-    assert_eq!(text(&scene, "#030303").unwrap().x, 1366.0);
+    assert_eq!(text(&scene, "#030303").unwrap().x, 1346.0);
 }
 
 #[test]
@@ -424,14 +424,14 @@ fn toggles_and_steppers_sit_on_the_control_column() {
         let knob = rect(right - 14.0, 181.0, 12.0, 12.0);
         assert_quad(&scene, plain(knob, theme().foreground, 6.0));
         assert_hit(&scene, SettingsHit::Toggle(0), track);
-        let chip = rect(right - 104.0, 287.0, 104.0, 24.0);
+        let chip = rect(right - 124.0, 287.0, 124.0, 24.0);
         assert_quad(&scene, chip_quad(chip));
         let down = rect(chip.x, chip.y, 20.0, 24.0);
-        let up = rect(chip.x + 84.0, chip.y, 20.0, 24.0);
+        let up = rect(chip.x + 104.0, chip.y, 20.0, 24.0);
         assert_hit(&scene, SettingsHit::Decrease(2), down);
         assert_hit(&scene, SettingsHit::Increase(2), up);
         assert_eq!(scene.hits.hit_test(centre(chip)), OverlayHit::Row(2));
-        assert_eq!(text(&scene, "1500").unwrap().x, chip.x + 38.0);
+        assert_eq!(text(&scene, "1500").unwrap().x, chip.x + 48.0);
         let down_mark = text(&scene, "‹").unwrap();
         assert_eq!(
             (
@@ -725,7 +725,7 @@ fn narrow_windows_ellipsize_descriptions_left_of_the_source_label() {
     assert_inside(&scene, (960, 600));
     assert_eq!(
         control(&scene, SettingsHit::Edit(1)),
-        rect(800.0, 231.0, 104.0, 24.0)
+        rect(780.0, 231.0, 124.0, 24.0)
     );
     let description = scene
         .text
@@ -738,7 +738,7 @@ fn narrow_windows_ellipsize_descriptions_left_of_the_source_label() {
         .iter()
         .find(|run| run.text == "default" && run.baseline > 231.0 && run.baseline < 271.0)
         .unwrap();
-    assert_eq!(label.x, 764.0);
+    assert_eq!(label.x, 744.0);
     let end = description.x + measure(&description.text, false) * 0.5;
     assert!(end <= label.x - 12.0, "{end} {}", label.x);
 }

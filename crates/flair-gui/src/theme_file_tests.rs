@@ -183,3 +183,21 @@ fn saving_a_key_keeps_mode_and_symlink() {
     assert_eq!(entries(target.parent().unwrap()), ["flair.toml"]);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn a_stale_temporary_file_does_not_block_a_save() {
+    let dir = private_dir("save-stale-tmp");
+    let path = dir.join("flair.toml");
+    fs::write(&path, "").unwrap();
+    let stale = dir.join(format!("flair.toml.{}.tmp", process::id()));
+    fs::write(&stale, "left over").unwrap();
+    let (text, _) = save(
+        &path,
+        "theme",
+        Some(&Value::Text("gruvbox-dark".to_owned())),
+    )
+    .unwrap();
+    assert_eq!(fs::read_to_string(&path).unwrap(), text);
+    assert_eq!(entries(&dir), ["flair.toml"]);
+    fs::remove_dir_all(&dir).unwrap();
+}

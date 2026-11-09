@@ -20,7 +20,7 @@ fn builtin_themes() -> Vec<String> {
 fn other_value(setting: &Setting) -> Value {
     let current = default_value(setting);
     match setting.kind {
-        Kind::Toggle | Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {
+        Kind::Toggle | Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice => {
             setting.step(&current, 1, &builtin_themes()).unwrap()
         }
         Kind::Text => Value::Text("C-b".to_owned()),
@@ -94,7 +94,7 @@ fn source_labels() {
 fn keys_enabled_warns_about_the_lock_out() {
     assert_eq!(
         setting("keys.enabled").description,
-        "Prefix and root bindings. Off also disables prefix S."
+        "Prefix and root bindings. Off also disables prefix S; turn it back on by editing flair.toml."
     );
     assert_eq!(setting("keys.enabled").kind, Kind::Toggle);
 }
@@ -185,6 +185,56 @@ fn values_display_plainly() {
     assert_eq!(Value::Words(Vec::new()).display(), "");
 }
 
+fn words(words: &[&str]) -> Value {
+    Value::Words(words.iter().map(|word| (*word).to_owned()).collect())
+}
+
+#[test]
+fn words_quote_what_would_not_split_back() {
+    assert_eq!(words(&["-c", "echo hi"]).display(), "-c \"echo hi\"");
+    assert_eq!(words(&["", "a"]).display(), "\"\" a");
+    assert_eq!(words(&["say \"hi\""]).display(), "\"say \\\"hi\\\"\"");
+    assert_eq!(words(&["a\\b"]).display(), "\"a\\\\b\"");
+    assert_eq!(words(&["tab\there"]).display(), "\"tab\there\"");
+}
+
+#[test]
+fn words_round_trip_through_display_and_parse() {
+    let args = setting("shell.args");
+    for case in [
+        words(&["-c", "echo hi"]),
+        words(&["", "a"]),
+        words(&["say \"hi\"", "a\\b"]),
+        words(&["-l"]),
+        words(&[]),
+    ] {
+        assert_eq!(
+            args.parse(&case.display()),
+            Ok(Some(case.clone())),
+            "{case:?}"
+        );
+    }
+}
+
+#[test]
+fn words_parse_quotes_and_escapes() {
+    let args = setting("shell.args");
+    assert_eq!(
+        args.parse("-c \"echo hi\""),
+        Ok(Some(words(&["-c", "echo hi"])))
+    );
+    assert_eq!(args.parse("a\"b c\"d"), Ok(Some(words(&["ab cd"]))));
+    assert_eq!(args.parse("\"\\q\\x\""), Ok(Some(words(&["\\q\\x"]))));
+    assert_eq!(args.parse("plain\\path"), Ok(Some(words(&["plain\\path"]))));
+    for bad in ["\"open", "-c \"echo", "\"ends\\\""] {
+        assert_eq!(
+            args.parse(bad),
+            Err("close the quote".to_owned()),
+            "{bad:?}"
+        );
+    }
+}
+
 #[test]
 fn float_steps_land_on_the_grid() {
     let line_height = setting("font.line_height");
@@ -266,22 +316,6 @@ fn theme_cycles_with_wrap_around() {
 }
 
 #[test]
-fn fixed_choices_cycle() {
-    let style = Setting {
-        key: "cursor.style",
-        title: "Cursor style",
-        section: Section::Terminal,
-        kind: Kind::Choice(Choices::Fixed(&["block", "underline", "beam"])),
-        description: "Shape of the terminal cursor.",
-        read: |_, _| Value::Text("block".to_owned()),
-    };
-    assert_eq!(style.step(&text("block"), 1, &[]), Some(text("underline")));
-    assert_eq!(style.step(&text("underline"), 1, &[]), Some(text("beam")));
-    assert_eq!(style.step(&text("beam"), 1, &[]), Some(text("block")));
-    assert_eq!(style.step(&text("block"), -1, &[]), Some(text("beam")));
-}
-
-#[test]
 fn parsing_integers() {
     let padding = setting("window.padding_x");
     assert_eq!(padding.parse(" 12 "), Ok(Some(Value::Integer(12))));
@@ -302,13 +336,41 @@ fn parsing_integers() {
 fn parsing_floats() {
     let size = setting("font.size");
     assert_eq!(size.parse(" 14.5 "), Ok(Some(Value::Float(14.5))));
-    for bad in ["0", "-1", "nan", "inf", "big", ""] {
+    assert_eq!(size.parse("128"), Ok(Some(Value::Float(128.0))));
+    assert_eq!(size.parse("0.5"), Ok(Some(Value::Float(0.5))));
+    for bad in ["0", "0.4", "-1", "128.5", "nan", "inf", "big", ""] {
         assert_eq!(
             size.parse(bad),
-            Err("enter a number greater than 0".to_owned()),
+            Err("enter a number from 0.5 to 128".to_owned()),
             "{bad:?}"
         );
     }
+    assert_eq!(
+        setting("font.line_height").parse("5"),
+        Err("enter a number from 0.5 to 4".to_owned())
+    );
+    assert_eq!(
+        setting("font.ui_size").parse("65"),
+        Err("enter a number from 0.5 to 64".to_owned())
+    );
+}
+
+#[test]
+fn float_steps_clamp_to_the_maximum() {
+    let size = setting("font.size");
+    assert_eq!(size.step(&Value::Float(128.0), 1, &[]), None);
+    assert_eq!(
+        size.step(&Value::Float(127.8), 1, &[]),
+        Some(Value::Float(128.0))
+    );
+    assert_eq!(
+        setting("font.line_height").step(&Value::Float(4.0), 1, &[]),
+        None
+    );
+    assert_eq!(
+        setting("font.ui_size").step(&Value::Float(70.0), 1, &[]),
+        Some(Value::Float(64.0))
+    );
 }
 
 #[test]
@@ -329,6 +391,10 @@ fn parsing_text_words_and_toggles() {
         setting("shell.args").parse(""),
         Ok(Some(Value::Words(Vec::new())))
     );
+    for key in ["shell.program", "keys.key", "font.family", "font.ui_family"] {
+        assert_eq!(setting(key).parse(""), Ok(None), "{key}");
+        assert_eq!(setting(key).parse("   "), Ok(None), "{key}");
+    }
     assert_eq!(
         setting("keys.enabled").parse("on"),
         Err("use space or ← →".to_owned())

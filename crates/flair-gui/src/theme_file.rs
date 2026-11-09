@@ -46,6 +46,10 @@ fn replace_file(
     permissions: Option<fs::Permissions>,
 ) -> io::Result<()> {
     let mode = permissions.as_ref().map_or(0o666, |p| p.mode() & 0o7777);
+    match fs::remove_file(tmp) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        Ok(()) | Err(_) => {}
+    }
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -55,6 +59,7 @@ fn replace_file(
     if let Some(permissions) = permissions {
         file.set_permissions(permissions)?;
     }
+    file.sync_all()?;
     drop(file);
     fs::rename(tmp, path)
 }

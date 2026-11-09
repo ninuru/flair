@@ -181,7 +181,7 @@ impl App {
             surface.window.request_redraw();
         }
     }
-    fn overlay_event(&mut self, event: OverlayEvent, event_loop: &ActiveEventLoop) {
+    fn overlay_event(&mut self, event: OverlayEvent) {
         match event {
             OverlayEvent::Ignored => {}
             OverlayEvent::Redraw => self.request_redraw(),
@@ -189,8 +189,8 @@ impl App {
                 self.send(message);
                 self.request_redraw();
             }
-            OverlayEvent::Theme(outcome) => self.theme_outcome(outcome, event_loop),
-            OverlayEvent::Settings(outcome) => self.settings_outcome(outcome, event_loop),
+            OverlayEvent::Theme(outcome) => self.theme_outcome(outcome),
+            OverlayEvent::Settings(outcome) => self.settings_outcome(outcome),
         }
     }
     fn set_ime(&mut self, active: bool) {
@@ -211,7 +211,7 @@ impl App {
             })
             .or(self.pane)
     }
-    fn reload(&mut self, config: Config, event_loop: &ActiveEventLoop) {
+    fn reload(&mut self, config: Config) {
         let fonts_changed = config.font != self.effective().font;
         self.preview = None;
         self.config = config;
@@ -230,8 +230,9 @@ impl App {
                     surface.fonts = fonts;
                 }
                 Err(error) => {
-                    self.fail(error, event_loop);
-                    return;
+                    log::warn!("could not load the configured font: {error}");
+                    self.overlays
+                        .set_notice(Notice::error(format!("font not loaded: {error}")));
                 }
             }
         }
@@ -315,14 +316,14 @@ impl App {
             });
         }
     }
-    fn text(&mut self, text: String, event_loop: &ActiveEventLoop) {
+    fn text(&mut self, text: String) {
         self.set_ime(false);
         match self.overlays.text(&text) {
-            Some(event) => self.overlay_event(event, event_loop),
+            Some(event) => self.overlay_event(event),
             None => self.send(ClientMsg::Input(InputEvent::Text(text))),
         }
     }
-    fn key(&mut self, key: KeyInput, event_loop: &ActiveEventLoop) {
+    fn key(&mut self, key: KeyInput) {
         if self.overlays.notice().is_some() {
             self.request_redraw();
         }
@@ -331,7 +332,7 @@ impl App {
             .overlays
             .key(&key, || surface.as_ref().and_then(|s| s.clipboard.load()))
         {
-            Some(event) => self.overlay_event(event, event_loop),
+            Some(event) => self.overlay_event(event),
             None => self.send(ClientMsg::Input(InputEvent::Key(key))),
         }
     }
@@ -452,7 +453,7 @@ impl ApplicationHandler<UserEvent> for App {
                             if self.overlays.notice().is_none_or(|notice| notice.error) {
                                 self.overlays.set_notice(Notice::info("config reloaded"));
                             }
-                            self.reload(config, event_loop);
+                            self.reload(config);
                         }
                         Err(error) => {
                             log::warn!("ignoring reloaded config: {error}");
@@ -461,7 +462,7 @@ impl ApplicationHandler<UserEvent> for App {
                             self.request_redraw();
                         }
                     }
-                    self.refresh_overlays(&text, event_loop);
+                    self.refresh_overlays(&text);
                 }
                 ServerMsg::Sessionizer { .. }
                 | ServerMsg::ChooseSession { .. }
@@ -479,8 +480,8 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             },
             UserEvent::Disconnected => event_loop.exit(),
-            UserEvent::Drive(Drive::Key(key)) => self.key(key, event_loop),
-            UserEvent::Drive(Drive::Text(text)) => self.text(text, event_loop),
+            UserEvent::Drive(Drive::Key(key)) => self.key(key),
+            UserEvent::Drive(Drive::Text(text)) => self.text(text),
             UserEvent::Drive(Drive::Resize { width, height }) => {
                 if let Some(surface) = &self.surface {
                     let _ = surface
@@ -527,7 +528,7 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
             WindowEvent::Focused(focused) => self.send(ClientMsg::Focus(focused)),
             WindowEvent::Ime(Ime::Preedit(text, _)) => self.set_ime(!text.is_empty()),
-            WindowEvent::Ime(Ime::Commit(text)) => self.text(text, event_loop),
+            WindowEvent::Ime(Ime::Commit(text)) => self.text(text),
             WindowEvent::Ime(Ime::Disabled) => self.set_ime(false),
             WindowEvent::KeyboardInput {
                 event,
@@ -540,7 +541,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let Some(key) = self.input.translate(&event, self.mods) else {
                     return;
                 };
-                self.key(key, event_loop);
+                self.key(key);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let target = |app: &App, pos: (f64, f64)| {
@@ -573,7 +574,7 @@ impl ApplicationHandler<UserEvent> for App {
                         && let Some(hit) = self.overlays.hit_test((self.pointer.x, self.pointer.y))
                     {
                         let event = self.overlays.click(hit);
-                        self.overlay_event(event, event_loop);
+                        self.overlay_event(event);
                     }
                     return;
                 }
@@ -636,7 +637,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 if self.overlays.is_open() {
                     let event = self.overlays.wheel(-lines);
-                    self.overlay_event(event, event_loop);
+                    self.overlay_event(event);
                     return;
                 }
                 let button = if lines >= 0 {

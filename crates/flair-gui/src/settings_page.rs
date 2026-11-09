@@ -19,6 +19,8 @@ const EDITOR_PLACEHOLDER: &str = "unset";
 const SEARCH_CRUMB: &str = "Search";
 const BINDINGS: &str = "Key bindings";
 const UNBOUND: &str = "unbound";
+const QUERY_LIMIT: usize = 256;
+const EDITOR_LIMIT: usize = 1024;
 
 pub struct SettingsPage {
     config: Config,
@@ -33,6 +35,7 @@ pub struct SettingsPage {
     query: TextCursor,
     editor: Option<Editor>,
     pending: Option<(usize, Value)>,
+    queued: Option<Action>,
     error: Option<(usize, String)>,
 }
 
@@ -45,6 +48,13 @@ enum Focus {
 struct Editor {
     setting: usize,
     text: TextCursor,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Toggle,
+    Step(i32),
+    Edit,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,9 +87,10 @@ impl SettingsPage {
             section: 0,
             focus: Focus::Items,
             item: 0,
-            query: TextCursor::new(""),
+            query: empty_query(),
             editor: None,
             pending: None,
+            queued: None,
             error: None,
         }
     }
@@ -113,7 +124,7 @@ impl SettingsPage {
         match hit {
             SettingsHit::Section(index) => {
                 let outcome = self.leave();
-                self.query = TextCursor::new("");
+                self.query = empty_query();
                 self.select_section(index);
                 self.focus = Focus::Items;
                 outcome
@@ -124,17 +135,20 @@ impl SettingsPage {
                 self.focus = Focus::Items;
                 outcome
             }
-            SettingsHit::Toggle(item) => self.on_item(item, SettingsPage::toggle),
-            SettingsHit::Decrease(item) => self.on_item(item, |page| page.step(-1)),
+            SettingsHit::Toggle(item) => self.on_item(item, Action::Toggle),
+            SettingsHit::Decrease(item) => self.on_item(item, Action::Step(-1)),
             SettingsHit::Increase(item) | SettingsHit::Cycle(item) => {
-                self.on_item(item, |page| page.step(1))
+                self.on_item(item, Action::Step(1))
             }
-            SettingsHit::Edit(item) => self.on_item(item, SettingsPage::edit),
+            SettingsHit::Edit(item) => self.on_item(item, Action::Edit),
         }
     }
 
     pub fn focus(&mut self, item: usize) -> SettingsOutcome {
-        self.on_item(item, |_| SettingsOutcome::Pending)
+        match item < self.items().len() {
+            true => self.go(item),
+            false => SettingsOutcome::Pending,
+        }
     }
 
     pub fn wheel(&mut self, rows: i32) -> SettingsOutcome {
@@ -152,6 +166,9 @@ impl SettingsPage {
         self.bindings = config.keys.bindings();
         self.error = None;
         self.item = self.item.min(self.items().len().saturating_sub(1));
+        if let Some(action) = self.queued.take() {
+            return self.run(action);
+        }
         if self.editor.is_some() {
             return self.preview();
         }
@@ -162,6 +179,7 @@ impl SettingsPage {
     }
 
     pub fn fail(&mut self, key: &str, message: &str) {
+        self.queued = None;
         if let Some(index) = position(key) {
             self.error = Some((index, message.to_owned()));
         }
@@ -235,7 +253,7 @@ impl SettingsPage {
             Key::Char('p' | 'P') if ctrl => self.move_by(-1),
             Key::Named(NamedKey::Down) => self.move_by(1),
             Key::Char('n' | 'N') if ctrl => self.move_by(1),
-            Key::Char('u' | 'U') if ctrl => self.change_query(|query| *query = TextCursor::new("")),
+            Key::Char('u' | 'U') if ctrl => self.change_query(|query| *query = empty_query()),
             Key::Named(NamedKey::Tab) if empty => {
                 let outcome = self.leave();
                 self.focus_sections();
@@ -324,7 +342,7 @@ impl SettingsPage {
         }
         match SETTINGS[index].kind {
             Kind::Toggle => self.toggle(),
-            Kind::Choice(_) => self.step(1),
+            Kind::Choice => self.step(1),
             Kind::Integer { .. }
             | Kind::Float { .. }
             | Kind::Text
@@ -349,7 +367,7 @@ impl SettingsPage {
             ),
             Kind::Integer { .. }
             | Kind::Float { .. }
-            | Kind::Choice(_)
+            | Kind::Choice
             | Kind::Text
             | Kind::Font
             | Kind::Words
@@ -363,7 +381,7 @@ impl SettingsPage {
         };
         let setting = &SETTINGS[index];
         match setting.kind {
-            Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {}
+            Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice => {}
             Kind::Toggle | Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => {
                 return SettingsOutcome::Pending;
             }
@@ -384,25 +402,28 @@ impl SettingsPage {
         let Some(index) = self.selected() else {
             return SettingsOutcome::Pending;
         };
-        let text = match (SETTINGS[index].kind, self.sources[index]) {
+        self.editor = Some(Editor {
+            setting: index,
+            text: TextCursor::new(&self.seed(index)).with_limit(EDITOR_LIMIT),
+        });
+        SettingsOutcome::Pending
+    }
+
+    fn seed(&self, index: usize) -> String {
+        match (SETTINGS[index].kind, self.sources[index]) {
             (Kind::Color { .. }, Source::Default) => String::new(),
             (Kind::Color { .. }, Source::File)
             | (
                 Kind::Toggle
                 | Kind::Integer { .. }
                 | Kind::Float { .. }
-                | Kind::Choice(_)
+                | Kind::Choice
                 | Kind::Text
                 | Kind::Font
                 | Kind::Words,
                 Source::Default | Source::File,
             ) => self.current(index).display(),
-        };
-        self.editor = Some(Editor {
-            setting: index,
-            text: TextCursor::new(&text),
-        });
-        SettingsOutcome::Pending
+        }
     }
 
     fn reset(&mut self) -> SettingsOutcome {
@@ -417,7 +438,10 @@ impl SettingsPage {
                     value: None,
                 }
             }
-            Source::Default => SettingsOutcome::Pending,
+            Source::Default => match self.pending.take() {
+                Some(_) => SettingsOutcome::Revert,
+                None => SettingsOutcome::Pending,
+            },
         }
     }
 
@@ -427,26 +451,32 @@ impl SettingsPage {
         };
         let index = editor.setting;
         let setting = &SETTINGS[index];
-        match setting.parse(editor.text.text()) {
+        if editor.text.text() == self.seed(index) {
+            return self.close_editor();
+        }
+        let value = match setting.parse(editor.text.text()) {
+            Ok(value) => value,
             Err(message) => {
                 self.error = Some((index, message));
-                SettingsOutcome::Pending
+                return SettingsOutcome::Pending;
             }
-            Ok(value) => {
-                self.editor = None;
-                self.error = None;
-                let unchanged = match &value {
-                    Some(value) => *value == self.current(index),
-                    None => self.sources[index] == Source::Default,
-                };
-                match unchanged {
-                    true => SettingsOutcome::Revert,
-                    false => SettingsOutcome::Save {
-                        key: setting.key,
-                        value,
-                    },
-                }
-            }
+        };
+        let unchanged = match &value {
+            Some(value) => *value == self.current(index),
+            None => self.sources[index] == Source::Default,
+        };
+        if unchanged {
+            return self.close_editor();
+        }
+        if let Err(error) = apply(&self.file, setting.key, value.as_ref()) {
+            self.error = Some((index, error.to_string()));
+            return SettingsOutcome::Pending;
+        }
+        self.editor = None;
+        self.error = None;
+        SettingsOutcome::Save {
+            key: setting.key,
+            value,
         }
     }
 
@@ -515,17 +545,25 @@ impl SettingsPage {
         self.go(next)
     }
 
-    fn on_item(
-        &mut self,
-        item: usize,
-        action: impl FnOnce(&mut SettingsPage) -> SettingsOutcome,
-    ) -> SettingsOutcome {
+    fn on_item(&mut self, item: usize, action: Action) -> SettingsOutcome {
         if item >= self.items().len() {
             return SettingsOutcome::Pending;
         }
         let left = self.go(item);
-        let acted = action(self);
+        if let SettingsOutcome::Save { .. } = left {
+            self.queued = Some(action);
+            return left;
+        }
+        let acted = self.run(action);
         then(left, acted)
+    }
+
+    fn run(&mut self, action: Action) -> SettingsOutcome {
+        match action {
+            Action::Toggle => self.toggle(),
+            Action::Step(delta) => self.step(delta),
+            Action::Edit => self.edit(),
+        }
     }
 
     fn select_section(&mut self, index: usize) {
@@ -613,7 +651,7 @@ impl SettingsPage {
         match SETTINGS[index].kind {
             Kind::Toggle => Control::Toggle(value == Value::Bool(true)),
             Kind::Integer { .. } | Kind::Float { .. } => Control::Number(value.display()),
-            Kind::Choice(_) => Control::Choice(value.display()),
+            Kind::Choice => Control::Choice(value.display()),
             Kind::Text | Kind::Font | Kind::Words => Control::Text(value.display()),
             Kind::Color { .. } => Control::Color(value.display()),
         }
@@ -635,26 +673,45 @@ impl SettingsPage {
     }
 
     fn footer(&self) -> Vec<(&'static str, String)> {
-        let keys: &[(&'static str, &str)] = match (&self.editor, &self.pending) {
-            (Some(_), _) => &[(ENTER_KEY, "save"), (ESCAPE_KEY, "revert")],
-            (None, Some(_)) => &[
+        let keys = match (&self.editor, &self.pending) {
+            (Some(_), _) => vec![(ENTER_KEY, "save"), (ESCAPE_KEY, "revert")],
+            (None, Some(_)) => vec![
                 (ENTER_KEY, "save"),
                 (ESCAPE_KEY, "revert"),
                 (STEP_KEY, "step"),
             ],
-            (None, None) => &[
-                (ENTER_KEY, "edit"),
-                (SPACE_KEY, "toggle"),
-                (STEP_KEY, "step"),
-                (DELETE_KEY, "reset"),
-                (ESCAPE_KEY, "close"),
-                (SEARCH_KEY, "search"),
-            ],
+            (None, None) => self.browse_keys(),
         };
-        keys.iter()
-            .map(|(cap, label)| (*cap, (*label).to_owned()))
+        keys.into_iter()
+            .map(|(cap, label)| (cap, label.to_owned()))
             .collect()
     }
+
+    fn browse_keys(&self) -> Vec<(&'static str, &'static str)> {
+        let mut keys = Vec::new();
+        match (self.focus, self.selected()) {
+            (Focus::Sections, _) => keys.push((ENTER_KEY, "open")),
+            (Focus::Items, None) => {}
+            (Focus::Items, Some(index)) => {
+                keys.push(match SETTINGS[index].kind {
+                    Kind::Toggle => (SPACE_KEY, "toggle"),
+                    Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice => (STEP_KEY, "step"),
+                    Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => {
+                        (ENTER_KEY, "edit")
+                    }
+                });
+                if self.sources[index] == Source::File {
+                    keys.push((DELETE_KEY, "reset"));
+                }
+            }
+        }
+        keys.extend([(ESCAPE_KEY, "close"), (SEARCH_KEY, "search")]);
+        keys
+    }
+}
+
+fn empty_query() -> TextCursor {
+    TextCursor::new("").with_limit(QUERY_LIMIT)
 }
 
 fn plain(key: &KeyInput) -> bool {

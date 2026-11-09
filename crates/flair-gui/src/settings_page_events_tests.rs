@@ -48,8 +48,18 @@ fn clicks_map_to_sections_and_controls() {
         page.click(SettingsHit::Cycle(0)),
         preview_of("", "theme", Some(&next))
     );
-    assert_eq!(page.click(SettingsHit::Edit(2)), save("theme", Some(next)));
+    assert_eq!(
+        page.click(SettingsHit::Edit(2)),
+        save("theme", Some(next.clone()))
+    );
     assert_eq!(page.sheet().focus, Some(2));
+    assert!(!matches!(control(&page), Control::Editor(_)));
+    let text = "theme = \"gruvbox-dark\"\n";
+    let config = Config::from_toml(text).unwrap();
+    assert_eq!(
+        page.refresh(&config, config.theme(), text.to_owned()),
+        SettingsOutcome::Pending
+    );
     assert!(matches!(control(&page), Control::Editor(_)));
     assert_eq!(page.click(SettingsHit::Search), SettingsOutcome::Revert);
     assert!(!matches!(control(&page), Control::Editor(_)));
@@ -69,7 +79,7 @@ fn a_section_click_reverts_an_open_editor() {
     focus_key(&mut page, "shell.program");
     press(&mut page, NamedKey::Enter);
     assert_eq!(page.click(SettingsHit::Section(1)), SettingsOutcome::Revert);
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, edit_keys());
 }
 
 #[test]
@@ -84,6 +94,16 @@ fn a_control_click_on_another_entry_saves_the_pending_value_first() {
     );
     assert_eq!(page.sheet().focus, Some(0));
     assert_eq!(control(&page), Control::Toggle(true));
+    let text = "[keys]\ntimeout_ms = 1600\n";
+    let config = Config::from_toml(text).unwrap();
+    assert_eq!(
+        page.refresh(&config, config.theme(), text.to_owned()),
+        save("keys.enabled", Some(Value::Bool(false)))
+    );
+    assert_eq!(
+        page.refresh(&config, config.theme(), text.to_owned()),
+        SettingsOutcome::Pending
+    );
 }
 
 #[test]

@@ -50,18 +50,12 @@ impl Source {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Choices {
-    Themes,
-    Fixed(&'static [&'static str]),
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Kind {
     Toggle,
     Integer { step: i64, min: i64, max: i64 },
-    Float { step: f64, min: f64 },
-    Choice(Choices),
+    Float { step: f64, min: f64, max: f64 },
+    Choice,
     Text,
     Font,
     Words,
@@ -85,7 +79,11 @@ impl Value {
             Value::Integer(value) => value.to_string(),
             Value::Float(value) => value.to_string(),
             Value::Text(text) => text.clone(),
-            Value::Words(words) => words.join(" "),
+            Value::Words(words) => words
+                .iter()
+                .map(|word| quote(word))
+                .collect::<Vec<_>>()
+                .join(" "),
         }
     }
 
@@ -117,7 +115,7 @@ impl Setting {
     pub fn parse(&self, text: &str) -> Result<Option<Value>, String> {
         let trimmed = text.trim();
         match self.kind {
-            Kind::Toggle | Kind::Choice(_) => Err("use space or ← →".to_owned()),
+            Kind::Toggle | Kind::Choice => Err("use space or ← →".to_owned()),
             Kind::Integer { min, max, .. } => trimmed
                 .parse::<i64>()
                 .ok()
@@ -130,16 +128,15 @@ impl Setting {
                         format!("enter a whole number from {min} to {max}")
                     }
                 }),
-            Kind::Float { .. } => trimmed
+            Kind::Float { min, max, .. } => trimmed
                 .parse::<f64>()
                 .ok()
-                .filter(|value| value.is_finite() && *value > 0.0)
+                .filter(|value| (min..=max).contains(value))
                 .map(|value| Some(Value::Float(value)))
-                .ok_or_else(|| "enter a number greater than 0".to_owned()),
+                .ok_or_else(|| format!("enter a number from {min} to {max}")),
+            Kind::Text | Kind::Font if trimmed.is_empty() => Ok(None),
             Kind::Text | Kind::Font => Ok(Some(Value::Text(trimmed.to_owned()))),
-            Kind::Words => Ok(Some(Value::Words(
-                text.split_whitespace().map(str::to_owned).collect(),
-            ))),
+            Kind::Words => split_words(text).map(|words| Some(Value::Words(words))),
             Kind::Color { .. } if trimmed.is_empty() => Ok(None),
             Kind::Color { alpha: false } => Rgb::from_hex(trimmed)
                 .map(|color| Some(Value::Text(color.hex())))
@@ -165,22 +162,18 @@ impl Setting {
                 let moved = value.saturating_add(step.saturating_mul(i64::from(delta)));
                 Value::Integer(moved.clamp(min, max))
             }
-            Kind::Float { step, min } => {
+            Kind::Float { step, min, max } => {
                 let Value::Float(value) = current else {
                     return None;
                 };
                 let grid = ((value + f64::from(delta) * step) / step).round() * step;
-                Value::Float(((grid * 1e6).round() / 1e6).max(min))
+                Value::Float(((grid * 1e6).round() / 1e6).clamp(min, max))
             }
-            Kind::Choice(choices) => {
+            Kind::Choice => {
                 let Value::Text(name) = current else {
                     return None;
                 };
-                let next = match choices {
-                    Choices::Themes => cycle(themes, name, delta),
-                    Choices::Fixed(names) => cycle(names, name, delta),
-                };
-                Value::Text(next?)
+                Value::Text(cycle(themes, name, delta)?)
             }
             Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => return None,
         };
@@ -200,7 +193,7 @@ pub const SETTINGS: &[Setting] = &[
         key: "theme",
         title: "Theme",
         section: Section::Appearance,
-        kind: Kind::Choice(Choices::Themes),
+        kind: Kind::Choice,
         description: "Colour theme for the terminal and the chrome.",
         read: |config, _| Value::Text(config.theme.clone()),
     },
@@ -259,6 +252,7 @@ pub const SETTINGS: &[Setting] = &[
         kind: Kind::Float {
             step: 0.5,
             min: 0.5,
+            max: 128.0,
         },
         description: "Terminal font size in points.",
         read: |config, _| Value::Float(decimal(config.font.size)),
@@ -269,7 +263,8 @@ pub const SETTINGS: &[Setting] = &[
         section: Section::Font,
         kind: Kind::Float {
             step: 0.05,
-            min: 0.05,
+            min: 0.5,
+            max: 4.0,
         },
         description: "Line height as a multiple of the font size.",
         read: |config, _| Value::Float(decimal(config.font.line_height)),
@@ -289,6 +284,7 @@ pub const SETTINGS: &[Setting] = &[
         kind: Kind::Float {
             step: 0.5,
             min: 0.5,
+            max: 64.0,
         },
         description: "Font size of the bar and panels.",
         read: |config, _| Value::Float(decimal(config.font.ui_size)),
@@ -352,7 +348,7 @@ pub const SETTINGS: &[Setting] = &[
         title: "Bindings",
         section: Section::Keys,
         kind: Kind::Toggle,
-        description: "Prefix and root bindings. Off also disables prefix S.",
+        description: "Prefix and root bindings. Off also disables prefix S; turn it back on by editing flair.toml.",
         read: |config, _| Value::Bool(config.keys.enabled),
     },
     Setting {
@@ -399,15 +395,60 @@ fn decimal(value: f32) -> f64 {
     value.to_string().parse().unwrap_or(f64::from(value))
 }
 
-fn cycle(names: &[impl AsRef<str>], current: &str, delta: i32) -> Option<String> {
+fn quote(word: &str) -> String {
+    let plain = !word.is_empty()
+        && !word
+            .chars()
+            .any(|c| c.is_whitespace() || c == '"' || c == '\\');
+    if plain {
+        return word.to_owned();
+    }
+    let escaped = word.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+fn split_words(text: &str) -> Result<Vec<String>, String> {
+    let unclosed = || "close the quote".to_owned();
+    let mut words = Vec::new();
+    let mut word: Option<String> = None;
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c.is_whitespace() {
+            words.extend(word.take());
+            continue;
+        }
+        let current = word.get_or_insert_with(String::new);
+        if c != '"' {
+            current.push(c);
+            continue;
+        }
+        loop {
+            match chars.next().ok_or_else(unclosed)? {
+                '"' => break,
+                '\\' => match chars.next().ok_or_else(unclosed)? {
+                    escaped @ ('"' | '\\') => current.push(escaped),
+                    other => {
+                        current.push('\\');
+                        current.push(other);
+                    }
+                },
+                other => current.push(other),
+            }
+        }
+    }
+    words.extend(word);
+    Ok(words)
+}
+
+fn cycle(names: &[String], current: &str, delta: i32) -> Option<String> {
     let len = i64::try_from(names.len()).ok().filter(|len| *len > 0)?;
-    let start = match names.iter().position(|name| name.as_ref() == current) {
+    let start = match names.iter().position(|name| name == current) {
         Some(index) => i64::try_from(index).ok()?,
         None if delta < 0 => len,
         None => -1,
     };
     let index = usize::try_from((start + i64::from(delta)).rem_euclid(len)).ok()?;
-    Some(names[index].as_ref().to_owned())
+    Some(names[index].clone())
 }
 
 #[cfg(test)]

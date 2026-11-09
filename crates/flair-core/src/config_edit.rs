@@ -20,11 +20,14 @@ impl fmt::Display for EditError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             EditError::Parse(error) => {
-                let message = error.to_string();
-                let line = first_line(&message);
+                let line = first_line(error.message());
                 write!(f, "flair.toml does not parse: {line}")
             }
             EditError::NotATable(name) => write!(f, "[{name}] in flair.toml is not a table"),
+            EditError::Invalid(ConfigError::Parse(error)) => {
+                let line = first_line(error.message());
+                write!(f, "invalid config: {line}")
+            }
             EditError::Invalid(error) => {
                 let message = error.to_string();
                 let line = first_line(&message);

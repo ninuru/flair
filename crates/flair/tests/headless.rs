@@ -492,6 +492,67 @@ name = "narrow"
 }
 
 #[test]
+fn a_reopened_settings_page_shows_the_saves_kept_in_memory() {
+    let output = OutputDir::new();
+    let config = output.0.join("flair.toml");
+    let original = "# untouched by headless saves\n";
+    fs::write(&config, original).unwrap();
+    let scenario = output.0.join("reopen.toml");
+    let key = |key: &str| format!("[[steps]]\naction = \"key\"\nkey = \"{key}\"\n");
+    let open = format!(
+        "[[steps]]\naction = \"key\"\nkey = \"a\"\nctrl = true\n[[steps]]\naction = \"key\"\nkey = \"S\"\nshift = true\n[[steps]]\naction = \"sleep\"\nms = 300\n{}{}{}{}",
+        key("Tab"),
+        key("Down"),
+        key("Down"),
+        key("Tab")
+    );
+    let steps = format!(
+        "program = \"/bin/sh\"\nargs = [\"-c\", \"printf 'ready> '; read x\"]\n[[steps]]\naction = \"wait\"\ntext = \"ready> \"\n{open}{}{}{}[[steps]]\naction = \"capture\"\nname = \"saved\"\n{}{open}[[steps]]\naction = \"capture\"\nname = \"reopened\"\n",
+        key("Right"),
+        key("Enter"),
+        key("Up"),
+        key("Escape")
+    );
+    fs::write(&scenario, steps).unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "90s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--pixels",
+            "1280x800",
+            "--timeout-ms",
+            "60000",
+            "--scenario",
+        ])
+        .arg(scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .arg("--config")
+        .arg(&config)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    if !run.status.success() && stderr.contains("capture needs an EGL device") {
+        if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
+            panic!("required EGL unavailable: {stderr}");
+        }
+        eprintln!("skipped settings reopen capture: {stderr}");
+        return;
+    }
+    assert!(run.status.success(), "{stderr}");
+    let saved = fs::read(output.0.join("saved.ppm")).unwrap();
+    let reopened = fs::read(output.0.join("reopened.ppm")).unwrap();
+    assert!(
+        saved == reopened,
+        "the reopened page differs from the saved one"
+    );
+    assert_eq!(fs::read_to_string(&config).unwrap(), original);
+}
+
+#[test]
 fn capture_without_pixels_writes_the_text_frame() {
     let output = OutputDir::new();
     let scenario = output.0.join("capture.toml");

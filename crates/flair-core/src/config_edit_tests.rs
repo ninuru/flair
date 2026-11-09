@@ -252,6 +252,8 @@ fn a_broken_file_is_a_parse_error() {
         "{message}"
     );
     assert!(!message.contains('\n'), "{message}");
+    assert!(!message.contains("TOML parse error"), "{message}");
+    assert!(!message.contains("line 1"), "{message}");
 }
 
 #[test]
@@ -270,6 +272,8 @@ fn an_invalid_result_is_rejected() {
     let error = apply("", "font.size", Some(&text("big"))).unwrap_err();
     assert!(matches!(&error, EditError::Invalid(ConfigError::Parse(_))));
     assert!(!error.to_string().contains('\n'), "{error}");
+    assert!(!error.to_string().contains("TOML parse error"), "{error}");
+    assert!(error.to_string().contains("big"), "{error}");
 }
 
 #[test]

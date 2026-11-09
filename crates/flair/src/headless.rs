@@ -8,7 +8,7 @@ use flair_core::{
     key::{InputEvent, KeyInput},
     link::{ClientLink, channel_pair},
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
-    settings::Value,
+    settings::{SETTINGS, Value, position},
     status::StatusLine,
     theme::{Rgb, Theme},
 };
@@ -165,6 +165,11 @@ impl Capture {
             .overlays
             .open(&message, &self.status, &self.config, &self.config_path)
         {
+            if let ServerMsg::Settings = message
+                && let Some(page) = self.overlays.settings_mut()
+            {
+                page.refresh(&self.config, self.theme.clone(), self.config_text.clone());
+            }
             return Ok(());
         }
         match message {
@@ -312,7 +317,10 @@ impl Capture {
                 let (theme, error) = config.load_theme(&Config::themes_dir(&self.config_path));
                 self.overlays.set_notice(match error {
                     Some(error) => Notice::theme_fallback(&error),
-                    None => Notice::info(format!("saved {key}")),
+                    None => {
+                        let title = position(key).map_or(key, |index| SETTINGS[index].title);
+                        Notice::info(format!("saved {title}"))
+                    }
                 });
                 self.config_text = text;
                 self.config = config;

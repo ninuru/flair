@@ -528,3 +528,22 @@ fn a_preview_resolves_the_theme_of_its_config() {
     assert_eq!(preview.theme, config.theme());
     assert_eq!(preview.config, config);
 }
+
+#[test]
+fn an_unreadable_config_shows_an_error_instead_of_the_settings_page() {
+    let dir = std::env::temp_dir().join(format!("flair-overlays-dir-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let mut overlays = Overlays::default();
+    let opened = overlays.open(
+        &ServerMsg::Settings,
+        &StatusLine::default(),
+        &Config::default(),
+        &dir,
+    );
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(opened);
+    assert!(!overlays.is_open());
+    let notice = overlays.notice().unwrap();
+    assert!(notice.error);
+    assert!(notice.text.starts_with("settings: "), "{}", notice.text);
+}

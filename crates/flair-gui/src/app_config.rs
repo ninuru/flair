@@ -1,5 +1,9 @@
-use flair_core::{command::Command, config::Config, proto::ClientMsg, settings::Value};
-use winit::event_loop::ActiveEventLoop;
+use flair_core::{
+    command::Command,
+    config::Config,
+    proto::ClientMsg,
+    settings::{SETTINGS, Value, position},
+};
 
 use super::App;
 use crate::{
@@ -18,7 +22,7 @@ impl App {
             .map_or(&self.config, |preview| &preview.config)
     }
 
-    pub(super) fn theme_outcome(&mut self, outcome: ThemeOutcome, event_loop: &ActiveEventLoop) {
+    pub(super) fn theme_outcome(&mut self, outcome: ThemeOutcome) {
         match outcome {
             ThemeOutcome::Pending => {}
             ThemeOutcome::Preview(name) => {
@@ -29,7 +33,7 @@ impl App {
                 Ok(config) => {
                     self.overlays
                         .set_notice(Notice::info(format!("theme saved: {name}")));
-                    self.reload(config, event_loop);
+                    self.reload(config);
                     self.send(ClientMsg::Command(Command::ReloadConfig));
                 }
                 Err(error) => {
@@ -46,28 +50,24 @@ impl App {
         self.request_redraw();
     }
 
-    pub(super) fn settings_outcome(
-        &mut self,
-        outcome: SettingsOutcome,
-        event_loop: &ActiveEventLoop,
-    ) {
+    pub(super) fn settings_outcome(&mut self, outcome: SettingsOutcome) {
         match outcome {
             SettingsOutcome::Pending => {}
             SettingsOutcome::Preview(config) => self.set_preview(Some(*config)),
             SettingsOutcome::Revert | SettingsOutcome::Close => self.set_preview(None),
-            SettingsOutcome::Save { key, value } => self.save_setting(key, value, event_loop),
+            SettingsOutcome::Save { key, value } => self.save_setting(key, value),
         }
         self.request_redraw();
     }
 
-    pub(super) fn refresh_overlays(&mut self, text: &str, event_loop: &ActiveEventLoop) {
+    pub(super) fn refresh_overlays(&mut self, text: &str) {
         if let Some(picker) = self.overlays.theme_picker_mut() {
             let outcome = picker.refresh(&self.config.theme);
-            self.theme_outcome(outcome, event_loop);
+            self.theme_outcome(outcome);
         }
         if let Some(page) = self.overlays.settings_mut() {
             let outcome = page.refresh(&self.config, self.theme.clone(), text.to_owned());
-            self.settings_outcome(outcome, event_loop);
+            self.settings_outcome(outcome);
         }
     }
 
@@ -94,19 +94,15 @@ impl App {
         self.request_redraw();
     }
 
-    fn save_setting(
-        &mut self,
-        key: &'static str,
-        value: Option<Value>,
-        event_loop: &ActiveEventLoop,
-    ) {
+    fn save_setting(&mut self, key: &'static str, value: Option<Value>) {
         match save(&self.config_path, key, value.as_ref()) {
             Ok((text, config)) => {
+                let title = position(key).map_or(key, |index| SETTINGS[index].title);
                 self.overlays
-                    .set_notice(Notice::info(format!("saved {key}")));
-                self.reload(config, event_loop);
+                    .set_notice(Notice::info(format!("saved {title}")));
+                self.reload(config);
                 self.send(ClientMsg::Command(Command::ReloadConfig));
-                self.refresh_overlays(&text, event_loop);
+                self.refresh_overlays(&text);
             }
             Err(error) => {
                 log::warn!(

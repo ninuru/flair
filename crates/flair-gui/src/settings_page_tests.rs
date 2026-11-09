@@ -140,31 +140,67 @@ fn preview_of(text: &str, key: &str, value: Option<&Value>) -> SettingsOutcome {
     SettingsOutcome::Preview(Box::new(apply(text, key, value).unwrap().1))
 }
 
-fn default_keys() -> Vec<(&'static str, String)> {
-    [
-        (ENTER_KEY, "edit"),
+fn caps(keys: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
+    keys.iter()
+        .map(|(cap, label)| (*cap, (*label).to_owned()))
+        .collect()
+}
+
+fn browse_keys() -> Vec<(&'static str, String)> {
+    caps(&[(ESCAPE_KEY, "close"), (SEARCH_KEY, "search")])
+}
+
+fn step_keys() -> Vec<(&'static str, String)> {
+    caps(&[
+        (STEP_KEY, "step"),
+        (ESCAPE_KEY, "close"),
+        (SEARCH_KEY, "search"),
+    ])
+}
+
+fn toggle_keys() -> Vec<(&'static str, String)> {
+    caps(&[
         (SPACE_KEY, "toggle"),
+        (ESCAPE_KEY, "close"),
+        (SEARCH_KEY, "search"),
+    ])
+}
+
+fn edit_keys() -> Vec<(&'static str, String)> {
+    caps(&[
+        (ENTER_KEY, "edit"),
+        (ESCAPE_KEY, "close"),
+        (SEARCH_KEY, "search"),
+    ])
+}
+
+fn step_reset_keys() -> Vec<(&'static str, String)> {
+    caps(&[
         (STEP_KEY, "step"),
         (DELETE_KEY, "reset"),
         (ESCAPE_KEY, "close"),
         (SEARCH_KEY, "search"),
-    ]
-    .into_iter()
-    .map(|(cap, label)| (cap, label.to_owned()))
-    .collect()
+    ])
+}
+
+fn sections_keys() -> Vec<(&'static str, String)> {
+    caps(&[
+        (ENTER_KEY, "open"),
+        (ESCAPE_KEY, "close"),
+        (SEARCH_KEY, "search"),
+    ])
 }
 
 fn editing_keys() -> Vec<(&'static str, String)> {
-    vec![
-        (ENTER_KEY, "save".to_owned()),
-        (ESCAPE_KEY, "revert".to_owned()),
-    ]
+    caps(&[(ENTER_KEY, "save"), (ESCAPE_KEY, "revert")])
 }
 
 fn pending_keys() -> Vec<(&'static str, String)> {
-    let mut keys = editing_keys();
-    keys.push((STEP_KEY, "step".to_owned()));
-    keys
+    caps(&[
+        (ENTER_KEY, "save"),
+        (ESCAPE_KEY, "revert"),
+        (STEP_KEY, "step"),
+    ])
 }
 
 #[test]
@@ -194,7 +230,7 @@ fn a_new_page_shows_appearance_with_the_first_entry_focused() {
         ]
     );
     assert_eq!(sheet.focus, Some(0));
-    assert_eq!(sheet.keys, default_keys());
+    assert_eq!(sheet.keys, step_keys());
     assert_eq!(control(&page), Control::Choice("flair-dark".to_owned()));
 }
 
@@ -341,7 +377,7 @@ fn space_and_enter_flip_a_toggle_and_save_at_once() {
         press(&mut page, NamedKey::Enter),
         save("keys.enabled", Some(Value::Bool(false)))
     );
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, toggle_keys());
 }
 
 #[test]
@@ -366,7 +402,7 @@ fn stepping_a_number_previews_a_pending_value_and_enter_saves_it() {
         press(&mut page, NamedKey::Enter),
         save("font.size", Some(value))
     );
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, step_keys());
 }
 
 #[test]
@@ -377,7 +413,7 @@ fn escape_reverts_a_pending_value_then_closes() {
     assert_eq!(control(&page), Control::Number("7".to_owned()));
     assert_eq!(press(&mut page, NamedKey::Escape), SettingsOutcome::Revert);
     assert_eq!(control(&page), Control::Number("8".to_owned()));
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, step_keys());
     assert_eq!(press(&mut page, NamedKey::Escape), SettingsOutcome::Close);
 }
 
@@ -387,7 +423,7 @@ fn stepping_back_to_the_saved_value_reverts() {
     focus_key(&mut page, "window.padding_x");
     press(&mut page, NamedKey::Right);
     assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Revert);
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, step_keys());
 }
 
 #[test]
@@ -395,7 +431,7 @@ fn a_clamped_step_changes_nothing() {
     let mut page = page("[window]\npadding_y = 0\n");
     focus_key(&mut page, "window.padding_y");
     assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, step_reset_keys());
 }
 
 #[test]
@@ -408,7 +444,7 @@ fn leaving_a_pending_value_saves_it_and_still_moves() {
         save("window.padding_x", Some(Value::Integer(9)))
     );
     assert_eq!(page.sheet().focus, Some(1));
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, step_keys());
     press(&mut page, NamedKey::Right);
     assert_eq!(
         press(&mut page, NamedKey::Tab),
@@ -497,7 +533,7 @@ fn typing_a_valid_value_previews_and_an_invalid_one_waits() {
         press(&mut page, NamedKey::Enter),
         save("window.padding_x", Some(two))
     );
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, step_keys());
 }
 
 #[test]
@@ -534,7 +570,7 @@ fn tab_in_the_editor_reverts_and_moves_to_the_sections() {
     type_text(&mut page, "x");
     assert_eq!(press(&mut page, NamedKey::Tab), SettingsOutcome::Revert);
     assert!(page.sheet().sections_focused);
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, sections_keys());
 }
 
 #[test]
@@ -547,7 +583,7 @@ fn an_invalid_value_shows_an_inline_error_and_keeps_the_editor() {
     assert_eq!(press(&mut page, NamedKey::Enter), SettingsOutcome::Pending);
     assert_eq!(
         error(&page).as_deref(),
-        Some("enter a number greater than 0")
+        Some("enter a number from 0.5 to 128")
     );
     assert!(matches!(control(&page), Control::Editor(_)));
     press(&mut page, NamedKey::Backspace);
@@ -628,7 +664,7 @@ fn delete_drops_a_pending_value() {
     focus_key(&mut page, "font.size");
     press(&mut page, NamedKey::Right);
     assert_eq!(press(&mut page, NamedKey::Delete), save("font.size", None));
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, step_reset_keys());
 }
 
 #[test]
@@ -733,7 +769,7 @@ fn binding_rows_ignore_edit_keys() {
     ] {
         assert_eq!(press(&mut page, name), SettingsOutcome::Pending);
     }
-    assert_eq!(page.sheet().keys, default_keys());
+    assert_eq!(page.sheet().keys, browse_keys());
 }
 
 #[test]
@@ -757,3 +793,6 @@ fn insert_goes_to_the_query_or_the_editor() {
 
 #[path = "settings_page_events_tests.rs"]
 mod events;
+
+#[path = "settings_page_save_tests.rs"]
+mod saves;

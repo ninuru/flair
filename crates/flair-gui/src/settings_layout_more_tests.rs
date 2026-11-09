@@ -133,7 +133,7 @@ fn a_pending_value_marks_its_source_as_unsaved() {
     let unsaved = text(&scene, "unsaved").unwrap();
     assert_eq!(
         (unsaved.x, unsaved.color, unsaved.face),
-        (1300.0, theme().foreground, TextFace::Small)
+        (1280.0, theme().foreground, TextFace::Small)
     );
     assert!(text(&scene, "flair.toml").is_none());
     assert_eq!(text(&scene, "default").unwrap().color, surfaces.muted);
@@ -146,7 +146,7 @@ fn colour_chips_lead_with_an_outlined_swatch() {
     assert_quad(
         &scene,
         Quad {
-            rect: rect(1346.0, 236.0, 14.0, 14.0),
+            rect: rect(1326.0, 236.0, 14.0, 14.0),
             color: opaque(Rgb::from_hex("#030303").unwrap()),
             radius: 4.0,
             border: Some(Border {
@@ -166,10 +166,10 @@ fn colour_chips_lead_with_an_outlined_swatch() {
     let mut sheet = appearance();
     sheet.groups[0].entries[1] = setting("Background", "default", Control::Color("nope".into()));
     let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let chip = rect(1336.0, 231.0, 104.0, 24.0);
+    let chip = rect(1316.0, 231.0, 124.0, 24.0);
     assert_hit(&scene, SettingsHit::Edit(1), chip);
-    assert!(quad_at(&scene, rect(1346.0, 236.0, 14.0, 14.0)).is_none());
-    assert_eq!(text(&scene, "nope").unwrap().x, 1346.0);
+    assert!(quad_at(&scene, rect(1326.0, 236.0, 14.0, 14.0)).is_none());
+    assert_eq!(text(&scene, "nope").unwrap().x, 1326.0);
 }
 
 #[test]
