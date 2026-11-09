@@ -352,7 +352,7 @@ pub const SETTINGS: &[Setting] = &[
         title: "Bindings",
         section: Section::Keys,
         kind: Kind::Toggle,
-        description: "Prefix and root bindings. Off also disables prefix S, so reopen settings with the mouse or by turning it back on in flair.toml.",
+        description: "Prefix and root bindings. Off also disables prefix S.",
         read: |config, _| Value::Bool(config.keys.enabled),
     },
     Setting {

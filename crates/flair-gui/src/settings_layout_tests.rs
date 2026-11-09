@@ -286,7 +286,7 @@ fn nav_shows_the_title_and_section_rows_with_the_selection() {
 #[test]
 fn header_shows_the_breadcrumb_and_a_close_mark() {
     let surfaces = theme().surfaces();
-    for (px, x, right) in [((1920, 1200), 272.0, 1032.0), ((960, 600), 200.0, 952.0)] {
+    for (px, x, right) in [((1920, 1200), 696.0, 1456.0), ((960, 600), 200.0, 952.0)] {
         let scene = run(&appearance(), px, 1.0, None);
         let root = styled(&scene, "Settings", false);
         assert_eq!(
@@ -321,7 +321,7 @@ fn header_shows_the_breadcrumb_and_a_close_mark() {
 fn search_field_sits_below_the_header() {
     let surfaces = theme().surfaces();
     for (px, field) in [
-        ((1920, 1200), rect(272.0, 103.0, 760.0, 32.0)),
+        ((1920, 1200), rect(696.0, 103.0, 760.0, 32.0)),
         ((960, 600), rect(200.0, 103.0, 752.0, 32.0)),
     ] {
         let scene = run(&appearance(), px, 1.0, None);
@@ -341,7 +341,7 @@ fn search_field_sits_below_the_header() {
 #[test]
 fn the_group_panel_tiles_rows_with_hairlines_between_them() {
     let surfaces = theme().surfaces();
-    for (px, x, w) in [((1920, 1200), 272.0, 760.0), ((960, 600), 200.0, 752.0)] {
+    for (px, x, w) in [((1920, 1200), 696.0, 760.0), ((960, 600), 200.0, 752.0)] {
         let scene = run(&appearance(), px, 1.0, None);
         let panel = rect(x, 159.0, w, 336.0);
         assert_quad(
@@ -373,7 +373,7 @@ fn rows_pair_title_and_description_with_the_source_left_of_the_control() {
     let title = text(&scene, "Theme").unwrap();
     assert_eq!(
         (title.x, title.baseline, title.color, title.face, title.bold),
-        (288.0, 182.0, theme().foreground, TextFace::Ui, false)
+        (712.0, 182.0, theme().foreground, TextFace::Ui, false)
     );
     let description = text(&scene, "Overrides the theme value.").unwrap();
     assert_eq!(
@@ -383,39 +383,39 @@ fn rows_pair_title_and_description_with_the_source_left_of_the_control() {
             description.color,
             description.face
         ),
-        (288.0, 198.0, surfaces.muted, TextFace::Small)
+        (712.0, 198.0, surfaces.muted, TextFace::Small)
     );
-    let chip = rect(916.0, 175.0, 100.0, 24.0);
+    let chip = rect(1340.0, 175.0, 100.0, 24.0);
     assert_quad(&scene, chip_quad(chip));
     assert_hit(&scene, SettingsHit::Cycle(0), chip);
     let value = text(&scene, "flair-dark").unwrap();
     assert_eq!(
         (value.x, value.baseline, value.color),
-        (926.0, 191.0, theme().foreground)
+        (1350.0, 191.0, theme().foreground)
     );
     let mark = text(&scene, "▾").unwrap();
     assert_eq!(
         (mark.x, mark.color, mark.face),
-        (1002.0, surfaces.muted, TextFace::Small)
+        (1426.0, surfaces.muted, TextFace::Small)
     );
     let source = text(&scene, "flair.toml").unwrap();
     assert_eq!(
         (source.x, source.color, source.face),
-        (869.0, surfaces.muted, TextFace::Small)
+        (1293.0, surfaces.muted, TextFace::Small)
     );
-    let chip = rect(947.0, 231.0, 69.0, 24.0);
+    let chip = rect(1371.0, 231.0, 69.0, 24.0);
     assert_hit(&scene, SettingsHit::Edit(1), chip);
     assert_quad(&scene, chip_quad(chip));
-    assert_eq!(text(&scene, "#030303").unwrap().x, 957.0);
+    assert_eq!(text(&scene, "#030303").unwrap().x, 1381.0);
 }
 
 #[test]
 fn toggles_and_steppers_sit_on_the_control_column() {
     let surfaces = theme().surfaces();
-    for (px, right) in [((1920, 1200), 1016.0), ((960, 600), 936.0)] {
+    for (px, right) in [((1920, 1200), 1440.0), ((960, 600), 936.0)] {
         let scene = run(&keys(4), px, 1.0, None);
         let track = rect(right - 28.0, 179.0, 28.0, 16.0);
-        assert_quad(&scene, plain(track, theme().accent, 8.0));
+        assert_quad(&scene, outlined(track, theme().accent, 8.0, theme().accent));
         let knob = rect(right - 14.0, 181.0, 12.0, 12.0);
         assert_quad(&scene, plain(knob, theme().foreground, 6.0));
         assert_hit(&scene, SettingsHit::Toggle(0), track);
@@ -440,12 +440,16 @@ fn toggles_and_steppers_sit_on_the_control_column() {
 
 #[test]
 fn an_off_toggle_has_a_surface3_track_and_the_knob_at_the_start() {
+    let surfaces = theme().surfaces();
     let mut sheet = keys(0);
     sheet.groups[0].entries[0] = setting("Bindings", "default", Control::Toggle(false));
     let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let track = rect(988.0, 179.0, 28.0, 16.0);
-    assert_quad(&scene, plain(track, theme().surfaces().surface3, 8.0));
-    let knob = rect(990.0, 181.0, 12.0, 12.0);
+    let track = rect(1412.0, 179.0, 28.0, 16.0);
+    assert_quad(
+        &scene,
+        outlined(track, surfaces.surface3, 8.0, surfaces.outline_strong),
+    );
+    let knob = rect(1414.0, 181.0, 12.0, 12.0);
     assert_quad(&scene, plain(knob, theme().foreground, 6.0));
 }
 
@@ -464,46 +468,46 @@ fn bindings_follow_a_heading_with_a_chord_cap_and_the_command() {
     let heading = text(&scene, "Key bindings").unwrap();
     assert_eq!(
         (heading.x, heading.baseline, heading.bold, heading.color),
-        (272.0, 367.0, true, theme().foreground)
+        (696.0, 367.0, true, theme().foreground)
     );
-    let panel = rect(272.0, 383.0, 760.0, 128.0);
+    let panel = rect(696.0, 383.0, 760.0, 128.0);
     assert_quad(
         &scene,
         outlined(panel, surfaces.surface1, 10.0, surfaces.outline),
     );
-    assert_eq!(scene.hits.rows[3], (3, rect(272.0, 383.0, 760.0, 32.0)));
-    let cap = rect(288.0, 389.0, 20.0, 20.0);
+    assert_eq!(scene.hits.rows[3], (3, rect(696.0, 383.0, 760.0, 32.0)));
+    let cap = rect(712.0, 389.0, 20.0, 20.0);
     assert_quad(&scene, key_cap(cap));
     let command = text(&scene, "cmd0").unwrap();
     assert_eq!(
         (command.x, command.baseline, command.color),
-        (408.0, 403.0, theme().foreground)
+        (784.0, 403.0, theme().foreground)
     );
     let unbound = text(&scene, "unbound").unwrap();
-    assert_eq!((unbound.x, unbound.color), (408.0, surfaces.muted));
+    assert_eq!((unbound.x, unbound.color), (784.0, surfaces.muted));
     let source = scene
         .text
         .iter()
         .find(|run| run.text == "flair.toml" && run.baseline > 400.0)
         .unwrap();
-    assert_eq!(source.x, 981.0);
+    assert_eq!(source.x, 1405.0);
     let table = text(&scene, "root").unwrap();
     assert_eq!(
         (table.x, table.color, table.face),
-        (955.0, surfaces.muted, TextFace::Small)
+        (1379.0, surfaces.muted, TextFace::Small)
     );
 }
 
 #[test]
 fn hover_is_surface2_and_focus_surface3_and_focus_wins() {
     let surfaces = theme().surfaces();
-    let scene = run(&appearance(), (1920, 1200), 1.0, Some((400.0, 230.0)));
-    let hovered = rect(276.0, 219.0, 752.0, 48.0);
+    let scene = run(&appearance(), (1920, 1200), 1.0, Some((824.0, 230.0)));
+    let hovered = rect(700.0, 219.0, 752.0, 48.0);
     assert_quad(&scene, plain(hovered, surfaces.surface2, 6.0));
-    let focused = rect(276.0, 163.0, 752.0, 48.0);
+    let focused = rect(700.0, 163.0, 752.0, 48.0);
     assert_quad(&scene, plain(focused, surfaces.surface3, 6.0));
 
-    let scene = run(&appearance(), (1920, 1200), 1.0, Some((400.0, 170.0)));
+    let scene = run(&appearance(), (1920, 1200), 1.0, Some((824.0, 170.0)));
     let highlights: Vec<_> = scene
         .quads
         .iter()
@@ -517,7 +521,7 @@ fn focused_sections_leave_the_entries_unhighlighted() {
     let mut sheet = appearance();
     sheet.sections_focused = true;
     let scene = run(&sheet, (1920, 1200), 1.0, None);
-    assert!(quad_at(&scene, rect(276.0, 163.0, 752.0, 48.0)).is_none());
+    assert!(quad_at(&scene, rect(700.0, 163.0, 752.0, 48.0)).is_none());
     assert!(quad_at(&scene, rect(16.0, 91.0, 200.0, 28.0)).is_some());
 }
 
@@ -527,19 +531,19 @@ fn the_editor_is_a_prompt_field_with_an_accent_caret() {
     let mut sheet = keys(0);
     sheet.groups[0].entries[2] = setting("Prefix timeout", "flair.toml", editor("1500"));
     let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let field = rect(776.0, 287.0, 240.0, 24.0);
+    let field = rect(1200.0, 287.0, 240.0, 24.0);
     assert_quad(
         &scene,
         outlined(field, theme().background, 6.0, surfaces.outline),
     );
-    let caret = rect(814.0, 292.0, 1.0, 14.0);
+    let caret = rect(1238.0, 292.0, 1.0, 14.0);
     assert_quad(&scene, plain(caret, theme().accent, 0.0));
     let value = text(&scene, "1500").unwrap();
     assert_eq!(
         (value.x, value.baseline, value.color),
-        (786.0, 303.0, theme().foreground)
+        (1210.0, 303.0, theme().foreground)
     );
-    assert_eq!(text(&scene, "flair.toml").unwrap().x, 729.0);
+    assert_eq!(text(&scene, "flair.toml").unwrap().x, 1153.0);
 }
 
 #[test]
@@ -557,14 +561,14 @@ fn an_error_extends_its_row_with_an_attention_line() {
     let error = text(&scene, "flair.toml does not parse").unwrap();
     assert_eq!(
         (error.x, error.baseline, error.color, error.face),
-        (288.0, 227.0, surfaces.attention, TextFace::Small)
+        (712.0, 227.0, surfaces.attention, TextFace::Small)
     );
-    assert_eq!(scene.hits.rows[0], (0, rect(272.0, 159.0, 760.0, 76.0)));
-    assert_eq!(scene.hits.rows[1], (1, rect(272.0, 235.0, 760.0, 56.0)));
+    assert_eq!(scene.hits.rows[0], (0, rect(696.0, 159.0, 760.0, 76.0)));
+    assert_eq!(scene.hits.rows[1], (1, rect(696.0, 235.0, 760.0, 56.0)));
     assert_eq!(control(&scene, SettingsHit::Cycle(0)).y, 175.0);
-    let focused = rect(276.0, 163.0, 752.0, 68.0);
+    let focused = rect(700.0, 163.0, 752.0, 68.0);
     assert!(quad_at(&scene, focused).is_some());
-    assert!(quad_at(&scene, rect(272.0, 159.0, 760.0, 356.0)).is_some());
+    assert!(quad_at(&scene, rect(696.0, 159.0, 760.0, 356.0)).is_some());
 }
 
 #[test]
@@ -601,20 +605,20 @@ fn a_search_shows_every_group_under_its_heading_without_a_section() {
             .find(|run| run.text == name && run.bold)
             .map(|run| (run.x, run.baseline, run.color))
     };
-    assert_eq!(heading("Font"), Some((272.0, 175.0, theme().foreground)));
-    assert_eq!(heading("Window"), Some((272.0, 287.0, theme().foreground)));
+    assert_eq!(heading("Font"), Some((696.0, 175.0, theme().foreground)));
+    assert_eq!(heading("Window"), Some((696.0, 287.0, theme().foreground)));
     assert_eq!(
         scene.hits.rows,
         vec![
-            (0, rect(272.0, 191.0, 760.0, 56.0)),
-            (1, rect(272.0, 303.0, 760.0, 56.0)),
-            (2, rect(272.0, 359.0, 760.0, 56.0)),
+            (0, rect(696.0, 191.0, 760.0, 56.0)),
+            (1, rect(696.0, 303.0, 760.0, 56.0)),
+            (2, rect(696.0, 359.0, 760.0, 56.0)),
         ]
     );
-    assert!(quad_at(&scene, rect(272.0, 191.0, 760.0, 56.0)).is_some());
-    assert!(quad_at(&scene, rect(272.0, 303.0, 760.0, 112.0)).is_some());
+    assert!(quad_at(&scene, rect(696.0, 191.0, 760.0, 56.0)).is_some());
+    assert!(quad_at(&scene, rect(696.0, 303.0, 760.0, 112.0)).is_some());
     let typed = text(&scene, "pad").unwrap();
-    assert_eq!((typed.x, typed.color), (282.0, theme().foreground));
+    assert_eq!((typed.x, typed.color), (706.0, theme().foreground));
     assert!(text(&scene, "Search settings").is_none());
     let bold_search = scene
         .text
@@ -627,7 +631,7 @@ fn a_search_shows_every_group_under_its_heading_without_a_section() {
 fn the_footer_draws_a_rule_and_key_caps_at_the_bottom() {
     let surfaces = theme().surfaces();
     for (px, x, w, rule) in [
-        ((1920, 1200), 272.0, 760.0, 1147.0),
+        ((1920, 1200), 696.0, 760.0, 1147.0),
         ((960, 600), 200.0, 752.0, 547.0),
     ] {
         let scene = run(&appearance(), px, 1.0, None);
@@ -720,7 +724,7 @@ fn long_text_values_ellipsize_inside_the_chip() {
     sheet.groups[0].entries[1] = setting("Background", "default", Control::Text("x".repeat(80)));
     let scene = run(&sheet, (1920, 1200), 1.0, None);
     let chip = control(&scene, SettingsHit::Edit(1));
-    assert_eq!(chip.x + chip.w, 1016.0);
+    assert_eq!(chip.x + chip.w, 1440.0);
     assert!(chip.w <= 240.0, "{chip:?}");
     let value = scene
         .text

@@ -161,10 +161,11 @@ fn frame(input: &OverlayInput) -> Frame {
         false => px(NAV_NARROW, scale),
     }
     .min(width);
-    let x = nav_width + px(CONTENT_INSET, scale);
+    let remaining = width - nav_width;
     let w = px(CONTENT_WIDTH, scale)
-        .min(width - nav_width - px(CONTENT_MARGIN, scale))
+        .min(remaining - px(CONTENT_MARGIN, scale))
         .max(0.0);
+    let x = nav_width + px(CONTENT_INSET, scale).max(((remaining - w) / 2.0).floor());
     let header = PxRect {
         x,
         y: top + px(PANEL_PAD_Y, scale),

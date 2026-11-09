@@ -248,13 +248,18 @@ fn toggle(
     let theme = input.theme;
     let width = px(TOGGLE_WIDTH, scale);
     let track = centred(at, width, px(TOGGLE_HEIGHT, scale));
-    let color = match on {
-        true => theme.accent,
-        false => theme.surfaces().surface3,
+    let surfaces = theme.surfaces();
+    let (color, border) = match on {
+        true => (theme.accent, theme.accent),
+        false => (surfaces.surface3, surfaces.outline_strong),
     };
-    scene
-        .quads
-        .push(rounded(track, color, TOGGLE_RADIUS, scale));
+    scene.quads.push(Quad {
+        border: Some(Border {
+            color: opaque(border),
+            width: px(LINE, scale),
+        }),
+        ..rounded(track, color, TOGGLE_RADIUS, scale)
+    });
     let knob = px(KNOB, scale);
     let inset = px(KNOB_INSET, scale);
     let x = match on {
