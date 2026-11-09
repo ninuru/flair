@@ -98,6 +98,24 @@ fn a_clipped_list_counts_hidden_entries_and_runs_the_panel_past_the_last_row() {
         &scene,
         outlined(bindings, surfaces.surface1, 10.0, surfaces.outline),
     );
+    let strip = rect(696.0, 1119.0, 760.0, 10.0);
+    let position = |quad: Quad| scene.quads.iter().position(|candidate| *candidate == quad);
+    let panel_index = position(outlined(
+        bindings,
+        surfaces.surface1,
+        10.0,
+        surfaces.outline,
+    ));
+    let strip_index = position(plain(strip, theme().background, 0.0));
+    assert!(strip_index > panel_index, "{panel_index:?} {strip_index:?}");
+    let outline = Some(Border {
+        color: opaque(surfaces.outline),
+        width: 1.0,
+    });
+    assert!(scene.quads.iter().all(|quad| quad.border != outline
+        || quad.rect.y + quad.rect.h <= 327.0
+        || quad.rect.y + quad.rect.h > 1119.0));
+    assert!(quad_at(&scene, rect(697.0, 1119.0, 758.0, 1.0)).is_none());
     let more = text(&scene, "+17 more").unwrap();
     assert_eq!(
         (more.x, more.color, more.face),
@@ -133,7 +151,7 @@ fn a_pending_value_marks_its_source_as_unsaved() {
     let unsaved = text(&scene, "unsaved").unwrap();
     assert_eq!(
         (unsaved.x, unsaved.color, unsaved.face),
-        (1280.0, theme().foreground, TextFace::Small)
+        (1204.0, theme().foreground, TextFace::Small)
     );
     assert!(text(&scene, "flair.toml").is_none());
     assert_eq!(text(&scene, "default").unwrap().color, surfaces.muted);
@@ -146,7 +164,7 @@ fn colour_chips_lead_with_an_outlined_swatch() {
     assert_quad(
         &scene,
         Quad {
-            rect: rect(1326.0, 236.0, 14.0, 14.0),
+            rect: rect(1250.0, 236.0, 14.0, 14.0),
             color: opaque(Rgb::from_hex("#030303").unwrap()),
             radius: 4.0,
             border: Some(Border {
@@ -166,10 +184,10 @@ fn colour_chips_lead_with_an_outlined_swatch() {
     let mut sheet = appearance();
     sheet.groups[0].entries[1] = setting("Background", "default", Control::Color("nope".into()));
     let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let chip = rect(1316.0, 231.0, 124.0, 24.0);
+    let chip = rect(1240.0, 231.0, 200.0, 24.0);
     assert_hit(&scene, SettingsHit::Edit(1), chip);
-    assert!(quad_at(&scene, rect(1326.0, 236.0, 14.0, 14.0)).is_none());
-    assert_eq!(text(&scene, "nope").unwrap().x, 1326.0);
+    assert!(quad_at(&scene, rect(1250.0, 236.0, 14.0, 14.0)).is_none());
+    assert_eq!(text(&scene, "nope").unwrap().x, 1250.0);
 }
 
 #[test]

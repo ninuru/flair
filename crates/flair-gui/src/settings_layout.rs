@@ -402,10 +402,10 @@ fn content(
             (line, rect)
         })
         .collect();
-    let panels: Vec<Option<PxRect>> = (0..sheet.groups.len())
+    let panels: Vec<Option<(PxRect, PxRect)>> = (0..sheet.groups.len())
         .map(|group| panel(group, &placed, &shown, scale))
         .collect();
-    for panel in panels.iter().flatten() {
+    for (panel, rows) in panels.iter().flatten() {
         scene.quads.push(Quad {
             border: Some(Border {
                 color: opaque(surfaces.outline),
@@ -413,6 +413,22 @@ fn content(
             }),
             ..rounded(*panel, surfaces.surface1, PANEL_RADIUS, scale)
         });
+        let bottom = rows.y + rows.h;
+        for strip in [
+            PxRect {
+                h: rows.y - panel.y,
+                ..*panel
+            },
+            PxRect {
+                y: bottom,
+                h: panel.y + panel.h - bottom,
+                ..*panel
+            },
+        ] {
+            if strip.h > 0.0 {
+                scene.quads.push(fill(strip, theme.background));
+            }
+        }
     }
     let line = px(LINE, scale);
     for (placed, rect) in shown {
@@ -421,7 +437,7 @@ fn content(
                 heading_line(heading, disabled, rect, input, scene, measure)
             }
             Line::Entry(item, entry) => {
-                if panels[placed.group].is_some_and(|panel| panel.y < rect.y) {
+                if panels[placed.group].is_some_and(|(_, rows)| rows.y < rect.y) {
                     scene.quads.push(fill(
                         PxRect {
                             x: rect.x + line,
@@ -453,7 +469,7 @@ fn panel(
     placed: &[Placed],
     shown: &[(&Placed, PxRect)],
     scale: f32,
-) -> Option<PxRect> {
+) -> Option<(PxRect, PxRect)> {
     let mut rows = shown
         .iter()
         .filter(|(line, _)| line.group == group && entry(line));
@@ -473,11 +489,18 @@ fn panel(
         true => radius,
         false => 0.0,
     };
-    Some(PxRect {
-        y: first.y - above,
-        h: last.y + last.h - first.y + above + below,
+    let rows = PxRect {
+        h: last.y + last.h - first.y,
         ..first
-    })
+    };
+    Some((
+        PxRect {
+            y: rows.y - above,
+            h: rows.h + above + below,
+            ..rows
+        },
+        rows,
+    ))
 }
 
 fn heading_line(

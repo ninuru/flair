@@ -6,10 +6,10 @@ use crate::{
     renderer::{Border, PxRect, Quad},
     settings_layout::{Control, Entry, SettingsHit},
     ui::{
-        CHIP_MIN, CHOICE_MARK, CHORD_COLUMN, CONTROL_GAP, CONTROL_MAX, ENTRY_HEIGHT, ENTRY_PAD,
+        CHIP_WIDTH, CHOICE_MARK, CHORD_COLUMN, CONTROL_GAP, CONTROL_MAX, ENTRY_HEIGHT, ENTRY_PAD,
         ENTRY_TOP, ERROR_HEIGHT, HIGHLIGHT_INSET, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, KNOB,
-        KNOB_INSET, LINE, LINE_BOX, ROW_HEIGHT, ROW_RADIUS, STEP_DOWN, STEP_UP, STEP_ZONE, SWATCH,
-        SWATCH_RADIUS, TOGGLE_HEIGHT, TOGGLE_RADIUS, TOGGLE_WIDTH, px,
+        KNOB_INSET, LINE, LINE_BOX, ROW_HEIGHT, ROW_RADIUS, SOURCE_SLOT, STEP_DOWN, STEP_UP,
+        STEP_ZONE, SWATCH, SWATCH_RADIUS, TOGGLE_HEIGHT, TOGGLE_RADIUS, TOGGLE_WIDTH, px,
     },
 };
 
@@ -104,10 +104,10 @@ pub(crate) fn entry_row(
         } => {
             let muted = theme.surfaces().muted;
             cap(chord, (rect.x + pad, rect), input, scene, measure);
-            let table_right = match *source == FILE_SOURCE {
-                true => label(source, muted, (right, rect), input, scene, measure) - gap,
-                false => right,
-            };
+            if *source == FILE_SOURCE {
+                label(source, muted, (right, rect), input, scene, measure);
+            }
+            let table_right = right - px(SOURCE_SLOT, scale) - gap;
             let table_left = label(table, muted, (table_right, rect), input, scene, measure);
             let x = rect.x + pad + px(CHORD_COLUMN, scale);
             let color = match *unbound || *disabled {
@@ -230,6 +230,10 @@ fn room(at: (f32, PxRect), scale: f32) -> f32 {
         .max(0.0)
 }
 
+fn chip_width(at: (f32, PxRect), scale: f32) -> f32 {
+    px(CHIP_WIDTH, scale).min(room(at, scale))
+}
+
 fn centred(at: (f32, PxRect), width: f32, height: f32) -> PxRect {
     let (right, row) = at;
     PxRect {
@@ -304,9 +308,9 @@ fn stepper(
     let scale = input.scale;
     let zone = px(STEP_ZONE, scale);
     let side = zone + px(ITEM_GAP, scale);
-    let value = ellipsize(value, room(at, scale) - side * 2.0, false, measure);
+    let width = chip_width(at, scale);
+    let value = ellipsize(value, width - side * 2.0, false, measure);
     let value_width = measure(&value, false);
-    let width = (value_width + side * 2.0).max(px(CHIP_MIN, scale)).round();
     let rect = centred(at, width, px(ITEM_HEIGHT, scale));
     shell(rect, input, scene);
     let muted = input.theme.surfaces().muted;
@@ -348,16 +352,8 @@ fn chip(
     let pad = px(ITEM_PAD, scale);
     let gap = px(ITEM_GAP, scale);
     let mark_width = mark.map_or(0.0, |mark| measure(mark, false) * input.ui.small + gap);
-    let value = ellipsize(
-        value,
-        room(at, scale) - pad * 2.0 - mark_width,
-        false,
-        measure,
-    );
-    let value_width = measure(&value, false);
-    let width = (pad * 2.0 + value_width + mark_width)
-        .max(px(CHIP_MIN, scale))
-        .round();
+    let width = chip_width(at, scale);
+    let value = ellipsize(value, width - pad * 2.0 - mark_width, false, measure);
     let rect = centred(at, width, px(ITEM_HEIGHT, scale));
     shell(rect, input, scene);
     scene.text.push(ui_text(
@@ -369,7 +365,7 @@ fn chip(
     ));
     if let Some(mark) = mark {
         scene.text.push(small_text(
-            (rect.x + pad + value_width + gap).round(),
+            (rect.x + width - pad - measure(mark, false) * input.ui.small).round(),
             rect,
             mark.to_owned(),
             input.theme.surfaces().muted,
@@ -403,11 +399,8 @@ fn swatch_chip(
     let pad = px(ITEM_PAD, scale);
     let size = px(SWATCH, scale);
     let lead = size + px(ITEM_GAP, scale);
-    let value = ellipsize(value, room(at, scale) - pad * 2.0 - lead, false, measure);
-    let value_width = measure(&value, false);
-    let width = (pad * 2.0 + lead + value_width)
-        .max(px(CHIP_MIN, scale))
-        .round();
+    let width = chip_width(at, scale);
+    let value = ellipsize(value, width - pad * 2.0 - lead, false, measure);
     let rect = centred(at, width, px(ITEM_HEIGHT, scale));
     shell(rect, input, scene);
     scene.quads.push(Quad {
@@ -442,7 +435,11 @@ fn editor(
     scene: &mut OverlayScene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> f32 {
-    let rect = centred(at, room(at, input.scale), px(ITEM_HEIGHT, input.scale));
+    let rect = centred(
+        at,
+        chip_width(at, input.scale),
+        px(ITEM_HEIGHT, input.scale),
+    );
     search(field, rect, input, scene, measure);
     rect.x
 }
