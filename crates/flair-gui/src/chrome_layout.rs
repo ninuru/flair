@@ -13,6 +13,12 @@ use crate::{
     ui::{BACKDROP, BAR, DOCK_INSET, DOCK_WIDTH, LINE, PANEL_PAD_X, PANEL_PAD_Y, PANEL_RADIUS, px},
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BarField<'a> {
+    pub text: &'a str,
+    pub cursor: usize,
+}
+
 pub struct ChromeInput<'a> {
     pub px: (u32, u32),
     pub scale: f32,
@@ -21,7 +27,7 @@ pub struct ChromeInput<'a> {
     pub ui: UiMetrics,
     pub theme: &'a Theme,
     pub status: &'a StatusParts,
-    pub prompt: Option<&'a str>,
+    pub prompt: Option<BarField<'a>>,
     pub layout: Option<&'a WindowLayout>,
     pub hover: Option<(f32, f32)>,
     pub modal: Option<Modal>,

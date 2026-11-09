@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     CellMetrics,
-    chrome_layout::{ChromeLayout, hit_test, layout},
+    chrome_layout::{BarField, ChromeLayout, hit_test, layout},
     status::{ChipParts, StatusParts},
 };
 use flair_core::{
@@ -66,6 +66,7 @@ struct Case<'a> {
     width: u32,
     status: &'a StatusParts,
     prompt: Option<&'a str>,
+    cursor: Option<usize>,
     window: Option<&'a WindowLayout>,
     hover: Option<(f32, f32)>,
 }
@@ -77,6 +78,7 @@ impl<'a> Case<'a> {
             width: 800,
             status,
             prompt: None,
+            cursor: None,
             window: None,
             hover: None,
         }
@@ -101,7 +103,10 @@ impl<'a> Case<'a> {
             },
             theme: &theme,
             status: self.status,
-            prompt: self.prompt,
+            prompt: self.prompt.map(|text| BarField {
+                text,
+                cursor: self.cursor.unwrap_or_else(|| text.chars().count()),
+            }),
             layout: self.window,
             hover: self.hover,
             modal: None,
@@ -548,6 +553,36 @@ fn prompt_replaces_the_tabs_with_a_field_and_a_caret() {
     assert_eq!(
         layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
         [HitTarget::Session]
+    );
+}
+
+#[test]
+fn the_caret_follows_the_prompt_cursor() {
+    let theme = Config::default().theme();
+    let status = parts();
+    let layout = Case {
+        prompt: Some("/foo"),
+        cursor: Some(2),
+        ..Case::new(&status)
+    }
+    .run();
+    assert_eq!(text(&layout, "/foo").map(|run| run.x), Some(92.0));
+    assert_eq!(
+        quad_at(&layout, rect(106.0, 10.0, 1.0, 14.0)),
+        Some(&fill(rect(106.0, 10.0, 1.0, 14.0), theme.accent))
+    );
+    let prompt = format!("/{}end", "x".repeat(200));
+    let layout = Case {
+        prompt: Some(&prompt),
+        cursor: Some(1),
+        ..Case::new(&status)
+    }
+    .run();
+    let run = layout.chrome.text.iter().find(|run| run.x == 92.0).unwrap();
+    assert!(run.text.starts_with("/x") && run.text.ends_with('…'));
+    assert_eq!(
+        quad_at(&layout, rect(99.0, 10.0, 1.0, 14.0)).map(|quad| quad.color),
+        Some(opaque(theme.accent))
     );
 }
 

@@ -194,6 +194,13 @@ impl Overlays {
         self.prompt.as_ref().and_then(Prompt::bar_text)
     }
 
+    pub fn bar_field(&self) -> Option<(String, usize)> {
+        let prompt = self.prompt.as_ref()?;
+        let text = prompt.bar_text()?;
+        let cursor = prompt.field_prefix()?.chars().count() + prompt.cursor()?;
+        Some((text, cursor))
+    }
+
     fn theme(&mut self, outcome: ThemeOutcome) -> OverlayEvent {
         match outcome {
             ThemeOutcome::Cancel | ThemeOutcome::Save(_) => self.theme_picker = None,

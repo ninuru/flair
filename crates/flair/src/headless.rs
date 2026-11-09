@@ -13,7 +13,7 @@ use flair_core::{
 use flair_gui::{
     Fonts,
     cellgrid::CellGrid,
-    chrome_layout::{self, ChromeInput, ChromeLayout},
+    chrome_layout::{self, BarField, ChromeInput, ChromeLayout},
     compose::{compose, compose_frame, separator_glyphs},
     mirror::Mirror,
     overlays::{OverlayEvent, Overlays},
@@ -224,6 +224,11 @@ impl Capture {
         self.route(event, ClientMsg::Input(InputEvent::Text(text.to_owned())))
     }
 
+    fn paste(&mut self, text: &str) -> Option<ClientMsg> {
+        let event = self.overlays.text(text);
+        self.route(event, ClientMsg::Input(InputEvent::Paste(text.to_owned())))
+    }
+
     fn route(&mut self, event: Option<OverlayEvent>, fallback: ClientMsg) -> Option<ClientMsg> {
         match event {
             None => Some(fallback),
@@ -236,7 +241,14 @@ impl Capture {
                         let dir = Config::themes_dir(&self.config_path);
                         self.preview = Some(self.config.with_theme(&name).load_theme(&dir).0);
                     }
-                    ThemeOutcome::Cancel | ThemeOutcome::Save(_) => self.preview = None,
+                    ThemeOutcome::Cancel => self.preview = None,
+                    ThemeOutcome::Save(name) => {
+                        let dir = Config::themes_dir(&self.config_path);
+                        self.config = self.config.with_theme(&name);
+                        self.theme = self.config.load_theme(&dir).0;
+                        self.preview = None;
+                        return Some(ClientMsg::Palette(self.theme.clone()));
+                    }
                 }
                 None
             }
@@ -270,7 +282,7 @@ impl Capture {
         let metrics = pixels.fonts.metrics();
         let modal = self.overlays.draw(&mut grid, metrics, scale, &theme);
         let parts = status_parts(&self.status);
-        let prompt = self.overlays.bar_text();
+        let prompt = self.overlays.bar_field();
         let input = ChromeInput {
             px: pixels.px,
             scale,
@@ -279,7 +291,10 @@ impl Capture {
             ui: pixels.fonts.ui_metrics(),
             theme: &theme,
             status: &parts,
-            prompt: prompt.as_deref(),
+            prompt: prompt.as_ref().map(|(text, cursor)| BarField {
+                text,
+                cursor: *cursor,
+            }),
             layout: self.layout.as_ref(),
             hover: None,
             modal,
@@ -493,7 +508,10 @@ pub fn run(
                     capture.drain(&link)?;
                     capture.text(text)
                 }
-                Step::Paste { text } => Some(ClientMsg::Input(InputEvent::Paste(text.clone()))),
+                Step::Paste { text } => {
+                    capture.drain(&link)?;
+                    capture.paste(text)
+                }
                 Step::Resize { cols, rows } => {
                     capture.size = client_size(*cols, *rows)?;
                     Some(ClientMsg::Resize(capture.size))

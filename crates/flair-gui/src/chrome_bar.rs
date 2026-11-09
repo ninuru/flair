@@ -5,7 +5,7 @@ use flair_core::{
 
 use crate::{
     UiMetrics,
-    chrome_layout::{ChromeInput, Hit, HitTarget, bar_height},
+    chrome_layout::{BarField, ChromeInput, Hit, HitTarget, bar_height},
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, TabParts},
     ui::{
@@ -320,7 +320,7 @@ fn draw_tab(input: &ChromeInput, tab: &TabParts, rect: PxRect, label: String, sc
 
 fn field(
     input: &ChromeInput,
-    prompt: &str,
+    prompt: BarField,
     start: f32,
     end: f32,
     scene: &mut Scene,
@@ -343,8 +343,14 @@ fn field(
         ..rounded(rect, input.theme.background, FIELD_RADIUS, scale)
     });
     let text_x = rect.x + pad;
-    let text = tail(prompt, width - pad * 2.0 - line, false, measure);
-    let caret = (text_x + measure(&text, false)).round();
+    let max = width - pad * 2.0 - line;
+    let head: String = prompt.text.chars().take(prompt.cursor).collect();
+    let rest: String = prompt.text.chars().skip(prompt.cursor).collect();
+    let head = tail(&head, max, false, measure);
+    let head_width = measure(&head, false);
+    let rest = ellipsize(&rest, max - head_width, false, measure);
+    let caret = (text_x + head_width).round();
+    let text = format!("{head}{rest}");
     scene.text.push(ui_text(
         text_x,
         baseline(rect, input.ui),
