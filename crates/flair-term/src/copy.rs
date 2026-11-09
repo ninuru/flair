@@ -96,7 +96,11 @@ impl Terminal {
         }) else {
             return;
         };
-        let line = if anchor.line == range.start.line {
+        let anchor_line = match ty {
+            SelectionType::Lines => self.term.line_search_left(anchor).line,
+            SelectionType::Simple | SelectionType::Semantic | SelectionType::Block => anchor.line,
+        };
+        let line = if anchor_line == range.start.line {
             range.end.line
         } else {
             range.start.line

@@ -295,3 +295,17 @@ fn other_end_survives_output_that_scrolls_the_grid() {
         }
     }
 }
+
+#[test]
+fn other_end_of_lines_selection_started_on_a_wrapped_row() {
+    let mut term = term(10, 4, "aaaaaaaaaabbbb\r\nccc");
+    moves(&mut term, &[CopyMotion::Up]);
+    term.copy_select(SelectionKind::Lines);
+    moves(&mut term, &[CopyMotion::Down]);
+    let before = term.selection_text();
+    assert_eq!(before.as_deref(), Some("aaaaaaaaaabbbb\nccc\n"));
+    term.copy_other_end();
+    assert_eq!(term.selection_text(), before);
+    term.copy_other_end();
+    assert_eq!(term.selection_text(), before);
+}
