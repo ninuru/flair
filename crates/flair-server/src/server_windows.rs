@@ -20,7 +20,7 @@ impl Server {
     ) -> SpawnSpec {
         let size = GridSize {
             cols: size.cols.max(1),
-            rows: size.rows.saturating_sub(1).max(1),
+            rows: size.rows.max(1),
         };
         let mut terminal = Terminal::new(size, self.config.scrollback);
         terminal.set_palette(palette);
@@ -33,6 +33,7 @@ impl Server {
                 dirty: true,
                 cached: None,
                 exited: false,
+                running: false,
                 wheel_copy: false,
             },
         );

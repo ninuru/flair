@@ -1,6 +1,6 @@
 use flair_core::{
     geom::{CellPoint, GridSize},
-    ids::{PaneId, WindowId},
+    ids::{PaneId, SessionId, WindowId},
     key::MouseInput,
     prefix::PrefixMachine,
     proto::{ClientKind, PaneUpdate, WindowLayout},
@@ -10,7 +10,7 @@ use flair_core::{
     view::ClientView,
 };
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct ClientState {
     pub view: ClientView,
@@ -28,6 +28,7 @@ pub(crate) struct ClientState {
     pub palette: Theme,
     pub prefix: PrefixMachine,
     pub status: Option<StatusLine>,
+    pub finished: BTreeSet<SessionId>,
     pub last_click: Option<(Millis, CellPoint, u8)>,
     pub selecting: bool,
     pub mouse: Option<MouseCapture>,

@@ -1,7 +1,6 @@
 use flair_core::{
     geom::GridSize,
     key::{Key, KeyAction, KeyInput, Locks, Mods, NamedKey},
-    status::STATUS_ROWS,
 };
 use serde::Deserialize;
 use std::{collections::BTreeMap, path::PathBuf};
@@ -90,16 +89,10 @@ impl Scenario {
     }
 }
 pub fn client_size(cols: u16, rows: u16) -> Result<GridSize, String> {
-    let full_rows = rows
-        .checked_add(STATUS_ROWS)
-        .ok_or("grid is too tall to include the status row")?;
-    if cols == 0 || rows == 0 || u32::from(cols) * u32::from(full_rows) > 1_000_000 {
+    if cols == 0 || rows == 0 || u32::from(cols) * u32::from(rows) > 1_000_000 {
         return Err("grid must be nonzero and contain at most 1000000 cells".into());
     }
-    Ok(GridSize {
-        cols,
-        rows: full_rows,
-    })
+    Ok(GridSize { cols, rows })
 }
 pub fn parse_key(key: &str) -> Result<Key, String> {
     let named = match key {

@@ -153,7 +153,7 @@ fn real_mouse_routing_and_separator_drag_resize_both_ptys() {
                 })))
                 .unwrap()
         };
-        send(0, 1, MouseAction::Press);
+        send(0, 0, MouseAction::Press);
         wait_pane_text(
             &client,
             &mut screens,
@@ -165,23 +165,23 @@ fn real_mouse_routing_and_separator_drag_resize_both_ptys() {
                 .join("\n")
                 .contains("1b5b3c303b313b314d")
         );
-        send(0, 1, MouseAction::Release);
-        send(80, 1, MouseAction::Press);
+        send(0, 0, MouseAction::Release);
+        send(80, 0, MouseAction::Press);
         wait_pane_text(
             &client,
             &mut screens,
             "GOT:1b5b3c303b313b314d",
             Some(PaneId(2)),
         );
-        send(80, 1, MouseAction::Release);
-        send(79, 1, MouseAction::Press);
-        send(60, 2, MouseAction::Motion);
-        send(60, 2, MouseAction::Release);
+        send(80, 0, MouseAction::Release);
+        send(79, 0, MouseAction::Press);
+        send(60, 1, MouseAction::Motion);
+        send(60, 1, MouseAction::Release);
         client
             .tx
             .send(ClientMsg::Input(InputEvent::Text("size\r".into())))
             .unwrap();
-        wait_pane_text(&client, &mut screens, "SIZE:9 99", Some(PaneId(2)));
+        wait_pane_text(&client, &mut screens, "SIZE:10 99", Some(PaneId(2)));
         client
             .tx
             .send(ClientMsg::Command(Command::SelectPane(PaneRef::Id(
@@ -192,7 +192,7 @@ fn real_mouse_routing_and_separator_drag_resize_both_ptys() {
             .tx
             .send(ClientMsg::Input(InputEvent::Text("size\r".into())))
             .unwrap();
-        wait_pane_text(&client, &mut screens, "SIZE:9 60", Some(PaneId(1)));
+        wait_pane_text(&client, &mut screens, "SIZE:10 60", Some(PaneId(1)));
     }));
     drop(client);
     handle.join().unwrap();

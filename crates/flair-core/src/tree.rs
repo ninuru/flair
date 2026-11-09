@@ -5,7 +5,6 @@ use crate::{
     ids::{PaneId, SessionId, WindowId},
     layout::Layout,
     proto::{PanePlacement, WindowLayout},
-    status::STATUS_ROWS,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +52,7 @@ impl Tree {
                 name,
                 root,
                 last_window: window,
-                windows: vec![Window::new(window, pane, GridSize { cols: 80, rows: 25 })],
+                windows: vec![Window::new(window, pane, GridSize { cols: 80, rows: 24 })],
             }],
         }
     }
@@ -138,14 +137,8 @@ impl Window {
 
     pub fn area(&self) -> CellRect {
         CellRect {
-            origin: CellPoint {
-                col: 0,
-                row: STATUS_ROWS,
-            },
-            size: GridSize {
-                cols: self.size.cols,
-                rows: self.size.rows.saturating_sub(STATUS_ROWS),
-            },
+            origin: CellPoint::default(),
+            size: self.size,
         }
     }
 

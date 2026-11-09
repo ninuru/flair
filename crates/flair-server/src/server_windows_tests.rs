@@ -71,9 +71,9 @@ fn clients_in_different_windows_size_only_their_visible_window() {
     );
     assert_eq!(
         server.panes[&PaneId(1)].size,
-        GridSize { cols: 20, rows: 3 }
+        GridSize { cols: 20, rows: 4 }
     );
-    assert_eq!(server.panes[&pane].size, GridSize { cols: 40, rows: 9 });
+    assert_eq!(server.panes[&pane].size, GridSize { cols: 40, rows: 10 });
     assert_eq!(server.clients[&ClientId(1)].view.window, WindowId(1));
 }
 
@@ -107,7 +107,7 @@ fn latest_client_disconnect_restores_remaining_clients_size() {
     server.handle(Millis(2), Event::ClientGone(ClientId(2)), &mut out);
     assert_eq!(
         server.panes[&PaneId(1)].size,
-        GridSize { cols: 20, rows: 3 }
+        GridSize { cols: 20, rows: 4 }
     );
 }
 
@@ -130,7 +130,7 @@ fn switching_latest_client_away_restores_remaining_windows_size() {
     );
     assert_eq!(
         server.panes[&PaneId(1)].size,
-        GridSize { cols: 20, rows: 3 }
+        GridSize { cols: 20, rows: 4 }
     );
 }
 
@@ -156,6 +156,6 @@ fn prefix_detach_restores_remaining_clients_size() {
     assert!(!server.clients.contains_key(&ClientId(2)));
     assert_eq!(
         server.panes[&PaneId(1)].size,
-        GridSize { cols: 20, rows: 3 }
+        GridSize { cols: 20, rows: 4 }
     );
 }

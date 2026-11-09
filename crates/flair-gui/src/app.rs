@@ -23,6 +23,7 @@ use winit::{
 
 use crate::{
     Fonts,
+    chrome_layout::{self, ChromeInput, ChromeLayout, Hit, HitTarget, Modal},
     clipboard::Clipboard,
     compose::{compose, compose_frame},
     input::{self, InputState, LocalAction},
@@ -32,7 +33,7 @@ use crate::{
     probe::Probe,
     prompt::{Outcome, Prompt},
     renderer::{Renderer, WindowContext},
-    status::compose_status,
+    status::status_parts,
 };
 
 #[derive(Debug)]
@@ -73,10 +74,11 @@ struct App {
     error: Option<GuiError>,
     picker: Option<Picker>,
     prompt: Option<Prompt>,
-    held: bool,
+    capture: Capture,
     input: InputState,
     layout: Option<WindowLayout>,
     status: StatusLine,
+    hits: Vec<Hit>,
 }
 
 impl App {
@@ -101,41 +103,44 @@ impl App {
             return GridSize { cols: 80, rows: 24 };
         };
         let px = surface.window.inner_size();
-        let padding = self.padding(surface.window.scale_factor());
-        let metrics = surface.fonts.metrics();
-        GridSize {
-            cols: ((px.width as f32 - padding.0 * 2.0).max(metrics.width) / metrics.width)
-                .floor()
-                .clamp(1.0, u16::MAX as f32) as u16,
-            rows: ((px.height as f32 - padding.1 * 2.0).max(metrics.height) / metrics.height)
-                .floor()
-                .clamp(1.0, u16::MAX as f32) as u16,
-        }
+        let scale = surface.window.scale_factor();
+        chrome_layout::grid_size(
+            (px.width, px.height),
+            self.padding(scale),
+            scale as f32,
+            surface.fonts.metrics(),
+        )
     }
     fn cell(&self) -> Option<CellPoint> {
         let surface = self.surface.as_ref()?;
+        let scale = surface.window.scale_factor();
         Some(mouse::to_cell(
             (self.pointer.x, self.pointer.y),
             &surface.fonts.metrics(),
-            self.padding(surface.window.scale_factor()),
+            chrome_layout::grid_origin(self.padding(scale), scale as f32),
             self.size(),
         ))
+    }
+    fn in_bar(&self) -> bool {
+        self.surface.as_ref().is_some_and(|surface| {
+            self.pointer.y
+                < f64::from(chrome_layout::bar_height(
+                    surface.window.scale_factor() as f32
+                ))
+        })
     }
     fn mouse(&mut self, button: MouseButton, action: MouseAction) {
         let Some(point) = self.cell() else {
             return;
         };
-        let route = route_mouse(point, button, action, self.held);
-        self.held = held_after(self.held, button, action, route);
+        let route = route_mouse(self.in_bar(), button, action, self.capture);
+        self.capture = capture_after(self.capture, button, action, route);
         match route {
-            MouseRoute::Status => {
-                if let Some(window) =
-                    compose_status(&self.status, self.size().cols, &self.config.theme())
-                        .hit_test(point)
+            MouseRoute::Bar => {
+                if let Some(target) =
+                    chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y))
                 {
-                    self.send(ClientMsg::Command(Command::SelectWindow(WindowRef::Id(
-                        window,
-                    ))));
+                    self.send(ClientMsg::Command(bar_command(target)));
                 }
             }
             MouseRoute::Drop => {}
@@ -244,34 +249,50 @@ impl App {
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let theme = self.config.theme();
         let mut grid = match (&self.layout, self.pane) {
-            (Some(layout), _) => compose_frame(
-                &self.mirror,
-                layout,
-                &self.status,
-                self.size(),
-                &theme,
-                true,
-            ),
+            (Some(layout), _) => compose_frame(&self.mirror, layout, self.size(), &theme, true),
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
             (None, None) => return,
         };
-        if let Some(picker) = &self.picker {
-            picker.draw(&mut grid, &theme);
-        }
-        if let Some(prompt) = &self.prompt {
-            prompt.draw(&mut grid, &theme);
-        }
-        let padding = self.padding(
-            self.surface
-                .as_ref()
-                .map_or(1.0, |s| s.window.scale_factor()),
-        );
+        let Some(scale) = self.surface.as_ref().map(|s| s.window.scale_factor()) else {
+            return;
+        };
+        let padding = self.padding(scale);
         let Some(surface) = &mut self.surface else {
             return;
         };
+        let metrics = surface.fonts.metrics();
+        let area = chrome_layout::modal_area(grid.size, metrics, scale as f32);
+        let mut lifted = None;
+        if let Some(picker) = &self.picker {
+            lifted = Some(picker.draw(&mut grid, area, &theme));
+        }
+        if let Some(prompt) = &self.prompt {
+            lifted = prompt.draw(&mut grid, area, &theme).or(lifted);
+        }
+        let parts = status_parts(&self.status);
+        let prompt = self.prompt.as_ref().and_then(Prompt::bar_text);
+        let px = surface.window.inner_size();
+        let input = ChromeInput {
+            px: (px.width, px.height),
+            scale: scale as f32,
+            padding,
+            metrics,
+            ui: surface.fonts.ui_metrics(),
+            theme: &theme,
+            status: &parts,
+            prompt: prompt.as_deref(),
+            separators: self
+                .layout
+                .as_ref()
+                .map_or(&[], |layout| layout.separators.as_slice()),
+            modal: lifted.map(Modal::Centered),
+        };
+        let ChromeLayout { chrome, hits } =
+            chrome_layout::layout(&input, |text, bold| surface.fonts.ui_width(text, bold));
+        self.hits = hits;
         if let Err(error) = surface
             .renderer
-            .draw(&grid, &mut surface.fonts, padding, theme.background)
+            .draw_frame(&grid, &chrome, &mut surface.fonts, theme.background)
             .and_then(|()| surface.context.swap_buffers())
         {
             self.fail(error, event_loop);
@@ -530,12 +551,20 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if self.picker.is_some() || self.prompt.is_some() {
+                    if state == ElementState::Released {
+                        self.capture = Capture::Idle;
+                        self.button = MouseButton::NoButton;
+                    }
                     return;
                 }
                 if button == winit::event::MouseButton::Middle
                     && let Some(point) = self.cell()
-                    && route_mouse(point, MouseButton::Middle, MouseAction::Press, self.held)
-                        == MouseRoute::Server
+                    && route_mouse(
+                        self.in_bar(),
+                        MouseButton::Middle,
+                        MouseAction::Press,
+                        self.capture,
+                    ) == MouseRoute::Server
                     && (self.mods.shift_key()
                         || self
                             .pane_at(point)
@@ -601,37 +630,63 @@ impl ApplicationHandler<UserEvent> for App {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MouseRoute {
-    Status,
+    Bar,
     Server,
     Drop,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Capture {
+    Idle,
+    Server,
+    Bar,
+}
+
 fn route_mouse(
-    point: CellPoint,
+    in_bar: bool,
     button: MouseButton,
     action: MouseAction,
-    held: bool,
+    capture: Capture,
 ) -> MouseRoute {
-    if held || point.row > 0 {
-        MouseRoute::Server
-    } else if button == MouseButton::Left && action == MouseAction::Press {
-        MouseRoute::Status
-    } else {
-        MouseRoute::Drop
+    match capture {
+        Capture::Server => MouseRoute::Server,
+        Capture::Bar => MouseRoute::Drop,
+        Capture::Idle if !in_bar => MouseRoute::Server,
+        Capture::Idle if button == MouseButton::Left && action == MouseAction::Press => {
+            MouseRoute::Bar
+        }
+        Capture::Idle => MouseRoute::Drop,
     }
 }
 
-fn held_after(held: bool, button: MouseButton, action: MouseAction, route: MouseRoute) -> bool {
-    match action {
-        MouseAction::Release => false,
-        MouseAction::Press => {
-            held || (route == MouseRoute::Server
-                && matches!(
-                    button,
-                    MouseButton::Left | MouseButton::Middle | MouseButton::Right
-                ))
+fn bar_command(target: HitTarget) -> Command {
+    match target {
+        HitTarget::Window(window) => Command::SelectWindow(WindowRef::Id(window)),
+        HitTarget::Session => Command::ChooseSession,
+    }
+}
+
+fn capture_after(
+    capture: Capture,
+    button: MouseButton,
+    action: MouseAction,
+    route: MouseRoute,
+) -> Capture {
+    match (action, capture, route) {
+        (MouseAction::Release, _, _) => Capture::Idle,
+        (MouseAction::Motion, _, _) | (MouseAction::Press, Capture::Server | Capture::Bar, _) => {
+            capture
         }
-        MouseAction::Motion => held,
+        (MouseAction::Press, Capture::Idle, MouseRoute::Bar) => Capture::Bar,
+        (MouseAction::Press, Capture::Idle, MouseRoute::Server)
+            if matches!(
+                button,
+                MouseButton::Left | MouseButton::Middle | MouseButton::Right
+            ) =>
+        {
+            Capture::Server
+        }
+        (MouseAction::Press, Capture::Idle, MouseRoute::Server | MouseRoute::Drop) => Capture::Idle,
     }
 }
 
@@ -684,10 +739,11 @@ pub fn run_target(
         error: None,
         picker: None,
         prompt: None,
-        held: false,
+        capture: Capture::Idle,
         input: InputState::default(),
         layout: None,
         status: StatusLine::default(),
+        hits: Vec::new(),
     };
     if let Some(probe) = &mut app.probe {
         probe.mark("event_loop");

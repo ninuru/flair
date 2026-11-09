@@ -97,3 +97,17 @@ fn window_numbers_start_at_one_and_close_gaps() {
     assert_eq!(tree.sessions[0].window_number(WindowId(12)), Some(2));
     assert_eq!(tree.sessions[0].window_number(WindowId(7)), None);
 }
+
+#[test]
+fn window_area_starts_at_row_zero_and_covers_the_whole_size() {
+    let size = GridSize { cols: 80, rows: 24 };
+    let window = Window::new(WindowId(3), PaneId(3), size);
+    let area = CellRect {
+        origin: CellPoint { col: 0, row: 0 },
+        size,
+    };
+    assert_eq!(window.area(), area);
+    let geometry = window.geometry();
+    assert_eq!(geometry.area, area);
+    assert_eq!(geometry.panes[0].rect, area);
+}

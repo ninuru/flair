@@ -212,6 +212,9 @@ fn server_messages() -> Vec<ServerMsg> {
         }),
         ServerMsg::Status(StatusLine {
             session: "main".to_owned(),
+            hidden: 2,
+            running: true,
+            finished: true,
             windows: vec![StatusWindow {
                 id: WindowId(2),
                 index: 1,

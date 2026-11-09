@@ -384,3 +384,223 @@ fn os_title_keeps_the_full_pane_title() {
     assert!(out.iter().any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::Title(title)) if title == "user@host:~/IdeaProjects/flair")));
     assert_eq!(status(&out).unwrap().windows[0].name, "flair");
 }
+
+fn status_for(out: &[Effect], id: ClientId) -> Option<&StatusLine> {
+    out.iter().find_map(|effect| match effect {
+        Effect::Send(client, ServerMsg::Status(line)) if *client == id => Some(line),
+        _ => None,
+    })
+}
+
+fn create_work(server: &mut Server) -> Vec<Effect> {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(1),
+        Event::Client(
+            ClientId(9),
+            ClientMsg::Control(Control::Create {
+                target: Target::Create {
+                    name: Some("work".into()),
+                    root: "/".into(),
+                },
+                env: Vec::new(),
+            }),
+        ),
+        &mut out,
+    );
+    out
+}
+
+fn output(server: &mut Server, now: u64, pane: PaneId, bytes: &[u8]) -> Vec<Effect> {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(now),
+        Event::PtyOutput(pane, bytes.to_vec()),
+        &mut out,
+    );
+    out
+}
+
+#[test]
+fn other_sessions_count_as_hidden() {
+    let mut server = setup();
+    let out = create_work(&mut server);
+    let line = status(&out).unwrap();
+    assert_eq!(line.session, "main");
+    assert_eq!(line.hidden, 1);
+    assert!(!line.running && !line.finished);
+}
+
+#[test]
+fn a_command_in_another_session_runs_then_finishes_until_shown() {
+    let mut server = setup();
+    create_work(&mut server);
+    let out = output(&mut server, 2, PaneId(2), b"\x1b]133;C\x07");
+    let line = status(&out).unwrap();
+    assert!(line.running && !line.finished);
+    let out = output(&mut server, 3, PaneId(2), b"\x1b]133;D;0\x07");
+    let line = status(&out).unwrap();
+    assert!(!line.running && line.finished);
+    let out = send(
+        &mut server,
+        4,
+        ClientMsg::Command(Command::Switch(Target::Name("work".into()))),
+    );
+    let line = status(&out).unwrap();
+    assert_eq!(line.session, "work");
+    assert!(!line.running && !line.finished);
+    let out = send(
+        &mut server,
+        5,
+        ClientMsg::Command(Command::Switch(Target::Name("main".into()))),
+    );
+    let line = status(&out).unwrap();
+    assert_eq!(line.session, "main");
+    assert!(!line.running && !line.finished);
+}
+
+#[test]
+fn prompt_start_ends_a_command_and_prompt_end_keeps_it_running() {
+    let mut server = setup();
+    create_work(&mut server);
+    output(&mut server, 2, PaneId(2), b"\x1b]133;C\x07");
+    let out = output(&mut server, 3, PaneId(2), b"\x1b]133;B\x07");
+    assert_eq!(status(&out), None);
+    let out = output(&mut server, 4, PaneId(2), b"\x1b]133;A\x07");
+    let line = status(&out).unwrap();
+    assert!(!line.running && line.finished);
+}
+
+#[test]
+fn a_client_showing_the_session_never_gets_finished() {
+    let mut server = setup();
+    create_work(&mut server);
+    let mut out = Vec::new();
+    server.handle(
+        Millis(2),
+        Event::Client(
+            ClientId(2),
+            ClientMsg::Hello {
+                protocol: PROTOCOL,
+                kind: ClientKind::Gui,
+                size: GridSize { cols: 20, rows: 5 },
+                palette: Config::default().theme(),
+                env: Vec::new(),
+                target: Target::Name("work".into()),
+            },
+        ),
+        &mut out,
+    );
+    assert_eq!(status_for(&out, ClientId(2)).unwrap().session, "work");
+    let mut lines = Vec::new();
+    for (now, bytes) in [(3, &b"\x1b]133;C\x07"[..]), (4, b"\x1b]133;D;0\x07")] {
+        let out = output(&mut server, now, PaneId(2), bytes);
+        lines.extend(status_for(&out, ClientId(2)).cloned());
+        if now == 4 {
+            assert!(status_for(&out, ClientId(1)).unwrap().finished);
+        }
+    }
+    assert!(lines.iter().all(|line| !line.finished));
+    assert!(
+        !server.clients[&ClientId(2)]
+            .finished
+            .contains(&SessionId(2))
+    );
+}
+
+#[test]
+fn a_pane_that_exits_while_running_finishes_its_session() {
+    let mut server = setup();
+    create_work(&mut server);
+    let mut out = Vec::new();
+    server.handle(
+        Millis(2),
+        Event::Client(
+            ClientId(2),
+            ClientMsg::Hello {
+                protocol: PROTOCOL,
+                kind: ClientKind::Gui,
+                size: GridSize { cols: 20, rows: 5 },
+                palette: Config::default().theme(),
+                env: Vec::new(),
+                target: Target::Name("work".into()),
+            },
+        ),
+        &mut out,
+    );
+    let mut out = Vec::new();
+    server.handle(
+        Millis(3),
+        Event::Client(ClientId(2), ClientMsg::Command(Command::NewWindow)),
+        &mut out,
+    );
+    output(&mut server, 4, PaneId(2), b"\x1b]133;C\x07");
+    let mut out = Vec::new();
+    server.handle(Millis(5), Event::PtyExited(PaneId(2)), &mut out);
+    let line = status(&out).unwrap();
+    assert!(!line.running && line.finished);
+}
+
+fn attach_work(server: &mut Server, now: u64) {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(now),
+        Event::Client(
+            ClientId(2),
+            ClientMsg::Hello {
+                protocol: PROTOCOL,
+                kind: ClientKind::Gui,
+                size: GridSize { cols: 20, rows: 5 },
+                palette: Config::default().theme(),
+                env: Vec::new(),
+                target: Target::Name("work".into()),
+            },
+        ),
+        &mut out,
+    );
+}
+
+fn command_from_work(server: &mut Server, now: u64, command: Command) -> Vec<Effect> {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(now),
+        Event::Client(ClientId(2), ClientMsg::Command(command)),
+        &mut out,
+    );
+    out
+}
+
+#[test]
+fn killing_a_running_pane_finishes_its_session() {
+    let mut server = setup();
+    create_work(&mut server);
+    attach_work(&mut server, 2);
+    command_from_work(&mut server, 3, Command::NewWindow);
+    command_from_work(&mut server, 4, Command::LastWindow);
+    let out = output(&mut server, 5, PaneId(2), b"\x1b]133;C\x07");
+    assert!(status(&out).unwrap().running);
+    let out = command_from_work(&mut server, 6, Command::ClosePane);
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::KillPty(PaneId(2))))
+    );
+    let line = status(&out).unwrap();
+    assert!(!line.running && line.finished);
+}
+
+#[test]
+fn killing_the_last_running_pane_forgets_the_reaped_session() {
+    let mut server = setup();
+    create_work(&mut server);
+    attach_work(&mut server, 2);
+    output(&mut server, 3, PaneId(2), b"\x1b]133;C\x07");
+    let out = command_from_work(&mut server, 4, Command::CloseWindow);
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::KillPty(PaneId(2))))
+    );
+    assert!(server.tree.session(SessionId(2)).is_none());
+    let line = status(&out).unwrap();
+    assert!(!line.running && !line.finished);
+    assert!(server.clients[&ClientId(1)].finished.is_empty());
+}

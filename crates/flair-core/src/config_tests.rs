@@ -140,6 +140,34 @@ fn font_size_must_be_finite_and_positive() {
 }
 
 #[test]
+fn ui_font_defaults_to_sans_serif_at_twelve() {
+    let font = Config::default().font;
+    assert_eq!(font.ui_family, "sans-serif");
+    assert_eq!(font.ui_size, 12.0);
+    let config = Config::from_toml("[font]\nui_family = \"Inter\"\nui_size = 11.5\n").unwrap();
+    assert_eq!(config.font.ui_family, "Inter");
+    assert_eq!(config.font.ui_size, 11.5);
+}
+
+#[test]
+fn ui_size_must_be_finite_and_positive() {
+    for value in ["0", "-2", "nan", "inf"] {
+        let error = Config::from_toml(&format!("[font]\nui_size = {value}\n")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConfigError::NotPositive {
+                    key: "font.ui_size",
+                    ..
+                }
+            ),
+            "{error}"
+        );
+        assert!(error.to_string().contains("font.ui_size"), "{error}");
+    }
+}
+
+#[test]
 fn line_height_must_be_finite_and_positive() {
     for value in ["0.0", "-0.5", "nan", "-inf"] {
         let error = Config::from_toml(&format!("[font]\nline_height = {value}\n")).unwrap_err();

@@ -14,7 +14,7 @@ fn hello() -> ClientMsg {
     ClientMsg::Hello {
         protocol: PROTOCOL,
         kind: ClientKind::Gui,
-        size: GridSize { cols: 20, rows: 5 },
+        size: GridSize { cols: 20, rows: 4 },
         palette: Config::default().theme(),
         env: Vec::new(),
         target: Target::Main,
@@ -112,7 +112,7 @@ fn mouse(server: &mut Server, row: u16, button: MouseButton, action: MouseAction
 }
 
 fn wheel(server: &mut Server, button: MouseButton) -> Vec<Effect> {
-    mouse(server, 1, button, MouseAction::Press)
+    mouse(server, 0, button, MouseAction::Press)
 }
 
 fn status(out: &[Effect]) -> Option<&StatusLine> {
@@ -236,14 +236,14 @@ fn click_leaves_copy_mode_and_still_starts_a_selection() {
     enter(&mut server);
     wheel(&mut server, MouseButton::WheelUp);
     assert!(offset(&server) > 0);
-    let out = mouse(&mut server, 4, MouseButton::Left, MouseAction::Press);
+    let out = mouse(&mut server, 3, MouseButton::Left, MouseAction::Press);
     assert!(!copy_mode(&server));
     assert!(!status(&out).unwrap().copy);
     assert_eq!(offset(&server), 0);
     send(
         &mut server,
         ClientMsg::Input(InputEvent::Mouse(MouseInput {
-            point: CellPoint { col: 4, row: 4 },
+            point: CellPoint { col: 4, row: 3 },
             button: MouseButton::Left,
             action: MouseAction::Release,
             mods: Mods::default(),
@@ -254,7 +254,7 @@ fn click_leaves_copy_mode_and_still_starts_a_selection() {
     .unwrap();
     for button in [MouseButton::Middle, MouseButton::Right] {
         enter(&mut server);
-        mouse(&mut server, 1, button, MouseAction::Press);
+        mouse(&mut server, 0, button, MouseAction::Press);
         assert!(!copy_mode(&server));
     }
 }
@@ -538,12 +538,12 @@ fn ctrl_shift_c_copies_the_vi_selection_and_stays_in_copy_mode() {
 fn drag_after_the_exiting_click_selects_for_primary_and_ctrl_shift_c() {
     let mut server = setup();
     enter(&mut server);
-    mouse(&mut server, 4, MouseButton::Left, MouseAction::Press);
+    mouse(&mut server, 3, MouseButton::Left, MouseAction::Press);
     assert!(!copy_mode(&server));
     let out = send(
         &mut server,
         ClientMsg::Input(InputEvent::Mouse(MouseInput {
-            point: CellPoint { col: 3, row: 4 },
+            point: CellPoint { col: 3, row: 3 },
             button: MouseButton::Left,
             action: MouseAction::Motion,
             mods: Mods::default(),
@@ -553,7 +553,7 @@ fn drag_after_the_exiting_click_selects_for_primary_and_ctrl_shift_c() {
     let out = send(
         &mut server,
         ClientMsg::Input(InputEvent::Mouse(MouseInput {
-            point: CellPoint { col: 3, row: 4 },
+            point: CellPoint { col: 3, row: 3 },
             button: MouseButton::Left,
             action: MouseAction::Release,
             mods: Mods::default(),

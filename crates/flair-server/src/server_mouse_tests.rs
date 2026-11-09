@@ -57,14 +57,14 @@ fn clicking_inactive_pane_selects_it_and_uses_local_selection_coordinates() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 0, row: 1 },
+        CellPoint { col: 0, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
     let copied = mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 4, row: 1 },
+        CellPoint { col: 4, row: 0 },
         MouseButton::Left,
         MouseAction::Release,
     );
@@ -96,7 +96,7 @@ fn reporting_hover_and_wheel_route_under_pointer_without_changing_focus() {
         let out = mouse(
             &mut server,
             ClientId(1),
-            CellPoint { col: 2, row: 1 },
+            CellPoint { col: 2, row: 0 },
             button,
             action,
         );
@@ -130,7 +130,7 @@ fn separator_drag_resizes_both_panes_and_release_ends_capture() {
     let resized = mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 5, row: 2 },
+        CellPoint { col: 5, row: 1 },
         MouseButton::Left,
         MouseAction::Motion,
     );
@@ -156,7 +156,7 @@ fn separator_drag_resizes_both_panes_and_release_ends_capture() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 8, row: 2 },
+        CellPoint { col: 8, row: 1 },
         MouseButton::NoButton,
         MouseAction::Motion,
     );
@@ -231,21 +231,21 @@ fn selection_drag_crossing_separator_stays_in_original_pane() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 0, row: 1 },
+        CellPoint { col: 0, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 19, row: 1 },
+        CellPoint { col: 19, row: 0 },
         MouseButton::Left,
         MouseAction::Motion,
     );
     let released = mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 19, row: 1 },
+        CellPoint { col: 19, row: 0 },
         MouseButton::Left,
         MouseAction::Release,
     );
@@ -293,7 +293,7 @@ fn shift_selects_text_in_mouse_reporting_pane() {
 }
 
 #[test]
-fn status_row_and_separator_do_not_forward_mouse_reporting() {
+fn separator_does_not_forward_mouse_reporting() {
     let (mut server, second, mut out) = split();
     for pane in [PaneId(1), second] {
         server.handle(
@@ -302,19 +302,17 @@ fn status_row_and_separator_do_not_forward_mouse_reporting() {
             &mut out,
         );
     }
-    for point in [CellPoint { col: 0, row: 0 }, CellPoint { col: 9, row: 1 }] {
-        let out = mouse(
-            &mut server,
-            ClientId(1),
-            point,
-            MouseButton::WheelUp,
-            MouseAction::Press,
-        );
-        assert!(
-            !out.iter()
-                .any(|effect| matches!(effect, Effect::WritePty(_, _)))
-        );
-    }
+    let out = mouse(
+        &mut server,
+        ClientId(1),
+        CellPoint { col: 9, row: 0 },
+        MouseButton::WheelUp,
+        MouseAction::Press,
+    );
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::WritePty(_, _)))
+    );
     assert_eq!(server.client_pane(ClientId(1)), Some(second));
 }
 
@@ -324,7 +322,7 @@ fn focus_loss_and_window_switch_cancel_separator_drag() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 9, row: 1 },
+        CellPoint { col: 9, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
@@ -337,7 +335,7 @@ fn focus_loss_and_window_switch_cancel_separator_drag() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 5, row: 1 },
+        CellPoint { col: 5, row: 0 },
         MouseButton::NoButton,
         MouseAction::Motion,
     );
@@ -345,7 +343,7 @@ fn focus_loss_and_window_switch_cancel_separator_drag() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 9, row: 1 },
+        CellPoint { col: 9, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
@@ -358,7 +356,7 @@ fn focus_loss_and_window_switch_cancel_separator_drag() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 5, row: 1 },
+        CellPoint { col: 5, row: 0 },
         MouseButton::NoButton,
         MouseAction::Motion,
     );
@@ -382,19 +380,19 @@ fn stacked_separator_drag_uses_full_grid_row_offset() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 5, row: 5 },
+        CellPoint { col: 5, row: 4 },
         MouseButton::Left,
         MouseAction::Press,
     );
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 5, row: 3 },
+        CellPoint { col: 5, row: 2 },
         MouseButton::Left,
         MouseAction::Motion,
     );
     assert_eq!(server.panes[&PaneId(1)].size.rows, 2);
-    assert_eq!(server.panes[&PaneId(2)].size.rows, 6);
+    assert_eq!(server.panes[&PaneId(2)].size.rows, 7);
 }
 
 #[test]
@@ -408,7 +406,7 @@ fn wheel_scrolls_inactive_pane_history_without_selecting_it() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 2, row: 1 },
+        CellPoint { col: 2, row: 0 },
         MouseButton::WheelUp,
         MouseAction::Press,
     );
@@ -430,7 +428,7 @@ fn closing_pane_invalidates_separator_capture() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 9, row: 1 },
+        CellPoint { col: 9, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
@@ -439,7 +437,7 @@ fn closing_pane_invalidates_separator_capture() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 5, row: 1 },
+        CellPoint { col: 5, row: 0 },
         MouseButton::Left,
         MouseAction::Motion,
     );
@@ -457,7 +455,7 @@ fn focus_loss_releases_captured_application_button() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 11, row: 1 },
+        CellPoint { col: 11, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
@@ -482,7 +480,7 @@ fn disconnected_client_releases_captured_button_in_surviving_pane() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 11, row: 1 },
+        CellPoint { col: 11, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
@@ -502,21 +500,21 @@ fn clients_in_different_windows_keep_independent_separator_captures() {
     mouse(
         &mut server,
         ClientId(2),
-        CellPoint { col: 9, row: 1 },
+        CellPoint { col: 9, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 9, row: 1 },
+        CellPoint { col: 9, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 5, row: 2 },
+        CellPoint { col: 5, row: 1 },
         MouseButton::Left,
         MouseAction::Motion,
     );
@@ -525,7 +523,7 @@ fn clients_in_different_windows_keep_independent_separator_captures() {
     mouse(
         &mut server,
         ClientId(2),
-        CellPoint { col: 7, row: 2 },
+        CellPoint { col: 7, row: 1 },
         MouseButton::Left,
         MouseAction::Motion,
     );
@@ -546,7 +544,7 @@ fn window_resize_releases_application_capture_before_resizing_ptys() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 11, row: 1 },
+        CellPoint { col: 11, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
@@ -574,7 +572,7 @@ fn window_resize_ends_separator_drag_before_next_motion() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 9, row: 1 },
+        CellPoint { col: 9, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
@@ -591,7 +589,7 @@ fn window_resize_ends_separator_drag_before_next_motion() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 5, row: 1 },
+        CellPoint { col: 5, row: 0 },
         MouseButton::Left,
         MouseAction::Motion,
     );
@@ -609,14 +607,14 @@ fn replacing_application_button_capture_releases_previous_button() {
     mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 11, row: 1 },
+        CellPoint { col: 11, row: 0 },
         MouseButton::Left,
         MouseAction::Press,
     );
     let replaced = mouse(
         &mut server,
         ClientId(1),
-        CellPoint { col: 11, row: 1 },
+        CellPoint { col: 11, row: 0 },
         MouseButton::Right,
         MouseAction::Press,
     );

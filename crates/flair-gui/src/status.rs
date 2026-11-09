@@ -1,179 +1,169 @@
-use flair_core::{
-    geom::{CellPoint, GridSize},
-    ids::WindowId,
-    proto::CellFlags,
-    status::StatusLine,
-    theme::{Rgb, Theme},
-};
+use flair_core::{ids::WindowId, status::StatusLine};
 use unicode_width::UnicodeWidthChar;
 
-use crate::cellgrid::{CellGrid, DrawCell};
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusParts {
+    pub chip: ChipParts,
+    pub tabs: Vec<TabParts>,
+    pub badges: Vec<BadgeParts>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WindowHit {
+pub struct ChipParts {
+    pub session: String,
+    pub hidden: u16,
+    pub running: bool,
+    pub finished: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TabParts {
     pub window: WindowId,
-    pub start: u16,
-    pub end: u16,
+    pub index: u16,
+    pub name: String,
+    pub active: bool,
 }
 
-pub struct StatusRow {
-    pub grid: CellGrid,
-    pub windows: Vec<WindowHit>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BadgeKind {
+    Prefix,
+    Copy,
 }
 
-impl StatusRow {
-    pub fn hit_test(&self, point: CellPoint) -> Option<WindowId> {
-        if point.row != 0 {
-            return None;
-        }
-        self.windows
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BadgeParts {
+    pub kind: BadgeKind,
+    pub text: String,
+}
+
+pub fn status_parts(status: &StatusLine) -> StatusParts {
+    StatusParts {
+        chip: ChipParts {
+            session: status.session.clone(),
+            hidden: status.hidden,
+            running: status.running,
+            finished: status.finished,
+        },
+        tabs: status
+            .windows
             .iter()
-            .find(|hit| point.col >= hit.start && point.col < hit.end)
-            .map(|hit| hit.window)
+            .map(|window| TabParts {
+                window: window.id,
+                index: window.index,
+                name: window.name.clone(),
+                active: window.active,
+            })
+            .collect(),
+        badges: [
+            status.copy.then(|| BadgeParts {
+                kind: BadgeKind::Copy,
+                text: "COPY".into(),
+            }),
+            status.pending.clone().map(|text| BadgeParts {
+                kind: BadgeKind::Prefix,
+                text,
+            }),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
     }
 }
 
-pub fn compose_status(status: &StatusLine, cols: u16, theme: &Theme) -> StatusRow {
+pub fn status_text(parts: &StatusParts, cols: u16) -> String {
     let width = usize::from(cols);
-    let blank = DrawCell {
-        c: ' ',
-        extra: None,
-        fg: theme.foreground,
-        bg: Rgb::default(),
-        flags: CellFlags::empty(),
-    };
-    let badges = [status.copy.then_some("COPY"), status.pending.as_deref()]
-        .into_iter()
-        .flatten()
+    let badges = parts
+        .badges
+        .iter()
+        .map(|badge| badge.text.as_str())
         .collect::<Vec<_>>()
         .join(" ");
-    let pending = text_cells(&badges, width, CellFlags::BOLD, theme);
-    let pending_space = usize::from(!pending.is_empty() && pending.len() < width);
-    let remaining = width - pending.len() - pending_space;
-    let suffix_width = if status.windows.is_empty() {
+    let (pending, pending_width) = fit(&badges, width);
+    let pending_space = usize::from(pending_width > 0 && pending_width < width);
+    let remaining = width - pending_width - pending_space;
+    let suffix_width = if parts.tabs.is_empty() {
         remaining
     } else {
         remaining / 2
     };
-    let suffix = session_cells(&status.session, suffix_width, theme);
-    let left_width = remaining - suffix.len();
-    let mut cells = vec![blank; width];
-    let windows = draw_windows(status, &mut cells[..left_width], theme);
-    cells[remaining - suffix.len()..remaining].clone_from_slice(&suffix);
-    cells[width - pending.len()..].clone_from_slice(&pending);
-    StatusRow {
-        grid: CellGrid {
-            size: GridSize { cols, rows: 1 },
-            cells,
-            cursor: None,
-        },
-        windows,
-    }
+    let (suffix, suffix_used) = session_text(&chip_label(&parts.chip), suffix_width);
+    let left_width = remaining - suffix_used;
+    let (windows, windows_used) = windows_text(&parts.tabs, left_width);
+    let pad = " ".repeat(left_width - windows_used);
+    let space = " ".repeat(pending_space);
+    format!("{windows}{pad}{suffix}{space}{pending}")
 }
 
-fn draw_windows(status: &StatusLine, cells: &mut [DrawCell], theme: &Theme) -> Vec<WindowHit> {
-    let entries: Vec<_> = status
-        .windows
+fn chip_label(chip: &ChipParts) -> String {
+    let session = &chip.session;
+    let hidden = if chip.hidden > 0 {
+        format!(" +{}", chip.hidden)
+    } else {
+        String::new()
+    };
+    let running = if chip.running { " *" } else { "" };
+    let finished = if chip.finished { " !" } else { "" };
+    format!("{session}{hidden}{running}{finished}")
+}
+
+fn windows_text(tabs: &[TabParts], width: usize) -> (String, usize) {
+    let entries: Vec<String> = tabs
         .iter()
-        .map(|window| {
-            let flags = if window.active {
-                CellFlags::BOLD | CellFlags::UNDERLINE
-            } else {
-                CellFlags::empty()
-            };
-            text_cells(
-                &format!(" {}:{}", window.index, window.name),
-                cells.len(),
-                flags,
-                theme,
-            )
-        })
+        .map(|tab| format!(" {}:{}", tab.index, tab.name))
         .collect();
-    let active = status
-        .windows
-        .iter()
-        .position(|window| window.active)
-        .unwrap_or(0);
+    let widths: Vec<usize> = entries.iter().map(|entry| fit(entry, width).1).collect();
+    let active = tabs.iter().position(|tab| tab.active).unwrap_or(0);
     let mut first = 0;
-    let mut used: usize = entries.iter().take(active + 1).map(Vec::len).sum();
-    while used > cells.len() && first < active {
-        used -= entries[first].len();
+    let mut used: usize = widths.iter().take(active + 1).sum();
+    while used > width && first < active {
+        used -= widths[first];
         first += 1;
     }
-    let mut windows = Vec::new();
+    let mut text = String::new();
     let mut col = 0;
-    for (window, entry) in status.windows.iter().zip(entries).skip(first) {
-        let mut count = entry.len().min(cells.len() - col);
-        if count > 0 && entry[count - 1].flags.contains(CellFlags::WIDE) {
-            count -= 1;
-        }
-        if count < window.index.to_string().len() + 2 {
+    for (tab, entry) in tabs.iter().zip(entries).skip(first) {
+        let (part, count) = fit(&entry, width - col);
+        if count < tab.index.to_string().len() + 2 {
             break;
         }
-        cells[col..col + count].clone_from_slice(&entry[..count]);
-        windows.push(WindowHit {
-            window: window.id,
-            start: col as u16,
-            end: (col + count) as u16,
-        });
+        text.push_str(&part);
         col += count;
-        if col == cells.len() {
+        if col == width {
             break;
         }
     }
-    windows
+    (text, col)
 }
 
-fn session_cells(session: &str, width: usize, theme: &Theme) -> Vec<DrawCell> {
+fn session_text(session: &str, width: usize) -> (String, usize) {
+    let (bar, bar_width) = fit("| ", width);
     if width < 3 {
-        return text_cells("| ", width, CellFlags::empty(), theme);
+        return (bar, bar_width);
     }
-    let mut cells = text_cells("| ", width, CellFlags::empty(), theme);
-    cells.extend(text_cells(session, width - 3, CellFlags::empty(), theme));
-    cells.extend(text_cells(" ", 1, CellFlags::empty(), theme));
-    cells
+    let (name, name_width) = fit(session, width - 3);
+    (format!("{bar}{name} "), bar_width + name_width + 1)
 }
 
-fn text_cells(text: &str, limit: usize, flags: CellFlags, theme: &Theme) -> Vec<DrawCell> {
-    let mut cells: Vec<DrawCell> = Vec::new();
-    let mut base: Option<usize> = None;
+fn fit(text: &str, limit: usize) -> (String, usize) {
+    let mut out = String::new();
+    let mut used = 0;
     for c in text.chars() {
         let Some(width) = c.width() else {
             continue;
         };
         if width == 0 {
-            if let Some(index) = base {
-                cells[index].extra.get_or_insert_with(String::new).push(c);
+            if !out.is_empty() {
+                out.push(c);
             }
             continue;
         }
-        if cells.len() + width > limit {
+        if used + width > limit {
             break;
         }
-        base = Some(cells.len());
-        cells.push(DrawCell {
-            c,
-            extra: None,
-            fg: theme.foreground,
-            bg: Rgb::default(),
-            flags: flags
-                | if width == 2 {
-                    CellFlags::WIDE
-                } else {
-                    CellFlags::empty()
-                },
-        });
-        if width == 2 {
-            cells.push(DrawCell {
-                c: ' ',
-                extra: None,
-                fg: theme.foreground,
-                bg: Rgb::default(),
-                flags: flags | CellFlags::WIDE_SPACER,
-            });
-        }
+        out.push(c);
+        used += width;
     }
-    cells
+    (out, used)
 }
 
 #[cfg(test)]
