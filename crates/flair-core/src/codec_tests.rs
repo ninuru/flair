@@ -12,7 +12,7 @@ use crate::{
     },
     proto::{
         Cell, CellFlags, ClientKind, ClientMsg, Color, Cursor, CursorShape, ExitReason, PaneFlags,
-        PanePlacement, PaneUpdate, Separator, ServerMsg, Target, WindowLayout,
+        PanePlacement, PaneUpdate, Separator, ServerMsg, SessionInfo, Target, WindowLayout,
     },
     status::{StatusLine, StatusWindow},
 };
@@ -131,6 +131,7 @@ fn client_messages() -> Vec<ClientMsg> {
         ClientMsg::Command(Command::ClosePane),
         ClientMsg::Command(Command::ToggleZoom),
         ClientMsg::Command(Command::ReloadConfig),
+        ClientMsg::Command(Command::ChooseSession),
         ClientMsg::Detach,
     ]
 }
@@ -224,6 +225,14 @@ fn server_messages() -> Vec<ServerMsg> {
         ServerMsg::Exit(ExitReason::Detached),
         ServerMsg::Exit(ExitReason::SessionEnded),
         ServerMsg::Exit(ExitReason::ServerExited),
+        ServerMsg::ChooseSession {
+            sessions: vec![SessionInfo {
+                name: "main".to_owned(),
+                root: "/home/u".into(),
+                windows: 2,
+            }],
+            current: "main".to_owned(),
+        },
     ]
 }
 

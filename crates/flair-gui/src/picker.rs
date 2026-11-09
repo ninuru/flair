@@ -13,6 +13,7 @@ pub struct Picker {
     entries: Vec<Candidate>,
     selected: usize,
     last: Option<Target>,
+    current: Option<String>,
 }
 
 impl Picker {
@@ -27,6 +28,29 @@ impl Picker {
             entries: sessionizer::candidates(&sessions, current, directories),
             selected: 0,
             last,
+            current: None,
+        }
+    }
+
+    pub fn sessions(sessions: Vec<SessionInfo>, current: &str) -> Self {
+        let entries: Vec<_> = sessions
+            .into_iter()
+            .map(|session| Candidate {
+                name: session.name,
+                root: session.root,
+                open: true,
+            })
+            .collect();
+        let selected = sessionizer::rank(&entries, "")
+            .iter()
+            .position(|entry| entry.name == current)
+            .unwrap_or(0);
+        Self {
+            query: String::new(),
+            entries,
+            selected,
+            last: None,
+            current: Some(current.to_owned()),
         }
     }
 
@@ -90,10 +114,14 @@ impl Picker {
         let write = |grid: &mut CellGrid, row, text: &str, selected| {
             write_row(grid, (left, top + row, width), text, selected, theme);
         };
+        let title = match self.current {
+            Some(_) => "Sessions",
+            None => "Sessionizer",
+        };
         write(
             grid,
             0,
-            &format!("Sessionizer  {} matches", entries.len()),
+            &format!("{title}  {} matches", entries.len()),
             false,
         );
         if height > 1 {
@@ -113,10 +141,14 @@ impl Picker {
             .enumerate()
         {
             let marker = if index == self.selected { ">" } else { " " };
-            let open = if entry.open { "*" } else { " " };
+            let starred = match &self.current {
+                Some(current) => entry.name == *current,
+                None => entry.open,
+            };
+            let star = if starred { "*" } else { " " };
             let name_width = (width.saturating_sub(4) / 2).min(24);
             let name: String = entry.name.chars().take(name_width).collect();
-            let prefix = format!("{marker}{open} {name:name_width$} ");
+            let prefix = format!("{marker}{star} {name:name_width$} ");
             let path = tail(
                 &entry.root.to_string_lossy(),
                 width.saturating_sub(prefix.chars().count()),
