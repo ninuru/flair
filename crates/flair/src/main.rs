@@ -9,9 +9,12 @@ use flair_core::{
     link::channel_pair,
     proto::{Control, Target},
 };
+use flair_gui::drive::Drive;
 use flair_server::{ServerConfig, runtime::spawn_in_process};
+use scenario::{Scenario, Step, key_input};
 use std::{
     env,
+    path::Path,
     process::ExitCode,
     time::{Duration, Instant},
 };
@@ -44,7 +47,7 @@ fn main() -> ExitCode {
     match args {
         Args::Help => {
             println!(
-                "flair [--config PATH] [--standalone]\nflair server [--config PATH]\nflair new [-d] [-s NAME] [-c DIR]\nflair attach -t NAME\nflair switch PATH|NAME\nflair ls\nflair kill-server\nflair test-headless --scenario PATH --output DIR [--timeout-ms 5000]"
+                "flair [--config PATH] [--standalone]\nflair server [--config PATH]\nflair new [-d] [-s NAME] [-c DIR]\nflair attach -t NAME\nflair switch PATH|NAME\nflair ls\nflair kill-server\nflair test-headless --scenario PATH --output DIR [--timeout-ms 5000] [--config PATH] [--pixels WxH] [--scale S]"
             );
             ExitCode::SUCCESS
         }
@@ -56,6 +59,9 @@ fn main() -> ExitCode {
             scenario,
             output,
             timeout_ms,
+            config,
+            pixels,
+            scale,
         } => {
             let scenario = match std::fs::read_to_string(&scenario)
                 .map_err(|e| e.to_string())
@@ -67,7 +73,14 @@ fn main() -> ExitCode {
                     return ExitCode::from(2);
                 }
             };
-            match headless::run(scenario, &output, Duration::from_millis(timeout_ms)) {
+            match headless::run(
+                scenario,
+                &output,
+                Duration::from_millis(timeout_ms),
+                config.as_deref(),
+                pixels,
+                scale,
+            ) {
                 Ok(()) => {
                     println!("headless: passed; artifacts {}", output.display());
                     ExitCode::SUCCESS
@@ -141,6 +154,7 @@ fn main() -> ExitCode {
                     None,
                     Target::Name(session.name.clone()),
                     daemon::environment(),
+                    Vec::new(),
                 )
                 .map_err(std::io::Error::other)?;
             }
@@ -156,6 +170,16 @@ fn main() -> ExitCode {
             if let Some(error) = error {
                 log::warn!("{error}; using defaults");
             }
+            let drive = match env::var_os("FLAIR_UI_SCRIPT") {
+                Some(script) => match ui_script(Path::new(&script)) {
+                    Ok(drive) => drive,
+                    Err(error) => {
+                        eprintln!("flair: {error}");
+                        return ExitCode::from(2);
+                    }
+                },
+                None => Vec::new(),
+            };
             if env::var_os("FLAIR_STARTUP_PROBE").is_some() {
                 eprintln!("probe config {:.1}", start.elapsed().as_secs_f64() * 1000.0);
             }
@@ -188,6 +212,7 @@ fn main() -> ExitCode {
                 env::var_os("FLAIR_STARTUP_PROBE").map(|_| start),
                 target,
                 daemon::environment(),
+                drive,
             );
             if let Some(worker) = worker
                 && worker.join().is_err()
@@ -204,6 +229,31 @@ fn main() -> ExitCode {
             }
         }
     }
+}
+
+fn ui_script(path: &Path) -> Result<Vec<Drive>, String> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut drive = Vec::new();
+    for step in Scenario::parse(&text)?.steps {
+        match step {
+            Step::Key {
+                key,
+                ctrl,
+                shift,
+                alt,
+            } => drive.push(Drive::Key(key_input(&key, ctrl, shift, alt)?)),
+            Step::Text { text } => drive.push(Drive::Text(text)),
+            Step::Sleep { ms } => drive.push(Drive::Sleep(Duration::from_millis(ms))),
+            Step::Window { width, height } => drive.push(Drive::Resize { width, height }),
+            Step::Wait { .. }
+            | Step::Paste { .. }
+            | Step::Resize { .. }
+            | Step::Scroll { .. }
+            | Step::Cursor { .. }
+            | Step::Capture { .. } => {}
+        }
+    }
+    Ok(drive)
 }
 
 fn finish(result: std::io::Result<()>) -> ExitCode {

@@ -235,3 +235,58 @@ fn search_draws_nothing_and_gives_its_direction_as_bar_text() {
     prompt.insert("x");
     assert_eq!(prompt.bar_text().as_deref(), Some("?x"));
 }
+
+#[test]
+fn rename_moves_the_cursor_and_inserts_mid_text() {
+    let mut prompt = Prompt::rename("vim".to_owned());
+    assert_eq!(prompt.cursor(), Some(3));
+    prompt.key(&key(Key::Named(NamedKey::Home), None));
+    prompt.key(&key(Key::Named(NamedKey::Right), None));
+    assert_eq!(prompt.cursor(), Some(1));
+    prompt.key(&key(Key::Char('ü'), Some("ü")));
+    prompt.insert("🙂");
+    assert_eq!(prompt.cursor(), Some(3));
+    assert_eq!(prompt.field_text(), Some("vü🙂im"));
+    assert_eq!(prompt.field_prefix(), Some("(rename-window) "));
+    assert_eq!(prompt.bar_text().as_deref(), Some("(rename-window) vü🙂im"));
+    assert_eq!(
+        prompt.key(&key(Key::Named(NamedKey::Enter), None)),
+        Outcome::Run(Command::RenameWindow(Some("vü🙂im".to_owned())))
+    );
+}
+
+#[test]
+fn empty_rename_is_rejected_and_keeps_the_prompt() {
+    let mut prompt = Prompt::rename("ab".to_owned());
+    prompt.key(&KeyInput {
+        mods: Mods {
+            ctrl: true,
+            ..Mods::default()
+        },
+        ..key(Key::Char('u'), None)
+    });
+    assert_eq!(prompt.field_text(), Some(""));
+    assert_eq!(
+        prompt.key(&key(Key::Named(NamedKey::Enter), None)),
+        Outcome::Invalid
+    );
+    prompt.insert("c");
+    assert_eq!(
+        prompt.key(&key(Key::Named(NamedKey::Enter), None)),
+        Outcome::Run(Command::RenameWindow(Some("c".to_owned())))
+    );
+}
+
+#[test]
+fn field_accessors_split_prefix_and_text() {
+    let mut prompt = Prompt::search(false);
+    prompt.insert("err");
+    assert_eq!(prompt.field_prefix(), Some("?"));
+    assert_eq!(prompt.field_text(), Some("err"));
+    assert_eq!(prompt.cursor(), Some(3));
+    assert_eq!(Prompt::search(true).field_prefix(), Some("/"));
+    let chooser = Prompt::choose(&status());
+    assert_eq!(chooser.field_prefix(), None);
+    assert_eq!(chooser.field_text(), None);
+    assert_eq!(chooser.cursor(), None);
+}

@@ -346,7 +346,8 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
         theme: &theme,
         status: &parts,
         prompt: None,
-        separators: &[],
+        layout: None,
+        hover: None,
         modal: Some(Modal::Docked(lifted)),
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
@@ -372,19 +373,23 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
             }
         }
     }
-    let [panel, line] = chrome.chrome.modal.as_slice() else {
+    let [panel] = chrome.chrome.modal.as_slice() else {
         panic!("docked quads {:?}", chrome.chrome.modal);
     };
-    let bottom = H as f32 - 3.0;
+    let rect = panel.rect;
+    let middle = rect.y + rect.h / 2.0;
     assert_eq!(at(2.0, 1.0), rgb(surfaces.surface1));
     assert_eq!(
         at(2.0, chrome_layout::bar_height(1.0)),
         rgb(surfaces.outline)
     );
-    assert_eq!(at(panel.rect.x - 2.0, bottom), rgb(theme.background));
-    assert_eq!(at(line.rect.x, bottom), rgb(surfaces.outline));
-    assert_eq!(at(panel.rect.x + 4.0, bottom), rgb(surfaces.surface1));
-    assert_eq!(at(W as f32 - 2.0, bottom), rgb(surfaces.surface1));
+    assert_eq!(at(rect.x - 2.0, middle), rgb(theme.background));
+    assert_eq!(at(rect.x, middle), rgb(surfaces.outline));
+    assert_eq!(at(rect.x + 4.0, middle), rgb(surfaces.surface1));
+    assert_eq!(at(W as f32 - 10.0, middle), rgb(surfaces.surface1));
+    assert_eq!(at(W as f32 - 2.0, middle), rgb(theme.background));
+    assert_eq!(at(rect.x + 20.0, H as f32 - 3.0), rgb(theme.background));
+    assert_eq!(at(rect.x + 20.0, rect.y - 3.0), rgb(theme.background));
 }
 
 #[test]

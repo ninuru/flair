@@ -1,19 +1,24 @@
 mod app;
 pub mod atlas;
 pub mod cellgrid;
-mod chrome_layout;
+mod chrome_bar;
+pub mod chrome_layout;
 mod clipboard;
 pub mod compose;
+pub mod cursor;
+pub mod drive;
 mod font;
 pub mod input;
 pub mod mirror;
 pub mod mouse;
+pub mod overlays;
 pub mod picker;
 pub mod probe;
 pub mod prompt;
 pub mod renderer;
 pub mod status;
-mod theme_picker;
+pub mod theme_picker;
+pub mod ui;
 
 pub use app::{GuiError, run, run_target};
 pub use font::{CellMetrics, FontError, Fonts, RasterGlyph, Style, UiMetrics};

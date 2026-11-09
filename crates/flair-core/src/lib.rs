@@ -8,6 +8,7 @@ pub mod key;
 pub mod keys;
 pub mod layout;
 pub mod link;
+pub mod monogram;
 pub mod prefix;
 pub mod proto;
 pub mod sessionizer;

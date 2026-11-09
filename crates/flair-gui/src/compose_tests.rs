@@ -440,7 +440,8 @@ fn draw_chrome_frame(
         theme: &theme,
         status: &parts,
         prompt: None,
-        separators: &layout.separators,
+        layout: Some(&layout),
+        hover: None,
         modal: lifted.map(Modal::Centered),
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
@@ -460,7 +461,7 @@ fn draw_chrome_frame(
 }
 
 #[test]
-fn gpu_frame_draws_bar_border_pane_border_and_grid_below_the_bar() {
+fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
     let Some((frame, chrome, metrics)) = draw_chrome_frame(false, None, "chrome") else {
         return;
     };
@@ -475,15 +476,15 @@ fn gpu_frame_draws_bar_border_pane_border_and_grid_below_the_bar() {
         assert_eq!(frame.at(x, bar - 1.0), rgb(surfaces.surface1), "bar at {x}");
         assert_eq!(frame.at(x, bar), rgb(surfaces.outline), "border at {x}");
     }
-    let dot = chrome
+    let mark = chrome
         .chrome
         .quads
         .iter()
-        .find(|quad| quad.rect.w == 6.0 && quad.radius == 3.0)
-        .expect("running dot");
+        .find(|quad| quad.rect.w == 18.0 && quad.radius == 4.0)
+        .expect("session monogram");
     assert_eq!(
-        frame.at(dot.rect.x + 3.0, dot.rect.y + 3.0),
-        rgb(theme.accent)
+        frame.at(mark.rect.x + 2.0, mark.rect.y + 2.0),
+        [mark.color.r, mark.color.g, mark.color.b]
     );
     let padding = (
         f32::from(config.window.padding_x),
@@ -517,7 +518,7 @@ fn gpu_frame_draws_bar_border_pane_border_and_grid_below_the_bar() {
     let gap = origin.0 + f32::from((size.cols - 1) / 2) * metrics.width;
     let line = (gap + (metrics.width - 1.0) / 2.0).round();
     let y = origin.1 + metrics.height * 3.5;
-    assert_eq!(frame.at(line, y), rgb(surfaces.pane_border));
+    assert_eq!(frame.at(line, y), rgb(theme.accent));
     assert_eq!(frame.at(line - 1.0, y), rgb(theme.background));
     assert_eq!(frame.at(line + 1.0, y), rgb(theme.background));
 }
@@ -540,7 +541,8 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
     };
     frame.dump("FLAIR_EXTEND_PPM");
     let config = Config::default();
-    let surfaces = config.theme().surfaces();
+    let theme = config.theme();
+    let surfaces = theme.surfaces();
     let origin = chrome.chrome.origin;
     let padding = (
         f32::from(config.window.padding_x),
@@ -566,7 +568,7 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
     }
     let gap = origin.0 + f32::from((size.cols - 1) / 2) * metrics.width;
     let line = (gap + (metrics.width - 1.0) / 2.0).round();
-    assert_eq!(frame.at(line, row), rgb(surfaces.pane_border));
+    assert_eq!(frame.at(line, row), rgb(theme.accent));
     assert_eq!(frame.at(line - 1.0, row), rgb(rest));
     assert_eq!(frame.at(line + 1.0, row), rgb(rest));
 }
@@ -581,14 +583,11 @@ fn gpu_frame_draws_a_picker_in_a_rounded_modal_over_a_backdrop() {
     let [backdrop, modal] = chrome.chrome.modal.as_slice() else {
         panic!("modal quads {:?}", chrome.chrome.modal);
     };
-    assert_eq!(backdrop.color.a, 179);
-    let dimmed = frame.at(797.0, 1.0);
-    assert!(
-        dimmed.iter().all(|channel| *channel <= 5),
-        "backdrop over the bar is {dimmed:?}"
-    );
+    assert_eq!(backdrop.color.a, 102);
+    assert_eq!(frame.at(797.0, 1.0), rgb(surfaces.surface1));
+    assert_eq!(frame.at(797.0, 34.0), rgb(surfaces.outline));
     let rect = modal.rect;
-    assert_eq!(modal.radius, 8.0);
+    assert_eq!(modal.radius, 10.0);
     assert_ne!(frame.at(rect.x, rect.y), rgb(surfaces.surface1));
     assert_eq!(frame.at(rect.x + 8.0, rect.y + 8.0), rgb(surfaces.surface1));
     assert_eq!(

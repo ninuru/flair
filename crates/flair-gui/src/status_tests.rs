@@ -172,12 +172,14 @@ fn status_parts_split_chip_tabs_and_badges() {
                 index: 1,
                 name: "shell".into(),
                 active: false,
+                last: false,
             },
             TabParts {
                 window: WindowId(2),
                 index: 2,
                 name: "editor".into(),
                 active: true,
+                last: true,
             },
         ]
     );

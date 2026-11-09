@@ -120,9 +120,13 @@ pub struct Surfaces {
     pub surface2: Rgb,
     pub surface3: Rgb,
     pub outline: Rgb,
-    pub pane_border: Rgb,
+    pub outline_strong: Rgb,
+    pub faint: Rgb,
     pub muted: Rgb,
+    pub bright: Rgb,
     pub accent_soft: Rgb,
+    pub running: Rgb,
+    pub attention: Rgb,
 }
 
 impl Theme {
@@ -130,12 +134,16 @@ impl Theme {
         let tint = |percent| blend(self.background, self.foreground, percent);
         Surfaces {
             surface1: tint(5),
-            surface2: tint(10),
-            surface3: tint(15),
-            outline: tint(10),
-            pane_border: tint(15),
-            muted: tint(60),
+            surface2: tint(9),
+            surface3: tint(13),
+            outline: tint(16),
+            outline_strong: tint(19),
+            faint: tint(45),
+            muted: tint(70),
+            bright: tint(85),
             accent_soft: blend(self.background, self.accent, 25),
+            running: self.normal[2],
+            attention: self.normal[3],
         }
     }
 }

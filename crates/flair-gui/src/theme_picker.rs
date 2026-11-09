@@ -8,6 +8,7 @@ use flair_core::{
 use crate::{
     CellMetrics,
     cellgrid::{CellGrid, DrawCell},
+    ui::{DOCK_WIDTH, PANEL_PAD_X, px},
 };
 
 pub struct ThemePicker {
@@ -25,8 +26,6 @@ pub enum ThemeOutcome {
     Save(String),
 }
 
-const PANEL: f32 = 320.0;
-const MARGIN: f32 = 24.0;
 const HEADER_ROWS: usize = 3;
 
 impl ThemePicker {
@@ -92,8 +91,8 @@ impl ThemePicker {
     }
 
     pub fn area(size: GridSize, metrics: CellMetrics, scale: f32) -> CellRect {
-        let margin = (MARGIN * scale).round();
-        let panel = (((PANEL * scale).round() / metrics.width).floor() as u16).min(size.cols);
+        let margin = px(PANEL_PAD_X, scale);
+        let panel = ((px(DOCK_WIDTH, scale) / metrics.width).floor() as u16).min(size.cols);
         let col = ((margin / metrics.width).ceil() as u16).min(panel / 2);
         let row = ((margin / metrics.height).ceil() as u16).min(size.rows / 2);
         let cols = panel - col * 2;

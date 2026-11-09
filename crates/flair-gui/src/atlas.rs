@@ -53,6 +53,7 @@ impl Atlas {
 pub enum Face {
     Cell,
     Ui,
+    Small,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

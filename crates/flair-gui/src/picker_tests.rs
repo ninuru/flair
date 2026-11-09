@@ -358,3 +358,28 @@ fn lifted_cells_use_surface1_and_the_selected_row_surface3() {
         surfaces.muted
     );
 }
+
+#[test]
+fn query_edits_mid_text_and_draws_the_caret_at_the_cursor() {
+    let mut picker = picker();
+    picker.insert("fair");
+    picker.query.home();
+    picker.query.right();
+    picker.insert("l");
+    assert_eq!(picker.query.text(), "flair");
+    assert_eq!(picker.accept(), Some(Target::Name("flair".into())));
+    let mut screen = grid(80, 24);
+    draw(&picker, &mut screen);
+    assert!(
+        screen
+            .to_lines()
+            .iter()
+            .any(|line| line.contains("> fl_air"))
+    );
+    picker.backspace();
+    assert_eq!(picker.query.text(), "fair");
+    picker.query.end();
+    picker.query.left();
+    picker.clear();
+    assert_eq!(picker.query.text(), "r");
+}

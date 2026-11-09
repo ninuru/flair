@@ -22,12 +22,14 @@ pub struct TabParts {
     pub index: u16,
     pub name: String,
     pub active: bool,
+    pub last: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BadgeKind {
     Prefix,
     Copy,
+    Zoom,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,6 +54,7 @@ pub fn status_parts(status: &StatusLine) -> StatusParts {
                 index: window.index,
                 name: window.name.clone(),
                 active: window.active,
+                last: window.last,
             })
             .collect(),
         badges: [

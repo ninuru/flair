@@ -20,6 +20,10 @@ Windows are non-goals.
 - `cargo fmt --all` - format
 - `script/install` - install a release build into `~/.cargo/bin`; a running server keeps running
 - `FLAIR_STARTUP_PROBE=1 flair` - print startup phase timings up to the first frame
+- `flair test-headless --scenario PATH --output DIR [--config PATH] [--pixels WxH --scale S]` - run a
+  scenario without a display; with `--pixels` each `capture { name }` step writes `<name>.ppm`
+  rendered through offscreen EGL, otherwise `<name>.txt`
+- `FLAIR_UI_SCRIPT=path flair` - drive the GUI with a scenario file (key, text, sleep, window steps) after the first frame, for native captures
 - `RUST_LOG=flair=debug flair` - verbose logging; the server logs to `~/.local/state/flair/server.log`
 
 ## Validation Order
