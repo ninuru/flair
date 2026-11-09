@@ -134,6 +134,7 @@ fn client_messages() -> Vec<ClientMsg> {
         ClientMsg::Command(Command::ChooseSession),
         ClientMsg::Command(Command::CopyMode),
         ClientMsg::Command(Command::Copy(CopyCommand::Cancel)),
+        ClientMsg::Command(Command::Copy(CopyCommand::Yank)),
         ClientMsg::Command(Command::Copy(CopyCommand::Move(CopyMotion::HalfPageUp))),
         ClientMsg::Command(Command::Copy(CopyCommand::Select(SelectionKind::Block))),
         ClientMsg::Command(Command::Copy(CopyCommand::Search {

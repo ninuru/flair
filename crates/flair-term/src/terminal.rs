@@ -107,7 +107,14 @@ impl Terminal {
     }
     pub fn advance(&mut self, bytes: &[u8]) {
         let old_alt = self.modes().alt_screen;
+        let old_end = self.selection_end_line();
         self.processor.advance(&mut self.term, bytes);
+        let top = self.term.topmost_line();
+        if let (Some(old_end), Some(end)) = (old_end, self.selection_end_line())
+            && let Some(anchor) = &mut self.copy_anchor
+        {
+            anchor.line = (anchor.line + (end - old_end)).max(top);
+        }
         self.osc.advance(bytes);
         self.events.borrow_mut().extend(self.osc.take());
         for event in self.events.borrow().iter() {

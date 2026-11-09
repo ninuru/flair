@@ -3,6 +3,7 @@ use flair_core::{
     command::{CopyMotion, SelectionKind},
     geom::{CellPoint, GridSize},
     ids::PaneId,
+    proto::SelectionSpan,
 };
 
 fn term(cols: u16, rows: u16, text: &str) -> Terminal {
@@ -203,4 +204,108 @@ fn search_scrolls_into_history() {
     term.copy_search("line1", false).unwrap();
     assert_eq!(offset(&mut term), 5);
     assert_eq!(cursor(&mut term), at(0, 0));
+}
+
+#[test]
+fn alt_screen_copy_mode_covers_only_the_visible_screen() {
+    let mut term = term(10, 3, &numbered(10));
+    term.exit_copy_mode();
+    term.advance(b"\x1b[?1049h\x1b[Halt0\r\nalt1\r\nalt2");
+    term.enter_copy_mode();
+    for motions in [
+        &[CopyMotion::HistoryTop][..],
+        &[
+            CopyMotion::Up,
+            CopyMotion::Up,
+            CopyMotion::Up,
+            CopyMotion::Up,
+        ],
+        &[CopyMotion::HalfPageUp, CopyMotion::HalfPageUp],
+    ] {
+        moves(&mut term, motions);
+        assert_eq!(cursor(&mut term).row, 0);
+        assert_eq!(offset(&mut term), 0);
+    }
+    term.scroll(5);
+    assert_eq!(offset(&mut term), 0);
+    moves(&mut term, &[CopyMotion::HistoryTop]);
+    term.copy_select(SelectionKind::Simple);
+    moves(
+        &mut term,
+        &[CopyMotion::HistoryBottom, CopyMotion::EndOfLine],
+    );
+    assert_eq!(term.selection_text().as_deref(), Some("alt0\nalt1\nalt2"));
+    term.copy_search("line", false).unwrap();
+    assert_eq!(cursor(&mut term), at(3, 2));
+}
+
+#[test]
+fn block_selection_highlights_only_its_rectangle() {
+    let mut term = term(20, 3, "alpha beta\r\ngamma delta");
+    moves(&mut term, &[CopyMotion::Up, CopyMotion::StartOfLine]);
+    moves(&mut term, &[CopyMotion::NextWord]);
+    term.copy_select(SelectionKind::Block);
+    moves(
+        &mut term,
+        &[CopyMotion::Down, CopyMotion::Right, CopyMotion::Right],
+    );
+    assert_eq!(term.selection_text().as_deref(), Some("bet\ndel"));
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().selection,
+        vec![
+            SelectionSpan {
+                row: 0,
+                start: 6,
+                end: 8
+            },
+            SelectionSpan {
+                row: 1,
+                start: 6,
+                end: 8
+            },
+        ]
+    );
+}
+
+#[test]
+fn other_end_survives_output_that_scrolls_the_grid() {
+    for scrollback in [100, 2] {
+        for kind in [
+            SelectionKind::Simple,
+            SelectionKind::Lines,
+            SelectionKind::Block,
+        ] {
+            let mut term = Terminal::new(GridSize { cols: 10, rows: 4 }, scrollback);
+            term.advance(numbered(6).as_bytes());
+            term.enter_copy_mode();
+            moves(&mut term, &[CopyMotion::Up, CopyMotion::StartOfLine]);
+            term.copy_select(kind);
+            moves(
+                &mut term,
+                &[CopyMotion::Up, CopyMotion::Right, CopyMotion::Right],
+            );
+            let before = term.selection_text();
+            assert!(before.is_some());
+            term.advance(b"\r\nmore\r\nmore");
+            assert_eq!(term.selection_text(), before, "{kind:?} {scrollback}");
+            term.copy_other_end();
+            assert_eq!(term.selection_text(), before, "{kind:?} {scrollback}");
+            term.copy_other_end();
+            assert_eq!(term.selection_text(), before, "{kind:?} {scrollback}");
+        }
+    }
+}
+
+#[test]
+fn other_end_of_lines_selection_started_on_a_wrapped_row() {
+    let mut term = term(10, 4, "aaaaaaaaaabbbb\r\nccc");
+    moves(&mut term, &[CopyMotion::Up]);
+    term.copy_select(SelectionKind::Lines);
+    moves(&mut term, &[CopyMotion::Down]);
+    let before = term.selection_text();
+    assert_eq!(before.as_deref(), Some("aaaaaaaaaabbbb\nccc\n"));
+    term.copy_other_end();
+    assert_eq!(term.selection_text(), before);
+    term.copy_other_end();
+    assert_eq!(term.selection_text(), before);
 }

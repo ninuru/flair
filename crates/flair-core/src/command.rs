@@ -44,6 +44,7 @@ pub enum CopyCommand {
     Search { pattern: String, forward: bool },
     SearchAgain,
     SearchReverse,
+    Yank,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
