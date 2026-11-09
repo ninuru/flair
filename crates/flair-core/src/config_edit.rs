@@ -1,55 +1,126 @@
+use std::{error::Error, fmt};
+
+use toml_edit::{DocumentMut, Item, TableLike, TomlError, table};
+
+use crate::{
+    config::{Config, ConfigError},
+    settings::Value,
+};
+
 const BOM: &str = "\u{feff}";
 
-pub fn set_theme(text: &str, name: &str) -> String {
-    match text.strip_prefix(BOM) {
-        Some(rest) => format!("{BOM}{}", set_theme_in(rest, name)),
-        None => set_theme_in(text, name),
+#[derive(Debug)]
+pub enum EditError {
+    Parse(TomlError),
+    NotATable(String),
+    Invalid(ConfigError),
+}
+
+impl fmt::Display for EditError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            EditError::Parse(error) => {
+                let message = error.to_string();
+                let line = first_line(&message);
+                write!(f, "flair.toml does not parse: {line}")
+            }
+            EditError::NotATable(name) => write!(f, "[{name}] in flair.toml is not a table"),
+            EditError::Invalid(error) => {
+                let message = error.to_string();
+                let line = first_line(&message);
+                write!(f, "{line}")
+            }
+        }
     }
 }
 
-fn set_theme_in(text: &str, name: &str) -> String {
-    let entry = format!("theme = \"{name}\"");
-    let mut offset = 0;
-    for line in text.split_inclusive('\n') {
-        let content = line.trim_end_matches(['\r', '\n']);
-        if content.trim_start().starts_with('[') {
-            break;
-        }
-        if let Some(value) = theme_value(content) {
-            let comment = trailing_comment(value).map_or(String::new(), |c| format!(" {c}"));
-            let ending = &line[content.len()..];
-            let (before, after) = (&text[..offset], &text[offset + line.len()..]);
-            return format!("{before}{entry}{comment}{ending}{after}");
-        }
-        offset += line.len();
+impl Error for EditError {}
+
+pub fn apply(text: &str, key: &str, value: Option<&Value>) -> Result<(String, Config), EditError> {
+    let (bom, body) = match text.strip_prefix(BOM) {
+        Some(rest) => (BOM, rest),
+        None => ("", text),
+    };
+    let mut doc = document(body)?;
+    match value {
+        Some(value) => set(&mut doc, key, value.to_toml())?,
+        None => remove(&mut doc, key),
     }
-    let ending = if text.contains("\r\n") { "\r\n" } else { "\n" };
-    format!("{entry}{ending}{text}")
+    let rendered = doc.to_string();
+    let lines = if body.contains("\r\n") {
+        rendered.replace("\r\n", "\n").replace('\n', "\r\n")
+    } else {
+        rendered
+    };
+    let ending = if body.is_empty() || body.ends_with('\n') {
+        lines.as_str()
+    } else {
+        lines
+            .strip_suffix("\r\n")
+            .or_else(|| lines.strip_suffix('\n'))
+            .unwrap_or(&lines)
+    };
+    let out = format!("{bom}{ending}");
+    let config = Config::from_toml(&out).map_err(EditError::Invalid)?;
+    Ok((out, config))
 }
 
-fn theme_value(line: &str) -> Option<&str> {
-    let line = line.trim_start();
-    ["theme", "\"theme\"", "'theme'"]
-        .into_iter()
-        .find_map(|key| line.strip_prefix(key))
-        .and_then(|rest| rest.trim_start().strip_prefix('='))
+pub(crate) fn document(text: &str) -> Result<DocumentMut, EditError> {
+    text.strip_prefix(BOM)
+        .unwrap_or(text)
+        .parse()
+        .map_err(EditError::Parse)
 }
 
-fn trailing_comment(value: &str) -> Option<&str> {
-    let mut quote = None;
-    let mut escaped = false;
-    for (index, c) in value.char_indices() {
-        match (quote, c) {
-            (Some('"'), _) if escaped => escaped = false,
-            (Some('"'), '\\') => escaped = true,
-            (Some(open), _) if c == open => quote = None,
-            (Some(_), _) => {}
-            (None, '"' | '\'') => quote = Some(c),
-            (None, '#') => return Some(value[index..].trim_end()),
-            (None, _) => {}
+pub(crate) fn contains(doc: &DocumentMut, key: &str) -> bool {
+    match key.split_once('.') {
+        Some((name, leaf)) => doc
+            .get(name)
+            .and_then(Item::as_table_like)
+            .is_some_and(|table| table.contains_key(leaf)),
+        None => doc.contains_key(key),
+    }
+}
+
+fn set(doc: &mut DocumentMut, key: &str, value: toml_edit::Value) -> Result<(), EditError> {
+    let (table, leaf): (&mut dyn TableLike, &str) = match key.split_once('.') {
+        Some((name, leaf)) => (
+            doc.entry(name)
+                .or_insert(table())
+                .as_table_like_mut()
+                .ok_or_else(|| EditError::NotATable(name.to_owned()))?,
+            leaf,
+        ),
+        None => (doc.as_table_mut(), key),
+    };
+    match table.get_mut(leaf) {
+        Some(Item::Value(old)) => {
+            let decor = old.decor().clone();
+            *old = value;
+            *old.decor_mut() = decor;
+        }
+        Some(Item::None | Item::Table(_) | Item::ArrayOfTables(_)) | None => {
+            table.insert(leaf, Item::Value(value));
         }
     }
-    None
+    Ok(())
+}
+
+fn remove(doc: &mut DocumentMut, key: &str) {
+    match key.split_once('.') {
+        Some((name, leaf)) => {
+            if let Some(table) = doc.get_mut(name).and_then(Item::as_table_like_mut) {
+                table.remove(leaf);
+            }
+        }
+        None => {
+            doc.remove(key);
+        }
+    }
+}
+
+fn first_line(text: &str) -> &str {
+    text.lines().next().unwrap_or_default()
 }
 
 #[cfg(test)]

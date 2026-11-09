@@ -292,3 +292,23 @@ fn builtin_themes_resolve_by_name_without_a_dir() {
     }
     assert_eq!(Config::default().with_theme("nope").theme(), theme());
 }
+
+#[test]
+fn hex_round_trips_through_from_hex() {
+    let rgb = Rgb {
+        r: 0x19,
+        g: 0x0a,
+        b: 0xd8,
+    };
+    assert_eq!(rgb.hex(), "#190ad8");
+    assert_eq!(Rgb::from_hex(&rgb.hex()), Ok(rgb));
+    let rgba = Rgba {
+        r: 0x00,
+        g: 0xff,
+        b: 0x7f,
+        a: 0x40,
+    };
+    assert_eq!(rgba.hex(), "#00ff7f40");
+    assert_eq!(Rgba::from_hex(&rgba.hex()), Ok(rgba));
+    assert_eq!(Rgba::from_hex("#19AAD8").unwrap().hex(), "#19aad8ff");
+}

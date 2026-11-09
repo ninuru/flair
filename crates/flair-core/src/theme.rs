@@ -40,6 +40,11 @@ impl Rgb {
             .map(|[r, g, b]| Rgb { r, g, b })
             .ok_or_else(|| ColorError(value.to_owned()))
     }
+
+    pub fn hex(self) -> String {
+        let Rgb { r, g, b } = self;
+        format!("#{r:02x}{g:02x}{b:02x}")
+    }
 }
 
 impl Rgba {
@@ -48,6 +53,11 @@ impl Rgba {
             .map(|[r, g, b, a]| Rgba { r, g, b, a })
             .or_else(|| hex_bytes(value).map(|[r, g, b]| Rgba { r, g, b, a: 255 }))
             .ok_or_else(|| ColorError(value.to_owned()))
+    }
+
+    pub fn hex(self) -> String {
+        let Rgba { r, g, b, a } = self;
+        format!("#{r:02x}{g:02x}{b:02x}{a:02x}")
     }
 }
 

@@ -12,6 +12,7 @@ pub mod monogram;
 pub mod prefix;
 pub mod proto;
 pub mod sessionizer;
+pub mod settings;
 pub mod status;
 pub mod theme;
 pub mod time;
