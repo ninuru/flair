@@ -30,6 +30,13 @@ pub enum Command {
     ToggleZoom,
     ReloadConfig,
     ChooseSession,
+    CopyMode,
+    Copy(CopyCommand),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CopyCommand {
+    Cancel,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

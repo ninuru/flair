@@ -14,6 +14,8 @@ use flair_term::{TermEvent, encode::encode_focus};
 
 use crate::{client::ClientState, config::ServerConfig, effect::Effect, event::Event, pane::Pane};
 
+#[path = "server_copy.rs"]
+mod copy;
 #[path = "server_frames.rs"]
 mod frames;
 #[path = "server_input.rs"]

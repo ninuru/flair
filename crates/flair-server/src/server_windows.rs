@@ -33,6 +33,7 @@ impl Server {
                 dirty: true,
                 cached: None,
                 exited: false,
+                wheel_copy: false,
             },
         );
         let mut pane_env: BTreeMap<_, _> = self.config.env.iter().cloned().collect();

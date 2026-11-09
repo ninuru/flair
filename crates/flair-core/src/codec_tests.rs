@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::{
-    command::{Command, PaneRef, WindowRef},
+    command::{Command, CopyCommand, PaneRef, WindowRef},
     config::Config,
     geom::{Axis, CellPoint, CellRect, Direction, GridSize},
     ids::{ClientId, PaneId, WindowId},
@@ -132,6 +132,8 @@ fn client_messages() -> Vec<ClientMsg> {
         ClientMsg::Command(Command::ToggleZoom),
         ClientMsg::Command(Command::ReloadConfig),
         ClientMsg::Command(Command::ChooseSession),
+        ClientMsg::Command(Command::CopyMode),
+        ClientMsg::Command(Command::Copy(CopyCommand::Cancel)),
         ClientMsg::Detach,
     ]
 }
@@ -165,6 +167,7 @@ fn server_messages() -> Vec<ServerMsg> {
                     alt_screen: true,
                     display_offset: 12,
                     mouse_reporting: false,
+                    copy_mode: true,
                 },
             }],
         },
@@ -210,6 +213,7 @@ fn server_messages() -> Vec<ServerMsg> {
                 last: false,
             }],
             pending: Some("^A".to_owned()),
+            copy: true,
         }),
         ServerMsg::ChooseWindow,
         ServerMsg::PasteClipboard,

@@ -9,4 +9,5 @@ pub(crate) struct Pane {
     pub dirty: bool,
     pub cached: Option<PaneUpdate>,
     pub exited: bool,
+    pub wheel_copy: bool,
 }

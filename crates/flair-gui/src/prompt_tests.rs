@@ -34,6 +34,7 @@ fn status() -> StatusLine {
             })
             .collect(),
         pending: None,
+        copy: false,
     }
 }
 

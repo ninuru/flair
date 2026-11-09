@@ -14,7 +14,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 3;
+pub const PROTOCOL: u32 = 4;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -187,6 +187,7 @@ pub struct PaneFlags {
     pub alt_screen: bool,
     pub mouse_reporting: bool,
     pub display_offset: u32,
+    pub copy_mode: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

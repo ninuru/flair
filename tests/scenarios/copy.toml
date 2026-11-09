@@ -1,0 +1,53 @@
+program = "/bin/sh"
+args = ["-i"]
+cols = 80
+rows = 6
+
+[env]
+PS1 = "ready> "
+
+[[steps]]
+action = "wait"
+text = "ready> "
+
+[[steps]]
+action = "key"
+key = "a"
+ctrl = true
+
+[[steps]]
+action = "key"
+key = "["
+
+[[steps]]
+action = "wait"
+text = "COPY"
+
+[[steps]]
+action = "key"
+key = "x"
+
+[[steps]]
+action = "key"
+key = "q"
+
+[[steps]]
+action = "key"
+key = "z"
+
+[[steps]]
+action = "wait"
+text = "ready> z"
+
+[[steps]]
+action = "key"
+key = "a"
+ctrl = true
+
+[[steps]]
+action = "key"
+key = "["
+
+[[steps]]
+action = "wait"
+text = "COPY"

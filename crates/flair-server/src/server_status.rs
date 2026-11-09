@@ -38,6 +38,11 @@ impl Server {
                 .prefix
                 .pending()
                 .then(|| prefix_label(&self.config.keys.key)),
+            copy: self
+                .tree
+                .active_pane(client.view.window)
+                .and_then(|pane| self.panes.get(&pane))
+                .is_some_and(|pane| pane.terminal.copy_mode()),
         })
     }
 
@@ -77,7 +82,11 @@ impl Server {
         self.prefix_changed(id, before, out);
         match result {
             PrefixResult::Forward | PrefixResult::SendPrefix => {
-                self.forward(id, InputEvent::Key(key), out)
+                if self.copy_pane(id).is_some() {
+                    self.copy_key(now, id, &key, out);
+                } else {
+                    self.forward(id, InputEvent::Key(key), out);
+                }
             }
             PrefixResult::Consume => {}
             PrefixResult::Command(command) => self.command(now, id, command, out),

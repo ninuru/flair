@@ -254,7 +254,7 @@ fn bad_protocol_or_empty_geometry_never_spawns() {
 }
 
 #[test]
-fn wheel_scrolls_history_and_typing_returns_to_bottom() {
+fn scrolling_history_outside_copy_mode_and_typing_returns_to_bottom() {
     let (mut server, initial) = setup();
     ack(&mut server, &initial);
     let mut output = Vec::new();
@@ -267,15 +267,7 @@ fn wheel_scrolls_history_and_typing_returns_to_bottom() {
     let mut scroll = Vec::new();
     server.handle(
         Millis(3),
-        Event::Client(
-            ClientId(1),
-            ClientMsg::Input(InputEvent::Mouse(flair_core::key::MouseInput {
-                point: CellPoint { col: 0, row: 1 },
-                button: MouseButton::WheelUp,
-                action: MouseAction::Press,
-                mods: Mods::default(),
-            })),
-        ),
+        Event::Client(ClientId(1), ClientMsg::Command(Command::ScrollLines(3))),
         &mut scroll,
     );
     assert!(scroll.iter().any(|effect| matches!(effect, Effect::Send(_, ServerMsg::Frame { panes, .. }) if panes[0].full && panes[0].flags.display_offset > 0)));

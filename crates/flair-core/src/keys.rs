@@ -6,7 +6,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    command::{Command, PaneRef, WindowRef},
+    command::{Command, CopyCommand, PaneRef, WindowRef},
     geom::{Axis, Direction},
     key::{Key, KeyInput, Mods, NamedKey},
 };
@@ -41,10 +41,10 @@ impl KeysConfig {
         self.key
             .parse::<KeyChord>()
             .map_err(|error| format!("keys.key: {error}"))?;
-        for (name, table) in [
-            ("root", &self.root),
-            ("prefix", &self.prefix),
-            ("copy-mode", &self.copy_mode),
+        for (name, table, copy) in [
+            ("root", &self.root, false),
+            ("prefix", &self.prefix, false),
+            ("copy-mode", &self.copy_mode, true),
         ] {
             let mut chords = HashSet::new();
             for (key, command) in table {
@@ -54,17 +54,18 @@ impl KeysConfig {
                 if !chords.insert(chord) {
                     return Err(format!("keys.{name}.{key}: duplicate normalized key"));
                 }
-                if !valid_command(command) {
+                let known = if copy {
+                    parse_copy_command(command).is_some()
+                } else {
+                    parse_command(command).is_some()
+                };
+                if command != "none" && !known {
                     return Err(format!("keys.{name}.{key}: unknown command {command:?}"));
                 }
             }
         }
         Ok(())
     }
-}
-
-fn valid_command(command: &str) -> bool {
-    command == "none" || parse_command(command).is_some()
 }
 
 pub fn parse_command(command: &str) -> Option<Command> {
@@ -93,6 +94,7 @@ pub fn parse_command(command: &str) -> Option<Command> {
         "paste-clipboard" => Command::PasteClipboard,
         "scroll-page-up" => Command::ScrollPages(1),
         "scroll-page-down" => Command::ScrollPages(-1),
+        "copy-mode" => Command::CopyMode,
         _ => {
             let number = command.strip_prefix("select-window-")?.parse().ok()?;
             if !(1..=9).contains(&number) {
@@ -103,29 +105,48 @@ pub fn parse_command(command: &str) -> Option<Command> {
     })
 }
 
+pub fn parse_copy_command(command: &str) -> Option<CopyCommand> {
+    match command {
+        "cancel" => Some(CopyCommand::Cancel),
+        _ => None,
+    }
+}
+
 impl KeysConfig {
     pub fn binding(&self, input: &KeyInput, prefix: bool) -> Option<Command> {
-        let overrides = if prefix { &self.prefix } else { &self.root };
-        for (key, command) in overrides {
-            if key
-                .parse::<KeyChord>()
-                .is_ok_and(|chord| chord.matches(input))
-            {
-                return parse_command(command);
-            }
-        }
-        let defaults = if prefix {
-            PREFIX_DEFAULTS
+        let (overrides, defaults) = if prefix {
+            (&self.prefix, PREFIX_DEFAULTS)
         } else {
-            ROOT_DEFAULTS
+            (&self.root, ROOT_DEFAULTS)
         };
-        defaults.iter().find_map(|(key, command)| {
-            key.parse::<KeyChord>()
-                .ok()
-                .filter(|chord| chord.matches(input))
-                .and_then(|_| parse_command(command))
-        })
+        lookup(overrides, defaults, input, parse_command)
     }
+
+    pub fn copy_binding(&self, input: &KeyInput) -> Option<CopyCommand> {
+        lookup(&self.copy_mode, COPY_DEFAULTS, input, parse_copy_command)
+    }
+}
+
+fn lookup<T>(
+    overrides: &BTreeMap<String, String>,
+    defaults: &[(&str, &str)],
+    input: &KeyInput,
+    parse: fn(&str) -> Option<T>,
+) -> Option<T> {
+    for (key, command) in overrides {
+        if key
+            .parse::<KeyChord>()
+            .is_ok_and(|chord| chord.matches(input))
+        {
+            return parse(command);
+        }
+    }
+    defaults.iter().find_map(|(key, command)| {
+        key.parse::<KeyChord>()
+            .ok()
+            .filter(|chord| chord.matches(input))
+            .and_then(|_| parse(command))
+    })
 }
 
 const PREFIX_DEFAULTS: &[(&str, &str)] = &[
@@ -145,6 +166,7 @@ const PREFIX_DEFAULTS: &[(&str, &str)] = &[
     ("f", "sessionizer"),
     ("s", "choose-session"),
     ("r", "reload-config"),
+    ("[", "copy-mode"),
     ("h", "select-pane-left"),
     ("j", "select-pane-down"),
     ("k", "select-pane-up"),
@@ -158,6 +180,8 @@ const PREFIX_DEFAULTS: &[(&str, &str)] = &[
     ("8", "select-window-8"),
     ("9", "select-window-9"),
 ];
+
+const COPY_DEFAULTS: &[(&str, &str)] = &[("q", "cancel"), ("Escape", "cancel")];
 
 const ROOT_DEFAULTS: &[(&str, &str)] = &[
     ("C-S-c", "copy-selection"),

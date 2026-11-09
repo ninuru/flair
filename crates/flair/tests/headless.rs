@@ -99,6 +99,35 @@ fn windows_scenario_frames_status_split_and_window_switch() {
 }
 
 #[test]
+fn copy_scenario_shows_the_badge_and_swallows_keys_until_q() {
+    let output = OutputDir::new();
+    let run = Command::new("timeout")
+        .args([
+            "10s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--scenario",
+        ])
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/copy.toml"))
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let frame = fs::read_to_string(output.0.join("frame.txt")).unwrap();
+    let rows: Vec<&str> = frame.lines().collect();
+    assert!(rows[0].ends_with(" COPY"), "{:?}", rows[0]);
+    assert!(frame.contains("ready> z"));
+    assert!(!frame.contains("xz"));
+}
+
+#[test]
 fn status_names_windows_after_directory_and_command_at_any_width() {
     let fixture = fs::read_to_string(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/names.toml"),
