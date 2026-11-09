@@ -386,9 +386,13 @@ fn broken_reload_keeps_the_running_config() {
         Event::ConfigRead(Err("cannot read".into())),
         &mut out,
     );
-    assert!(!out.iter().any(|effect| matches!(
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::Error(_))))
+    );
+    assert!(out.iter().any(|effect| matches!(
         effect,
-        Effect::Send(_, ServerMsg::ReloadConfig { .. } | ServerMsg::Error(_))
+        Effect::Send(_, ServerMsg::ReloadConfig { toml }) if toml == "[keys]\nkey = 3\n"
     )));
     assert_eq!(server.config.keys.key, "C-a");
 }

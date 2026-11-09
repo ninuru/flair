@@ -308,3 +308,74 @@ fn wheel_and_page_keys_move_the_selection() {
     let mut idle = Overlays::default();
     assert_eq!(idle.wheel(1), OverlayEvent::Ignored);
 }
+
+fn release(key: Key) -> KeyInput {
+    KeyInput {
+        action: KeyAction::Release,
+        ..press(key)
+    }
+}
+
+#[test]
+fn a_notice_stays_until_the_next_key_press() {
+    let mut overlays = Overlays::default();
+    assert_eq!(overlays.notice(), None);
+    overlays.set_notice(Notice::info("theme saved: nord"));
+    assert_eq!(overlays.notice(), Some(&Notice::info("theme saved: nord")));
+    assert_eq!(
+        overlays.key(&release(Key::Named(NamedKey::Enter)), || None),
+        None
+    );
+    assert_eq!(overlays.notice(), Some(&Notice::info("theme saved: nord")));
+    assert_eq!(overlays.key(&press(Key::Char('a')), || None), None);
+    assert_eq!(overlays.notice(), None);
+}
+
+#[test]
+fn clear_notice_drops_it() {
+    let mut overlays = Overlays::default();
+    overlays.set_notice(Notice::error("config not reloaded: bad"));
+    overlays.clear_notice();
+    assert_eq!(overlays.notice(), None);
+}
+
+#[test]
+fn opening_an_overlay_clears_the_notice() {
+    let mut overlays = Overlays::default();
+    overlays.set_notice(Notice::info("config reloaded"));
+    open(&mut overlays, sessions());
+    assert_eq!(overlays.notice(), None);
+}
+
+#[test]
+fn an_empty_rename_shows_an_error_notice_while_the_prompt_stays_open() {
+    let mut overlays = Overlays::default();
+    open(
+        &mut overlays,
+        ServerMsg::PromptRename {
+            current: "x".to_owned(),
+        },
+    );
+    overlays.key(&press(Key::Named(NamedKey::Backspace)), || None);
+    overlays.key(&press(Key::Named(NamedKey::Enter)), || None);
+    assert!(overlays.is_open());
+    assert_eq!(
+        overlays.notice(),
+        Some(&Notice::error("window name cannot be empty"))
+    );
+    overlays.key(&release(Key::Named(NamedKey::Enter)), || None);
+    assert!(overlays.notice().is_some());
+    overlays.key(&press(Key::Char('y')), || None);
+    assert_eq!(overlays.notice(), None);
+}
+
+#[test]
+fn escape_closes_a_session_picker_without_sending_anything() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, sessions());
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::Escape)), || None),
+        Some(OverlayEvent::Redraw)
+    );
+    assert!(!overlays.is_open());
+}

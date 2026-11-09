@@ -6,12 +6,13 @@ use flair_core::{
 use crate::{
     UiMetrics,
     chrome_layout::{BarField, ChromeInput, Hit, HitTarget, bar_height},
+    notice::Notice,
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, TabParts},
     ui::{
-        CAP_HEIGHT, CAP_PAD, CAP_RADIUS, ELLIPSIS, FIELD_RADIUS, INSET, ITEM_GAP, ITEM_HEIGHT,
+        CAP_HEIGHT, CAP_PAD, CAP_RADIUS, DOT, ELLIPSIS, FIELD_RADIUS, INSET, ITEM_GAP, ITEM_HEIGHT,
         ITEM_PAD, ITEM_RADIUS, LINE, MONOGRAM, MONOGRAM_GAP, MONOGRAM_PAD, MONOGRAM_RADIUS,
-        SESSION_NAME_MAX, TAB_NAME_MAX, px,
+        NOTICE_FIELD_MIN, SESSION_NAME_MAX, TAB_NAME_MAX, px,
     },
 };
 
@@ -55,17 +56,77 @@ pub(crate) fn bar(
         },
         surfaces.outline,
     ));
-    let start = session(input, scene, measure) + px(ITEM_GAP, scale);
     let end = badges(input, scene, measure)
         .map_or(width - px(INSET, scale), |left| left - px(ITEM_GAP, scale));
-    match input.prompt {
-        Some(prompt) => field(input, prompt, start, end, scene, measure),
-        None => tabs(input, start, end, scene, measure),
+    let start = session(input, end, scene, measure) + px(ITEM_GAP, scale);
+    match (input.prompt, input.notice) {
+        (Some(prompt), Some(notice)) => split(input, prompt, notice, (start, end), scene, measure),
+        (Some(prompt), None) => field(input, prompt, start, end, scene, measure),
+        (None, Some(notice)) => {
+            let x = start + px(ITEM_PAD, scale);
+            note(input, notice, (x, end), scene, measure);
+        }
+        (None, None) => tabs(input, start, end, scene, measure),
     }
+}
+
+fn split(
+    input: &ChromeInput,
+    prompt: BarField,
+    notice: &Notice,
+    room: (f32, f32),
+    scene: &mut Scene,
+    measure: &mut impl FnMut(&str, bool) -> f32,
+) {
+    let scale = input.scale;
+    let (start, end) = room;
+    let gap = px(ITEM_GAP, scale);
+    let lead = px(DOT, scale) + gap;
+    let free = (end - start - px(NOTICE_FIELD_MIN, scale) - gap).floor();
+    let width = (lead + measure(&notice.text, false)).ceil().min(free);
+    if width < lead + measure(ELLIPSIS, false) {
+        field(input, prompt, start, end, scene, measure);
+        return;
+    }
+    field(input, prompt, start, end - width - gap, scene, measure);
+    note(input, notice, (end - width, end), scene, measure);
+}
+
+fn note(
+    input: &ChromeInput,
+    notice: &Notice,
+    room: (f32, f32),
+    scene: &mut Scene,
+    measure: &mut impl FnMut(&str, bool) -> f32,
+) {
+    let scale = input.scale;
+    let (x, end) = room;
+    let surfaces = input.theme.surfaces();
+    let color = match notice.error {
+        true => surfaces.attention,
+        false => surfaces.muted,
+    };
+    let dot = px(DOT, scale);
+    let text_x = (x + dot + px(ITEM_GAP, scale)).round();
+    let text = ellipsize(&notice.text, end - text_x, false, measure);
+    if text.is_empty() {
+        return;
+    }
+    let dot_rect = bar_item(x, dot, DOT, scale);
+    scene.quads.push(rounded(dot_rect, color, DOT / 2.0, scale));
+    let rect = bar_item(x, end - x, ITEM_HEIGHT, scale);
+    scene.text.push(ui_text(
+        text_x,
+        baseline(rect, input.ui),
+        text,
+        color,
+        false,
+    ));
 }
 
 fn session(
     input: &ChromeInput,
+    limit: f32,
     scene: &mut Scene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> f32 {
@@ -76,8 +137,9 @@ fn session(
     let left = px(INSET, scale);
     let mono = px(MONOGRAM, scale);
     let mark_x = left + px(MONOGRAM_PAD, scale);
-    let name = ellipsize(&chip.session, px(SESSION_NAME_MAX, scale), true, measure);
     let name_x = mark_x + mono + px(MONOGRAM_GAP, scale);
+    let room = (limit - name_x - px(ITEM_PAD, scale)).min(px(SESSION_NAME_MAX, scale));
+    let name = ellipsize(&chip.session, room, true, measure);
     let right = name_x + measure(&name, true);
     let rect = bar_item(
         left,
@@ -168,7 +230,7 @@ fn badges(
     left
 }
 
-fn right_items(input: &ChromeInput) -> Vec<BadgeParts> {
+fn right_items<'a>(input: &ChromeInput<'a>) -> impl Iterator<Item = BadgeParts> + 'a {
     let zoom = input
         .layout
         .is_some_and(|layout| layout.zoomed)
@@ -177,16 +239,13 @@ fn right_items(input: &ChromeInput) -> Vec<BadgeParts> {
             text: "ZOOM".into(),
         });
     let badges = &input.status.badges;
-    let of = |kind| {
+    let of = move |kind| {
         badges
             .iter()
             .filter(move |badge| badge.kind == kind)
             .cloned()
     };
-    of(BadgeKind::Copy)
-        .chain(zoom)
-        .chain(of(BadgeKind::Prefix))
-        .collect()
+    of(BadgeKind::Copy).chain(zoom).chain(of(BadgeKind::Prefix))
 }
 
 fn tabs(
@@ -217,7 +276,10 @@ fn tabs(
         let widest = (measure(&format!("+{}", tabs.len()), false) + pad * 2.0).round();
         let room = (start, end - gap - widest);
         let reserved = place(&labels, &widths, active, room, pad, gap, measure);
-        if reserved.iter().any(|item| item.index == active) {
+        let index_width = format!("{} ", tabs[active].index).len();
+        if reserved.iter().any(|item| {
+            item.index == active && item.label.trim_end_matches(ELLIPSIS).len() > index_width
+        }) {
             placed = reserved;
         }
     }
@@ -363,7 +425,7 @@ fn field(
             x: caret,
             y: (rect.y + (rect.h - input.ui.height) / 2.0).round(),
             w: line,
-            h: input.ui.height,
+            h: input.ui.height.round(),
         },
         input.theme.accent,
     ));

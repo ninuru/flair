@@ -448,6 +448,7 @@ fn draw_chrome_frame(
         layout: Some(&layout),
         hover: None,
         overlays: Some(&overlays),
+        notice: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();

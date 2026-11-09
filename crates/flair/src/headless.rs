@@ -16,6 +16,7 @@ use flair_gui::{
     chrome_layout::{self, BarField, ChromeInput, ChromeLayout},
     compose::{compose, compose_frame, separator_glyphs},
     mirror::Mirror,
+    notice::Notice,
     overlays::{OverlayEvent, Overlays},
     renderer::{Chrome, HeadlessContext, Renderer},
     status::{status_parts, status_text},
@@ -181,7 +182,9 @@ impl Capture {
                 self.pane = Some(layout.active);
                 self.layout = Some(layout);
             }
-            ServerMsg::Status(status) => self.status = status,
+            ServerMsg::Status(status) => {
+                self.status = status;
+            }
             ServerMsg::Frame { seq, panes } => {
                 if self.layout.is_none() {
                     self.pane = panes.first().map(|pane| pane.pane).or(self.pane);
@@ -246,7 +249,13 @@ impl Capture {
                     ThemeOutcome::Save(name) => {
                         let dir = Config::themes_dir(&self.config_path);
                         self.config = self.config.with_theme(&name);
-                        self.theme = self.config.load_theme(&dir).0;
+                        self.overlays
+                            .set_notice(Notice::info(format!("theme saved: {name}")));
+                        let (theme, error) = self.config.load_theme(&dir);
+                        if let Some(error) = error {
+                            self.overlays.set_notice(Notice::theme_fallback(&error));
+                        }
+                        self.theme = theme;
                         self.preview = None;
                         return Some(ClientMsg::Palette(self.theme.clone()));
                     }
@@ -290,6 +299,7 @@ impl Capture {
             layout: self.layout.as_ref(),
             hover: None,
             overlays: Some(&self.overlays),
+            notice: self.overlays.notice(),
         };
         let ChromeLayout { overlay, .. } =
             chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
@@ -332,6 +342,7 @@ impl Capture {
             layout: self.layout.as_ref(),
             hover: None,
             overlays: Some(&self.overlays),
+            notice: self.overlays.notice(),
         };
         let ChromeLayout {
             chrome, overlay, ..
@@ -426,8 +437,10 @@ pub fn run(
         return Err(error.to_string());
     }
     let (theme, error) = config.load_theme(&Config::themes_dir(&config_path));
+    let mut overlays = Overlays::new(std::env::var_os("HOME").map(PathBuf::from));
     if let Some(error) = error {
         log::warn!("{error}; using defaults");
+        overlays.set_notice(Notice::theme_fallback(&error));
     }
     let pixels = match pixels {
         Some(px) => Some(Pixels {
@@ -487,7 +500,7 @@ pub fn run(
         preview: None,
         config,
         config_path,
-        overlays: Overlays::new(std::env::var_os("HOME").map(PathBuf::from)),
+        overlays,
         pixels,
     };
     let mut failed_step = None;

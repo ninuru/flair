@@ -8,6 +8,8 @@ use std::{
 
 use flair_core::{config::Config, config_edit::set_theme, theme::Theme};
 
+use crate::notice::Notice;
+
 pub(crate) fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
     let path = match fs::canonicalize(path) {
         Ok(real) => real,
@@ -54,12 +56,13 @@ fn replace_file(
     fs::rename(tmp, path)
 }
 
-pub(crate) fn resolve_theme(config: &Config, path: &Path) -> Theme {
+pub(crate) fn resolve_theme(config: &Config, path: &Path) -> (Theme, Option<Notice>) {
     let (theme, error) = config.load_theme(&Config::themes_dir(path));
-    if let Some(error) = error {
+    let notice = error.map(|error| {
         log::warn!("{error}; using defaults");
-    }
-    theme
+        Notice::theme_fallback(&error)
+    });
+    (theme, notice)
 }
 
 #[cfg(test)]
