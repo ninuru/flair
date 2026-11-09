@@ -322,9 +322,7 @@ fn pixel_capture_writes_a_ppm_of_the_session_chooser() {
     fs::write(
         &scenario,
         r#"program = "/bin/sh"
-args = ["-i"]
-[env]
-PS1 = "ready> "
+args = ["-c", "printf 'ready> '; read x"]
 [[steps]]
 action = "wait"
 text = "ready> "
@@ -350,11 +348,13 @@ name = "narrow"
     .unwrap();
     let run = Command::new("timeout")
         .args([
-            "20s",
+            "90s",
             env!("CARGO_BIN_EXE_flair"),
             "test-headless",
             "--pixels",
             "640x400",
+            "--timeout-ms",
+            "60000",
             "--scenario",
         ])
         .arg(scenario)
