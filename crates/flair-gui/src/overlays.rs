@@ -10,6 +10,7 @@ use flair_core::{
 
 use crate::{
     input::{self, LocalAction},
+    notice::Notice,
     overlay_layout::{self, OverlayHit, OverlayHits, OverlayInput, OverlayScene, Sheet},
     picker::{self, Picker},
     prompt::{Outcome, Prompt},
@@ -23,6 +24,7 @@ pub struct Overlays {
     theme_picker: Option<ThemePicker>,
     home: Option<PathBuf>,
     hits: Option<OverlayHits>,
+    notice: Option<Notice>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,7 +101,26 @@ impl Overlays {
             | ServerMsg::Error(_)
             | ServerMsg::Exit(_) => return false,
         }
+        self.notice = None;
         true
+    }
+
+    pub fn set_notice(&mut self, notice: Notice) {
+        self.notice = Some(notice);
+    }
+
+    pub fn notice(&self) -> Option<&Notice> {
+        self.notice.as_ref()
+    }
+
+    pub fn clear_notice(&mut self) {
+        self.notice = None;
+    }
+
+    pub fn status(&mut self, current: &StatusLine, next: &StatusLine) {
+        if current != next {
+            self.notice = None;
+        }
     }
 
     pub fn is_open(&self) -> bool {
@@ -115,6 +136,9 @@ impl Overlays {
         key: &KeyInput,
         clipboard: impl FnOnce() -> Option<String>,
     ) -> Option<OverlayEvent> {
+        if key.action == KeyAction::Press {
+            self.notice = None;
+        }
         let direction = match key.key {
             Key::Named(NamedKey::PageUp) => -1,
             Key::Named(NamedKey::PageDown) => 1,
@@ -154,7 +178,11 @@ impl Overlays {
             });
         }
         Some(match prompt.key(key) {
-            Outcome::Pending | Outcome::Invalid => OverlayEvent::Redraw,
+            Outcome::Pending => OverlayEvent::Redraw,
+            Outcome::Invalid => {
+                self.notice = Some(Notice::error("window name cannot be empty"));
+                OverlayEvent::Redraw
+            }
             Outcome::Close => {
                 self.prompt = None;
                 OverlayEvent::Redraw

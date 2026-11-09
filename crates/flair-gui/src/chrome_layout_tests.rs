@@ -1,13 +1,19 @@
+use std::path::Path;
+
 use super::*;
 use crate::{
-    renderer::Quad,
-    status::{ChipParts, TabParts},
+    notice::Notice,
+    overlay_layout::OverlayHit,
+    renderer::{Quad, TextRun},
+    status::{BadgeKind, BadgeParts, ChipParts, TabParts, status_parts},
+    ui::ELLIPSIS,
 };
 use flair_core::{
     config::Config,
     geom::{Axis, CellPoint},
     ids::PaneId,
-    proto::PanePlacement,
+    proto::{PanePlacement, ServerMsg, SessionInfo},
+    status::{StatusLine, StatusWindow},
     theme::{Rgb, Rgba},
 };
 
@@ -111,6 +117,7 @@ fn run_layout(scale: f32, width: u32, window: Option<&WindowLayout>) -> ChromeLa
         layout: window,
         hover: None,
         overlays: None,
+        notice: None,
     };
     layout(&input, measure)
 }
@@ -209,6 +216,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
             layout: None,
             hover: None,
             overlays: None,
+            notice: None,
         };
         let chrome = layout(&input, measure).chrome;
         let full = rect(0.0, top, px.0 as f32, px.1 as f32 - top);
@@ -425,4 +433,339 @@ fn separators_are_clipped_to_the_grid_area() {
         borders,
         [rect(92.0, 52.0, 1.0, 544.0), rect(8.0, 140.0, 184.0, 1.0)]
     );
+}
+
+fn fractional(text: &str, _: bool) -> f32 {
+    text.chars().count() as f32 * 7.3
+}
+
+fn scaled_status() -> StatusLine {
+    StatusLine {
+        session: "main".into(),
+        windows: (1..=4)
+            .map(|index| StatusWindow {
+                id: WindowId(u32::from(index)),
+                index,
+                name: format!("window {index}"),
+                active: index == 2,
+                last: index == 1,
+            })
+            .collect(),
+        pending: Some("^A".into()),
+        copy: true,
+        ..StatusLine::default()
+    }
+}
+
+fn overlay_messages() -> [ServerMsg; 3] {
+    [
+        ServerMsg::ChooseSession {
+            sessions: ["main", "notes", "work"]
+                .into_iter()
+                .map(|name| SessionInfo {
+                    name: name.into(),
+                    root: format!("/srv/{name}").into(),
+                    windows: 2,
+                })
+                .collect(),
+            current: "main".into(),
+        },
+        ServerMsg::ChooseWindow,
+        ServerMsg::ChooseTheme,
+    ]
+}
+
+fn scaled_layout(
+    scale: f32,
+    status: &StatusLine,
+    overlays: &Overlays,
+    notice: Option<&Notice>,
+) -> ChromeLayout {
+    let theme = Config::default().theme();
+    let parts = status_parts(status);
+    let separators = [
+        Separator {
+            axis: Axis::Horizontal,
+            rect: cells(40, 0, 1, 30),
+        },
+        Separator {
+            axis: Axis::Vertical,
+            rect: cells(0, 12, 40, 1),
+        },
+    ];
+    let window = window(
+        &separators,
+        &[(1, cells(0, 0, 40, 12)), (2, cells(41, 0, 40, 30))],
+        1,
+    );
+    let prompt = overlays.bar_field();
+    let input = ChromeInput {
+        px: (1203, 757),
+        scale,
+        padding: ((8.0 * scale).round(), (4.0 * scale).round()),
+        metrics: CellMetrics {
+            width: 8.4 * scale,
+            height: 17.0 * scale,
+            baseline: 13.0 * scale,
+        },
+        ui: ui(scale),
+        theme: &theme,
+        status: &parts,
+        prompt: prompt.as_ref().map(|(text, cursor)| BarField {
+            text,
+            cursor: *cursor,
+        }),
+        layout: Some(&window),
+        hover: None,
+        overlays: Some(overlays),
+        notice,
+    };
+    layout(&input, fractional)
+}
+
+fn assert_whole(layout: &ChromeLayout, scale: f32) {
+    let line = px(LINE, scale);
+    let quads = layout.chrome.quads.iter().chain(&layout.chrome.modal);
+    for quad in quads {
+        let PxRect { x, y, w, h } = quad.rect;
+        for value in [x, y, w, h] {
+            assert_eq!(value.fract(), 0.0, "{scale} {quad:?}");
+        }
+        if let Some(border) = quad.border {
+            assert_eq!(border.width, line, "{scale} {quad:?}");
+        }
+    }
+    let runs = layout.chrome.text.iter().chain(&layout.chrome.modal_text);
+    for run in runs {
+        assert_eq!(run.x.fract(), 0.0, "{scale} {run:?}");
+        assert_eq!(run.baseline.fract(), 0.0, "{scale} {run:?}");
+    }
+}
+
+#[test]
+fn every_line_and_text_origin_lands_on_whole_pixels_at_fractional_scales() {
+    for scale in [1.25, 1.5] {
+        let line = px(LINE, scale);
+        assert_eq!(line, (scale).round().max(1.0));
+        let status = scaled_status();
+        let empty = Overlays::default();
+        let layout = scaled_layout(scale, &status, &empty, None);
+        assert_whole(&layout, scale);
+        assert!(layout.chrome.quads.iter().any(|quad| quad.rect.h == line));
+        for message in overlay_messages() {
+            let mut overlays = Overlays::default();
+            assert!(overlays.open(
+                &message,
+                &status,
+                &Config::default(),
+                Path::new("/nonexistent/flair.toml"),
+            ));
+            let layout = scaled_layout(scale, &status, &overlays, None);
+            assert!(!layout.chrome.modal.is_empty());
+            assert_whole(&layout, scale);
+        }
+        let mut overlays = Overlays::default();
+        assert!(overlays.open(
+            &ServerMsg::PromptRename {
+                current: "editör".into(),
+            },
+            &status,
+            &Config::default(),
+            Path::new("/nonexistent/flair.toml"),
+        ));
+        let notice = Notice::error("window name cannot be empty");
+        let layout = scaled_layout(scale, &status, &overlays, Some(&notice));
+        assert!(
+            layout
+                .chrome
+                .text
+                .iter()
+                .any(|run| run.text == "window name cannot be empty")
+        );
+        assert_whole(&layout, scale);
+    }
+}
+
+#[test]
+fn tab_and_row_hit_targets_match_their_drawn_rects_at_scale_1_5() {
+    let scale = 1.5;
+    let status = scaled_status();
+    let surfaces = Config::default().theme().surfaces();
+    let layout = scaled_layout(scale, &status, &Overlays::default(), None);
+    let windows: Vec<&Hit> = layout
+        .hits
+        .iter()
+        .filter(|hit| matches!(hit.target, HitTarget::Window(_)))
+        .collect();
+    assert_eq!(windows.len(), 4);
+    for hit in &windows {
+        assert_eq!((hit.rect.y, hit.rect.h), (0.0, bar_height(scale)));
+        let centre = (
+            f64::from(hit.rect.x + hit.rect.w / 2.0),
+            f64::from(hit.rect.h / 2.0),
+        );
+        assert_eq!(hit_test(&layout.hits, centre), Some(hit.target));
+    }
+    let active = windows
+        .iter()
+        .find(|hit| hit.target == HitTarget::Window(WindowId(2)))
+        .unwrap();
+    let fill = layout
+        .chrome
+        .quads
+        .iter()
+        .find(|quad| quad.color == opaque(surfaces.surface3) && quad.border.is_none())
+        .unwrap();
+    assert_eq!((fill.rect.x, fill.rect.w), (active.rect.x, active.rect.w));
+
+    for message in overlay_messages() {
+        let mut overlays = Overlays::default();
+        overlays.open(
+            &message,
+            &status,
+            &Config::default(),
+            Path::new("/nonexistent/flair.toml"),
+        );
+        let layout = scaled_layout(scale, &status, &overlays, None);
+        let hits = layout.overlay.unwrap();
+        assert!(!hits.rows.is_empty());
+        for (index, rect) in &hits.rows {
+            let centre = (
+                f64::from(rect.x + rect.w / 2.0),
+                f64::from(rect.y + rect.h / 2.0),
+            );
+            assert_eq!(hits.hit_test(centre), OverlayHit::Row(*index));
+        }
+        let selected = layout
+            .chrome
+            .modal
+            .iter()
+            .find(|quad| quad.color == opaque(surfaces.surface3) && quad.border.is_none())
+            .unwrap();
+        assert!(hits.rows.iter().any(|(_, rect)| *rect == selected.rect));
+    }
+}
+
+fn bar_layout(width: u32, status: &StatusParts) -> ChromeLayout {
+    let theme = Config::default().theme();
+    let input = ChromeInput {
+        px: (width, 600),
+        scale: 1.0,
+        padding: (8.0, 4.0),
+        metrics: metrics(1.0),
+        ui: ui(1.0),
+        theme: &theme,
+        status,
+        prompt: None,
+        layout: None,
+        hover: None,
+        overlays: None,
+        notice: None,
+    };
+    layout(&input, measure)
+}
+
+fn text<'a>(layout: &'a ChromeLayout, text: &str) -> Option<&'a TextRun> {
+    layout.chrome.text.iter().find(|run| run.text == text)
+}
+
+fn narrow(session: &str, names: &[&str], active: usize) -> StatusParts {
+    StatusParts {
+        chip: ChipParts {
+            session: session.into(),
+            ..parts().chip
+        },
+        tabs: names
+            .iter()
+            .enumerate()
+            .map(|(offset, name)| TabParts {
+                window: WindowId(offset as u32 + 1),
+                index: offset as u16 + 1,
+                name: (*name).into(),
+                active: offset == active,
+                last: false,
+            })
+            .collect(),
+        badges: vec![
+            BadgeParts {
+                kind: BadgeKind::Copy,
+                text: "COPY".into(),
+            },
+            BadgeParts {
+                kind: BadgeKind::Prefix,
+                text: "^A".into(),
+            },
+        ],
+    }
+}
+
+#[test]
+fn a_400_px_bar_keeps_the_active_tab_between_session_and_badges() {
+    let status = narrow(
+        "infrastructure",
+        &["shell", "editor", "cargo watch", "logs", "nvim"],
+        4,
+    );
+    let layout = bar_layout(400, &status);
+    let session = layout.hits[0].rect;
+    let copy = text(&layout, "COPY").unwrap().x - 6.0;
+    let tabs: Vec<Hit> = layout.hits[1..].to_vec();
+    assert_eq!(tabs.last().unwrap().target, HitTarget::Window(WindowId(5)));
+    for hit in &tabs {
+        assert!(hit.rect.x >= session.x + session.w + 6.0);
+        assert!(hit.rect.x + hit.rect.w <= copy - 6.0);
+    }
+    if let Some(more) = layout
+        .chrome
+        .text
+        .iter()
+        .find(|run| run.text.starts_with('+'))
+    {
+        assert!(more.x + measure(&more.text, false) <= copy - 6.0);
+    }
+}
+
+#[test]
+fn badges_win_over_a_long_session_name_in_a_narrow_bar() {
+    let status = narrow("a-really-long-session-name", &["shell"], 0);
+    let layout = bar_layout(260, &status);
+    let session = layout.hits[0].rect;
+    let copy = text(&layout, "COPY").unwrap().x - 6.0;
+    assert!(session.x + session.w + 6.0 <= copy);
+    let name = layout
+        .chrome
+        .text
+        .iter()
+        .find(|run| run.bold && run.text.starts_with("a-really"))
+        .unwrap();
+    assert!(name.text.ends_with(ELLIPSIS));
+}
+
+#[test]
+fn non_ascii_names_ellipsize_on_whole_chars() {
+    let long = "Überlanger Fenstername äöü ß";
+    let cjk = "開発サーバーのログ監視ウィンドウ";
+    let status = narrow("Größe", &[long, cjk], 0);
+    let layout = bar_layout(260, &status);
+    let tab = layout
+        .chrome
+        .text
+        .iter()
+        .find(|run| run.text.starts_with("1 Über"))
+        .unwrap();
+    let kept = tab.text.strip_suffix(ELLIPSIS).unwrap();
+    assert!(format!("1 {long}").starts_with(kept));
+    let status = narrow("Größe", &["short", cjk], 1);
+    let layout = bar_layout(800, &status);
+    let tab = text(&layout, &format!("2 {cjk}")).or_else(|| {
+        layout
+            .chrome
+            .text
+            .iter()
+            .find(|run| run.text.starts_with("2 開"))
+    });
+    let tab = tab.unwrap();
+    let kept = tab.text.trim_end_matches(ELLIPSIS);
+    assert!(format!("2 {cjk}").starts_with(kept));
+    assert!(text(&layout, "Größe").is_some());
 }

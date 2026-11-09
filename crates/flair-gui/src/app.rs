@@ -1,7 +1,7 @@
 use std::{env, error::Error, fmt, fs, path::PathBuf, sync::mpsc::Sender, thread, time::Instant};
 
 use flair_core::{
-    command::{Command, WindowRef},
+    command::Command,
     config::Config,
     geom::{CellPoint, GridSize},
     ids::PaneId,
@@ -24,13 +24,15 @@ use winit::{
 
 use crate::{
     Fonts,
-    chrome_layout::{self, BarField, ChromeInput, ChromeLayout, Hit, HitTarget},
+    chrome_layout::{self, BarField, ChromeInput, ChromeLayout, Hit},
     clipboard::Clipboard,
     compose::{compose, compose_frame},
     drive::Drive,
     input::InputState,
     mirror::Mirror,
     mouse::{self, WheelAccumulator},
+    mouse_route::{Capture, MouseRoute, bar_command, capture_after, route_mouse},
+    notice::Notice,
     overlays::{OverlayEvent, Overlays},
     probe::Probe,
     renderer::{Renderer, WindowContext},
@@ -190,13 +192,19 @@ impl App {
                 self.preview = None;
                 match save_theme(&self.config_path, &name) {
                     Ok(config) => {
+                        self.overlays
+                            .set_notice(Notice::info(format!("theme saved: {name}")));
                         self.reload(config, event_loop);
                         self.send(ClientMsg::Command(Command::ReloadConfig));
                     }
-                    Err(error) => log::warn!(
-                        "could not save theme {name:?} to {}: {error}",
-                        self.config_path.display()
-                    ),
+                    Err(error) => {
+                        log::warn!(
+                            "could not save theme {name:?} to {}: {error}",
+                            self.config_path.display()
+                        );
+                        self.overlays
+                            .set_notice(Notice::error(format!("could not save theme: {error}")));
+                    }
                 }
             }
         }
@@ -234,7 +242,10 @@ impl App {
     fn reload(&mut self, config: Config, event_loop: &ActiveEventLoop) {
         let fonts_changed = config.font != self.config.font;
         self.config = config;
-        let theme = resolve_theme(&self.config, &self.config_path);
+        let (theme, notice) = resolve_theme(&self.config, &self.config_path);
+        if let Some(notice) = notice {
+            self.overlays.set_notice(notice);
+        }
         if theme != self.theme {
             self.theme = theme;
             self.send(ClientMsg::Palette(self.theme.clone()));
@@ -290,6 +301,7 @@ impl App {
             layout: self.layout.as_ref(),
             hover: Some((self.pointer.x as f32, self.pointer.y as f32)),
             overlays: Some(&self.overlays),
+            notice: self.overlays.notice(),
         };
         let ChromeLayout {
             chrome,
@@ -338,6 +350,9 @@ impl App {
         }
     }
     fn key(&mut self, key: KeyInput, event_loop: &ActiveEventLoop) {
+        if self.overlays.notice().is_some() {
+            self.request_redraw();
+        }
         let surface = &self.surface;
         match self
             .overlays
@@ -449,6 +464,7 @@ impl ApplicationHandler<UserEvent> for App {
                     self.request_redraw();
                 }
                 ServerMsg::Status(status) => {
+                    self.overlays.status(&self.status, &status);
                     self.status = status;
                     self.request_redraw();
                 }
@@ -460,8 +476,18 @@ impl ApplicationHandler<UserEvent> for App {
                 ServerMsg::ReloadConfig { toml } => {
                     let text = fs::read_to_string(&self.config_path).unwrap_or(toml);
                     match Config::from_toml(&text) {
-                        Ok(config) => self.reload(config, event_loop),
-                        Err(error) => log::warn!("ignoring reloaded config: {error}"),
+                        Ok(config) => {
+                            if self.overlays.notice().is_none_or(|notice| notice.error) {
+                                self.overlays.set_notice(Notice::info("config reloaded"));
+                            }
+                            self.reload(config, event_loop);
+                        }
+                        Err(error) => {
+                            log::warn!("ignoring reloaded config: {error}");
+                            self.overlays
+                                .set_notice(Notice::error(format!("config not reloaded: {error}")));
+                            self.request_redraw();
+                        }
                     }
                     if let Some(picker) = self.overlays.theme_picker_mut() {
                         let outcome = picker.refresh(&self.config.theme);
@@ -549,7 +575,7 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let target = |app: &App, pos: (f64, f64)| {
                     (
-                        chrome_layout::hit_test(&app.hits, pos),
+                        chrome_layout::hit_test(&app.hits, pos).filter(|_| !app.overlays.is_open()),
                         app.overlays.hit_test(pos),
                     )
                 };
@@ -657,68 +683,6 @@ impl ApplicationHandler<UserEvent> for App {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MouseRoute {
-    Bar,
-    Server,
-    Drop,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Capture {
-    Idle,
-    Server,
-    Bar,
-    Overlay,
-}
-
-fn route_mouse(
-    in_bar: bool,
-    button: MouseButton,
-    action: MouseAction,
-    capture: Capture,
-) -> MouseRoute {
-    match capture {
-        Capture::Server => MouseRoute::Server,
-        Capture::Bar | Capture::Overlay => MouseRoute::Drop,
-        Capture::Idle if !in_bar => MouseRoute::Server,
-        Capture::Idle if button == MouseButton::Left && action == MouseAction::Press => {
-            MouseRoute::Bar
-        }
-        Capture::Idle => MouseRoute::Drop,
-    }
-}
-
-fn bar_command(target: HitTarget) -> Command {
-    match target {
-        HitTarget::Window(window) => Command::SelectWindow(WindowRef::Id(window)),
-        HitTarget::Session => Command::ChooseSession,
-    }
-}
-
-fn capture_after(
-    capture: Capture,
-    button: MouseButton,
-    action: MouseAction,
-    route: MouseRoute,
-) -> Capture {
-    match (action, capture, route) {
-        (MouseAction::Release, _, _) => Capture::Idle,
-        (MouseAction::Motion, _, _)
-        | (MouseAction::Press, Capture::Server | Capture::Bar | Capture::Overlay, _) => capture,
-        (MouseAction::Press, Capture::Idle, MouseRoute::Bar) => Capture::Bar,
-        (MouseAction::Press, Capture::Idle, MouseRoute::Server)
-            if matches!(
-                button,
-                MouseButton::Left | MouseButton::Middle | MouseButton::Right
-            ) =>
-        {
-            Capture::Server
-        }
-        (MouseAction::Press, Capture::Idle, MouseRoute::Server | MouseRoute::Drop) => Capture::Idle,
-    }
-}
-
 pub fn run(
     config: Config,
     config_path: PathBuf,
@@ -745,7 +709,7 @@ pub fn run_target(
     env: Vec<(String, String)>,
     drive: Vec<Drive>,
 ) -> Result<(), GuiError> {
-    let theme = resolve_theme(&config, &config_path);
+    let (theme, notice) = resolve_theme(&config, &config_path);
     link.tx
         .send(ClientMsg::Hello {
             protocol: PROTOCOL,
@@ -794,6 +758,9 @@ pub fn run_target(
         hits: Vec::new(),
         drive,
     };
+    if let Some(notice) = notice {
+        app.overlays.set_notice(notice);
+    }
     if let Some(probe) = &mut app.probe {
         probe.mark("event_loop");
     }
@@ -807,7 +774,3 @@ pub fn run_target(
         None => Ok(()),
     }
 }
-
-#[cfg(test)]
-#[path = "app_tests.rs"]
-mod tests;

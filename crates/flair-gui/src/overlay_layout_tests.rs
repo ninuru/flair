@@ -443,3 +443,95 @@ fn names_without_detail_use_the_whole_row() {
     let scene = run(&sheet, (960, 600), 1.0, None);
     assert!(text(&scene, &name).is_some());
 }
+
+fn assert_inside(scene: &OverlayScene, window: (u32, u32), scale: f32) {
+    let panel = scene.hits.panel;
+    let margin = px(PANEL_PAD_X, scale);
+    assert!(panel.x >= margin, "{panel:?}");
+    assert!(panel.x + panel.w <= window.0 as f32 - margin, "{panel:?}");
+    assert!(panel.y >= chrome_bottom(scale), "{panel:?}");
+    assert!(panel.y + panel.h <= window.1 as f32, "{panel:?}");
+    for quad in &scene.quads[1..] {
+        let rect = quad.rect;
+        assert!(
+            rect.x >= panel.x && rect.x + rect.w <= panel.x + panel.w,
+            "{rect:?}"
+        );
+        assert!(
+            rect.y >= panel.y && rect.y + rect.h <= panel.y + panel.h,
+            "{rect:?}"
+        );
+    }
+}
+
+#[test]
+fn small_windows_keep_the_panel_inside_with_its_margins() {
+    for (px, scale, rows) in [
+        ((600, 400), 1.0, 4),
+        ((400, 300), 1.0, 1),
+        ((600, 400), 1.5, 1),
+    ] {
+        let scene = run(&many(12, 0), px, scale, None);
+        assert_inside(&scene, px, scale);
+        assert_eq!(scene.hits.rows.len(), rows, "{px:?} {scale}");
+        assert!(text(&scene, &format!("+{} more", 12 - rows)).is_some());
+        let count = text(&scene, "12").unwrap();
+        assert!(count.x + measure("12", false) <= scene.hits.panel.x + scene.hits.panel.w);
+        assert!(text(&scene, "Sessions").is_some());
+    }
+}
+
+#[test]
+fn rows_then_the_footer_drop_before_the_search_field() {
+    let theme = Config::default().theme();
+    let field_quad = |scene: &OverlayScene| {
+        scene
+            .quads
+            .iter()
+            .any(|quad| quad.color == opaque(theme.background) && quad.rect.h == 32.0)
+    };
+    let scene = run(&many(12, 0), (400, 230), 1.0, None);
+    assert_inside(&scene, (400, 230), 1.0);
+    assert_eq!(scene.hits.rows.len(), 1);
+    assert!(text(&scene, "esc").is_none());
+    assert!(text(&scene, "+11 more").is_none());
+    assert!(field_quad(&scene));
+
+    let scene = run(&many(12, 0), (400, 180), 1.0, None);
+    assert_inside(&scene, (400, 180), 1.0);
+    assert!(scene.hits.rows.is_empty());
+    assert!(field_quad(&scene));
+    assert!(text(&scene, "Sessions").is_some());
+    assert!(text(&scene, "12").is_some());
+}
+
+#[test]
+fn non_ascii_row_names_ellipsize_on_whole_chars() {
+    let long = "Überlanger Fenstername äöü ß";
+    let cjk = "開発サーバーのログ監視ウィンドウとその他の長い名前";
+    let sheet = sessions(
+        vec![row(long, None, Some("current")), row(cjk, None, None)],
+        0,
+    );
+    let scene = run(&sheet, (300, 300), 1.0, None);
+    let first = scene
+        .text
+        .iter()
+        .find(|run| run.face == TextFace::Ui && run.text.starts_with("Über"))
+        .unwrap();
+    let kept = first.text.strip_suffix(ELLIPSIS).unwrap();
+    assert!(long.starts_with(kept));
+    let scene = run(
+        &sessions(vec![row(cjk, None, None)], 0),
+        (300, 300),
+        1.0,
+        None,
+    );
+    let second = scene
+        .text
+        .iter()
+        .find(|run| run.face == TextFace::Ui && run.text.starts_with('開'))
+        .unwrap();
+    assert!(cjk.starts_with(second.text.trim_end_matches(ELLIPSIS)));
+    assert!(second.text.ends_with(ELLIPSIS));
+}

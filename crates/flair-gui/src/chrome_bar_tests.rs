@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     CellMetrics,
     chrome_layout::{BarField, ChromeLayout, hit_test, layout},
+    notice::Notice,
     status::{ChipParts, StatusParts},
 };
 use flair_core::{
@@ -69,6 +70,7 @@ struct Case<'a> {
     cursor: Option<usize>,
     window: Option<&'a WindowLayout>,
     hover: Option<(f32, f32)>,
+    notice: Option<&'a Notice>,
 }
 
 impl<'a> Case<'a> {
@@ -81,6 +83,7 @@ impl<'a> Case<'a> {
             cursor: None,
             window: None,
             hover: None,
+            notice: None,
         }
     }
 
@@ -110,6 +113,7 @@ impl<'a> Case<'a> {
             layout: self.window,
             hover: self.hover,
             overlays: None,
+            notice: self.notice,
         };
         layout(&input, measure)
     }
@@ -640,4 +644,135 @@ fn ellipsize_measures_a_long_name_in_one_pass() {
     assert_eq!(result, format!("{}…", "x".repeat(21)));
     assert!(calls <= 2 * name.len(), "{calls} calls");
     assert!(chars <= 2 * name.len(), "{chars} chars measured");
+}
+
+fn notice_dot(layout: &ChromeLayout, x: f32) -> Option<&Quad> {
+    quad_at(layout, rect(x, 14.0, 6.0, 6.0))
+}
+
+#[test]
+fn an_info_notice_replaces_the_tabs_in_muted_text_after_a_dot() {
+    let surfaces = Config::default().theme().surfaces();
+    let status = parts();
+    let notice = Notice::info("config reloaded");
+    let layout = Case {
+        notice: Some(&notice),
+        ..Case::new(&status)
+    }
+    .run();
+    assert!(text(&layout, "1 shell").is_none());
+    assert!(text(&layout, "2 editor").is_none());
+    assert_eq!(
+        notice_dot(&layout, 92.0),
+        Some(&rounded(
+            rect(92.0, 14.0, 6.0, 6.0),
+            surfaces.muted,
+            3.0,
+            1.0
+        ))
+    );
+    let run = text(&layout, "config reloaded").unwrap();
+    assert_eq!(
+        (run.x, run.baseline, run.color, run.bold, run.face),
+        (104.0, 21.0, surfaces.muted, false, TextFace::Ui)
+    );
+    assert_eq!(
+        layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
+        [HitTarget::Session]
+    );
+}
+
+#[test]
+fn an_error_notice_uses_the_attention_colour_and_ellipsizes() {
+    let surfaces = Config::default().theme().surfaces();
+    let status = parts();
+    let notice = Notice::error("could not save theme: permission denied (os error 13)");
+    let layout = Case {
+        width: 300,
+        notice: Some(&notice),
+        ..Case::new(&status)
+    }
+    .run();
+    assert_eq!(
+        notice_dot(&layout, 92.0).map(|quad| quad.color),
+        Some(opaque(surfaces.attention))
+    );
+    let run = layout
+        .chrome
+        .text
+        .iter()
+        .find(|run| run.text.starts_with("could not"))
+        .unwrap();
+    assert_eq!((run.x, run.color), (104.0, surfaces.attention));
+    assert!(run.text.ends_with(ELLIPSIS));
+    assert!(run.x + measure(&run.text, false) <= 292.0);
+}
+
+#[test]
+fn a_notice_sits_right_of_an_open_prompt_field() {
+    let theme = Config::default().theme();
+    let surfaces = theme.surfaces();
+    let status = parts();
+    let notice = Notice::error("window name cannot be empty");
+    let layout = Case {
+        prompt: Some("(rename-window) "),
+        notice: Some(&notice),
+        ..Case::new(&status)
+    }
+    .run();
+    let field = layout
+        .chrome
+        .quads
+        .iter()
+        .find(|quad| quad.color == opaque(theme.background))
+        .unwrap();
+    assert_eq!(field.rect, rect(82.0, 5.0, 503.0, 24.0));
+    assert_eq!(
+        notice_dot(&layout, 591.0).map(|quad| quad.color),
+        Some(opaque(surfaces.attention))
+    );
+    let run = text(&layout, "window name cannot be empty").unwrap();
+    assert_eq!((run.x, run.color), (603.0, surfaces.attention));
+    assert!(text(&layout, "(rename-window) ").is_some());
+}
+
+#[test]
+fn a_notice_next_to_a_prompt_keeps_the_field_at_least_120_wide() {
+    let theme = Config::default().theme();
+    let status = parts();
+    let notice = Notice::error("window name cannot be empty");
+    let field_rect = |layout: &ChromeLayout| {
+        layout
+            .chrome
+            .quads
+            .iter()
+            .find(|quad| quad.color == opaque(theme.background))
+            .unwrap()
+            .rect
+    };
+    let layout = Case {
+        width: 300,
+        prompt: Some("(rename-window) "),
+        notice: Some(&notice),
+        ..Case::new(&status)
+    }
+    .run();
+    assert_eq!(field_rect(&layout), rect(82.0, 5.0, 120.0, 24.0));
+    assert_eq!(text(&layout, "window na…").unwrap().x, 220.0);
+
+    let layout = Case {
+        width: 220,
+        prompt: Some("(rename-window) "),
+        notice: Some(&notice),
+        ..Case::new(&status)
+    }
+    .run();
+    assert_eq!(field_rect(&layout), rect(82.0, 5.0, 130.0, 24.0));
+    assert!(
+        layout
+            .chrome
+            .text
+            .iter()
+            .all(|run| !run.text.starts_with("window"))
+    );
 }
