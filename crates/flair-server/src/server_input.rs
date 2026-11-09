@@ -45,6 +45,17 @@ impl Server {
                     },
                 ));
             }
+            Command::ChooseSession => {
+                let session = self.clients[&id].view.session;
+                let current = self.tree.session(session).unwrap().name.clone();
+                out.push(Effect::Send(
+                    id,
+                    ServerMsg::ChooseSession {
+                        sessions: self.session_infos(),
+                        current,
+                    },
+                ));
+            }
             Command::CopySelection => self.copy_selection(id, false, out),
             Command::Detach => {
                 self.remove_client(id, out);
@@ -132,6 +143,7 @@ impl Server {
                         Command::Switch(_)
                         | Command::LastSession
                         | Command::Sessionizer
+                        | Command::ChooseSession
                         | Command::CopySelection
                         | Command::Detach
                         | Command::NewWindow

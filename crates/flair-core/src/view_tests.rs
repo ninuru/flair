@@ -44,6 +44,18 @@ fn switch_to_same_session_selects_window() {
 }
 
 #[test]
+fn switch_to_current_session_and_window_keeps_history() {
+    let mut view = ClientView::new(SessionId(0), WindowId(0), Millis(0));
+    view.switch_session(SessionId(1), WindowId(5));
+    view.select_window(WindowId(6));
+    view.switch_session(SessionId(1), WindowId(6));
+    assert_eq!(view.session, SessionId(1));
+    assert_eq!(view.window, WindowId(6));
+    assert_eq!(view.last_session, Some(SessionId(0)));
+    assert_eq!(view.last_window, Some(WindowId(5)));
+}
+
+#[test]
 fn window_size_follows_latest_active_client() {
     let mut a = ClientView::new(SessionId(0), WindowId(0), Millis(10));
     let b = ClientView::new(SessionId(0), WindowId(0), Millis(20));

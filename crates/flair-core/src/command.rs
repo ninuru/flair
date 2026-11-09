@@ -29,6 +29,7 @@ pub enum Command {
     ClosePane,
     ToggleZoom,
     ReloadConfig,
+    ChooseSession,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

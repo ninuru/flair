@@ -505,6 +505,107 @@ fn prefix_sessionizer_reports_current_and_last_session() {
 }
 
 #[test]
+fn prefix_s_lists_running_sessions_with_the_current_one() {
+    let (mut server, _) = setup();
+    let mut out = Vec::new();
+    server.handle(
+        Millis(1),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Command(Command::Switch(Target::Path("/tmp/project".into()))),
+        ),
+        &mut out,
+    );
+    out.clear();
+    server.handle(
+        Millis(2),
+        Event::Client(ClientId(1), key('a', true)),
+        &mut out,
+    );
+    server.handle(
+        Millis(3),
+        Event::Client(ClientId(1), key('s', false)),
+        &mut out,
+    );
+    let chooser = out.iter().find_map(|effect| {
+        if let Effect::Send(ClientId(1), ServerMsg::ChooseSession { sessions, current }) = effect {
+            Some((sessions, current))
+        } else {
+            None
+        }
+    });
+    let (sessions, current) = chooser.expect("prefix s sends the session chooser");
+    let names: Vec<_> = sessions
+        .iter()
+        .map(|session| session.name.as_str())
+        .collect();
+    assert_eq!(names, ["main", "project"]);
+    assert_eq!(current, "project");
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::WritePty(_, bytes) if bytes == b"s"))
+    );
+    assert_eq!(server.clients[&ClientId(1)].view.session, SessionId(2));
+}
+
+#[test]
+fn switching_by_name_moves_only_the_requesting_client() {
+    let (mut server, _) = setup();
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
+    server.handle(
+        Millis(2),
+        Event::Client(
+            ClientId(2),
+            ClientMsg::Command(Command::Switch(Target::Path("/tmp/other".into()))),
+        ),
+        &mut out,
+    );
+    assert_eq!(server.clients[&ClientId(2)].view.session, SessionId(2));
+    server.handle(
+        Millis(3),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Command(Command::Switch(Target::Name("other".into()))),
+        ),
+        &mut out,
+    );
+    assert_eq!(server.clients[&ClientId(1)].view.session, SessionId(2));
+    assert_eq!(
+        server.clients[&ClientId(1)].view.last_session,
+        Some(SessionId(1))
+    );
+    server.handle(
+        Millis(4),
+        Event::Client(
+            ClientId(2),
+            ClientMsg::Command(Command::Switch(Target::Name("main".into()))),
+        ),
+        &mut out,
+    );
+    server.handle(
+        Millis(5),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Command(Command::Switch(Target::Name("other".into()))),
+        ),
+        &mut out,
+    );
+    assert_eq!(server.clients[&ClientId(1)].view.session, SessionId(2));
+    assert_eq!(
+        server.clients[&ClientId(1)].view.last_session,
+        Some(SessionId(1))
+    );
+    assert_eq!(server.clients[&ClientId(2)].view.session, SessionId(1));
+    assert_eq!(server.tree.sessions.len(), 2);
+    assert_eq!(server.panes.len(), 2);
+    assert!(!out.iter().any(|effect| matches!(
+        effect,
+        Effect::Send(_, ServerMsg::Error(_) | ServerMsg::Exit(_)) | Effect::Shutdown
+    )));
+}
+
+#[test]
 fn switching_one_client_preserves_other_view_and_outstanding_credit() {
     let (mut server, initial) = setup();
     let original_seq = server.clients[&ClientId(1)].awaiting_ack;

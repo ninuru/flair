@@ -385,6 +385,10 @@ impl ApplicationHandler<UserEvent> for App {
                         Some(Picker::new(sessions, &current, last, picker::directories()));
                     self.request_redraw();
                 }
+                ServerMsg::ChooseSession { sessions, current } => {
+                    self.picker = Some(Picker::sessions(sessions, &current));
+                    self.request_redraw();
+                }
                 ServerMsg::Layout(layout) => {
                     self.mirror.retain_layout(&layout);
                     self.layout = Some(layout);
