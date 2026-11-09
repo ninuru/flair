@@ -32,6 +32,11 @@ impl Server {
         for pane in finished {
             self.destroy_pane(now, pane, out);
         }
+        for client in self.clients.values_mut() {
+            client
+                .finished
+                .retain(|session| self.tree.session(*session).is_some());
+        }
     }
 
     pub(super) fn destroy_pane(&mut self, now: Millis, pane: PaneId, out: &mut Vec<Effect>) {
@@ -51,6 +56,7 @@ impl Server {
             .iter()
             .find(|session| window.is_some_and(|(id, _)| session.last_window == id))
             .map(|session| session.id);
+        self.set_running(pane, false);
         if self.panes.remove(&pane).is_none() {
             return;
         }

@@ -43,18 +43,3 @@ pub struct Chrome {
     pub modal: Vec<Quad>,
     pub lifted: Option<CellRect>,
 }
-
-impl Chrome {
-    pub fn cells_only(padding: (f32, f32), px: (u32, u32)) -> Chrome {
-        Chrome {
-            origin: padding,
-            clip: PxRect {
-                x: padding.0,
-                y: padding.1,
-                w: (px.0 as f32 - padding.0 * 2.0).max(0.0),
-                h: (px.1 as f32 - padding.1 * 2.0).max(0.0),
-            },
-            ..Chrome::default()
-        }
-    }
-}

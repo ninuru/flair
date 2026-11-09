@@ -69,14 +69,14 @@ fn cache_rasterizes_once_and_recovers_after_clear() {
             pixels: vec![255; 24],
         })
     };
-    assert!(cache.get_or_insert(key, raster).is_some());
+    assert!(matches!(cache.get_or_insert(key, raster), Ok(Some(_))));
     assert!(
         cache
             .get_or_insert(key, || panic!("cached glyph rasterized again"))
-            .is_some()
+            .is_ok_and(|glyph| glyph.is_some())
     );
     cache.clear();
-    assert!(cache.get_or_insert(key, raster).is_some());
+    assert!(matches!(cache.get_or_insert(key, raster), Ok(Some(_))));
 }
 
 #[test]
@@ -101,6 +101,7 @@ fn cell_and_ui_faces_cache_the_same_char_separately() {
             },
             raster,
         )
+        .unwrap()
         .unwrap();
     let mut rasterized = false;
     let ui = cache
@@ -115,7 +116,43 @@ fn cell_and_ui_faces_cache_the_same_char_separately() {
                 raster()
             },
         )
+        .unwrap()
         .unwrap();
     assert!(rasterized);
     assert_ne!(cell.rect, ui.rect);
+}
+
+#[test]
+fn blank_glyphs_draw_nothing_and_only_a_full_atlas_reports_full() {
+    let mut cache = GlyphCache::new(4);
+    let key = |c| GlyphKey {
+        face: Face::Ui,
+        c,
+        style: Style::Regular,
+    };
+    let glyph = |width, height| {
+        move || {
+            Some(RasterGlyph {
+                width,
+                height,
+                left: 0,
+                top: 0,
+                colored: false,
+                pixels: vec![255; (width * height * 4) as usize],
+            })
+        }
+    };
+    assert!(matches!(cache.get_or_insert(key('a'), || None), Ok(None)));
+    assert!(matches!(
+        cache.get_or_insert(key('\u{200b}'), glyph(0, 0)),
+        Ok(None)
+    ));
+    assert!(matches!(
+        cache.get_or_insert(key('b'), glyph(4, 4)),
+        Ok(Some(_))
+    ));
+    assert!(matches!(
+        cache.get_or_insert(key('c'), glyph(2, 2)),
+        Err(AtlasFull)
+    ));
 }

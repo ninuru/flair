@@ -13,8 +13,9 @@ void main() {
     else if (mode == 1) fragment = vec4(tint.rgb * texel.a, texel.a);
     else if (mode == 2) fragment = texel;
     else {
-        vec2 q = abs(local) - half_size + vec2(radius);
-        float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+        float r = min(radius, min(half_size.x, half_size.y));
+        vec2 q = abs(local) - half_size + vec2(r);
+        float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
         fragment = tint * clamp(0.5 - d, 0.0, 1.0);
     }
 }

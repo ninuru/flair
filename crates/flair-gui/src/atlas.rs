@@ -68,6 +68,9 @@ pub struct AtlasGlyph {
     pub raster: Arc<RasterGlyph>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AtlasFull;
+
 pub struct GlyphCache {
     atlas: Atlas,
     glyphs: HashMap<GlyphKey, AtlasGlyph>,
@@ -84,18 +87,23 @@ impl GlyphCache {
         &mut self,
         key: GlyphKey,
         raster: impl FnOnce() -> Option<RasterGlyph>,
-    ) -> Option<AtlasGlyph> {
+    ) -> Result<Option<AtlasGlyph>, AtlasFull> {
         if let Some(glyph) = self.glyphs.get(&key) {
-            return Some(glyph.clone());
+            return Ok(Some(glyph.clone()));
         }
-        let raster = raster()?;
-        let rect = self.atlas.insert(raster.width, raster.height)?;
+        let Some(raster) = raster().filter(|raster| raster.width > 0 && raster.height > 0) else {
+            return Ok(None);
+        };
+        let rect = self
+            .atlas
+            .insert(raster.width, raster.height)
+            .ok_or(AtlasFull)?;
         let glyph = AtlasGlyph {
             rect,
             raster: Arc::new(raster),
         };
         self.glyphs.insert(key, glyph.clone());
-        Some(glyph)
+        Ok(Some(glyph))
     }
     pub fn clear(&mut self) {
         self.atlas.clear();

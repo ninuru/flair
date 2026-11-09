@@ -74,7 +74,7 @@ struct App {
     error: Option<GuiError>,
     picker: Option<Picker>,
     prompt: Option<Prompt>,
-    held: bool,
+    capture: Capture,
     input: InputState,
     layout: Option<WindowLayout>,
     status: StatusLine,
@@ -133,8 +133,8 @@ impl App {
         let Some(point) = self.cell() else {
             return;
         };
-        let route = route_mouse(self.in_bar(), button, action, self.held);
-        self.held = held_after(self.held, button, action, route);
+        let route = route_mouse(self.in_bar(), button, action, self.capture);
+        self.capture = capture_after(self.capture, button, action, route);
         match route {
             MouseRoute::Bar => {
                 if let Some(target) =
@@ -559,7 +559,7 @@ impl ApplicationHandler<UserEvent> for App {
                         self.in_bar(),
                         MouseButton::Middle,
                         MouseAction::Press,
-                        self.held,
+                        self.capture,
                     ) == MouseRoute::Server
                     && (self.mods.shift_key()
                         || self
@@ -631,13 +631,27 @@ enum MouseRoute {
     Drop,
 }
 
-fn route_mouse(in_bar: bool, button: MouseButton, action: MouseAction, held: bool) -> MouseRoute {
-    if held || !in_bar {
-        MouseRoute::Server
-    } else if button == MouseButton::Left && action == MouseAction::Press {
-        MouseRoute::Bar
-    } else {
-        MouseRoute::Drop
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Capture {
+    Idle,
+    Server,
+    Bar,
+}
+
+fn route_mouse(
+    in_bar: bool,
+    button: MouseButton,
+    action: MouseAction,
+    capture: Capture,
+) -> MouseRoute {
+    match capture {
+        Capture::Server => MouseRoute::Server,
+        Capture::Bar => MouseRoute::Drop,
+        Capture::Idle if !in_bar => MouseRoute::Server,
+        Capture::Idle if button == MouseButton::Left && action == MouseAction::Press => {
+            MouseRoute::Bar
+        }
+        Capture::Idle => MouseRoute::Drop,
     }
 }
 
@@ -648,17 +662,27 @@ fn bar_command(target: HitTarget) -> Command {
     }
 }
 
-fn held_after(held: bool, button: MouseButton, action: MouseAction, route: MouseRoute) -> bool {
-    match action {
-        MouseAction::Release => false,
-        MouseAction::Press => {
-            held || (route == MouseRoute::Server
-                && matches!(
-                    button,
-                    MouseButton::Left | MouseButton::Middle | MouseButton::Right
-                ))
+fn capture_after(
+    capture: Capture,
+    button: MouseButton,
+    action: MouseAction,
+    route: MouseRoute,
+) -> Capture {
+    match (action, capture, route) {
+        (MouseAction::Release, _, _) => Capture::Idle,
+        (MouseAction::Motion, _, _) | (MouseAction::Press, Capture::Server | Capture::Bar, _) => {
+            capture
         }
-        MouseAction::Motion => held,
+        (MouseAction::Press, Capture::Idle, MouseRoute::Bar) => Capture::Bar,
+        (MouseAction::Press, Capture::Idle, MouseRoute::Server)
+            if matches!(
+                button,
+                MouseButton::Left | MouseButton::Middle | MouseButton::Right
+            ) =>
+        {
+            Capture::Server
+        }
+        (MouseAction::Press, Capture::Idle, MouseRoute::Server | MouseRoute::Drop) => Capture::Idle,
     }
 }
 
@@ -711,7 +735,7 @@ pub fn run_target(
         error: None,
         picker: None,
         prompt: None,
-        held: false,
+        capture: Capture::Idle,
         input: InputState::default(),
         layout: None,
         status: StatusLine::default(),

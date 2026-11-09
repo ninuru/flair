@@ -8,6 +8,19 @@ use flair_core::{
 };
 use std::{fs, io::Write};
 
+fn cells_only(padding: (f32, f32), px: (u32, u32)) -> Chrome {
+    Chrome {
+        origin: padding,
+        clip: PxRect {
+            x: padding.0,
+            y: padding.1,
+            w: (px.0 as f32 - padding.0 * 2.0).max(0.0),
+            h: (px.1 as f32 - padding.1 * 2.0).max(0.0),
+        },
+        ..Chrome::default()
+    }
+}
+
 #[test]
 fn headless_draws_background_glyphs_and_cursor() {
     let (ctx, gl) = match HeadlessContext::new((800, 480)) {
@@ -83,7 +96,7 @@ fn headless_draws_background_glyphs_and_cursor() {
     renderer
         .draw_frame(
             &grid,
-            &Chrome::cells_only((16.0, 8.0), (800, 480)),
+            &cells_only((16.0, 8.0), (800, 480)),
             &mut fonts,
             theme.background,
         )
@@ -136,7 +149,7 @@ fn combining_marks_stay_in_their_base_cell() {
     let metrics = fonts.metrics();
     let mut renderer = Renderer::new(gl, metrics).unwrap();
     renderer.resize((200, 100));
-    let chrome = Chrome::cells_only((16.0, 8.0), (200, 100));
+    let chrome = cells_only((16.0, 8.0), (200, 100));
     for (col, wide) in [(0, false), (1, false), (1, true)] {
         let mut grid = CellGrid {
             size: GridSize { cols: 4, rows: 1 },

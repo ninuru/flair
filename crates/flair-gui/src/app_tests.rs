@@ -3,7 +3,7 @@ use super::*;
 #[test]
 fn bar_press_goes_to_the_bar_and_other_bar_events_drop() {
     assert_eq!(
-        route_mouse(true, MouseButton::Left, MouseAction::Press, false),
+        route_mouse(true, MouseButton::Left, MouseAction::Press, Capture::Idle),
         MouseRoute::Bar
     );
     for (button, action) in [
@@ -13,7 +13,10 @@ fn bar_press_goes_to_the_bar_and_other_bar_events_drop() {
         (MouseButton::Middle, MouseAction::Press),
         (MouseButton::WheelUp, MouseAction::Press),
     ] {
-        assert_eq!(route_mouse(true, button, action, false), MouseRoute::Drop);
+        assert_eq!(
+            route_mouse(true, button, action, Capture::Idle),
+            MouseRoute::Drop
+        );
     }
 }
 
@@ -24,63 +27,63 @@ fn route_mouse_table() {
             false,
             MouseButton::Left,
             MouseAction::Press,
-            false,
+            Capture::Idle,
             MouseRoute::Server,
         ),
         (
             false,
             MouseButton::NoButton,
             MouseAction::Motion,
-            false,
+            Capture::Idle,
             MouseRoute::Server,
         ),
         (
             false,
             MouseButton::WheelDown,
             MouseAction::Press,
-            false,
+            Capture::Idle,
             MouseRoute::Server,
         ),
         (
             true,
             MouseButton::Left,
             MouseAction::Press,
-            false,
+            Capture::Idle,
             MouseRoute::Bar,
         ),
         (
             true,
             MouseButton::Left,
             MouseAction::Motion,
-            true,
+            Capture::Server,
             MouseRoute::Server,
         ),
         (
             true,
             MouseButton::Left,
             MouseAction::Release,
-            true,
+            Capture::Server,
             MouseRoute::Server,
         ),
         (
             true,
             MouseButton::WheelUp,
             MouseAction::Press,
-            false,
+            Capture::Idle,
             MouseRoute::Drop,
         ),
     ] {
         assert_eq!(
             route_mouse(in_bar, button, action, held),
             route,
-            "{in_bar} {button:?} {action:?} {held}"
+            "{in_bar} {button:?} {action:?} {held:?}"
         );
     }
 }
 
 #[test]
 fn pane_drag_keeps_reaching_the_server_over_the_bar() {
-    let mut held = false;
+    let mut capture = Capture::Idle;
     let mut routes = Vec::new();
     for (in_bar, button, action) in [
         (false, MouseButton::Left, MouseAction::Press),
@@ -88,8 +91,8 @@ fn pane_drag_keeps_reaching_the_server_over_the_bar() {
         (true, MouseButton::Left, MouseAction::Release),
         (true, MouseButton::NoButton, MouseAction::Motion),
     ] {
-        let route = route_mouse(in_bar, button, action, held);
-        held = held_after(held, button, action, route);
+        let route = route_mouse(in_bar, button, action, capture);
+        capture = capture_after(capture, button, action, route);
         routes.push(route);
     }
     assert_eq!(
@@ -101,29 +104,66 @@ fn pane_drag_keeps_reaching_the_server_over_the_bar() {
             MouseRoute::Drop
         ]
     );
-    assert!(!held);
+    assert_eq!(capture, Capture::Idle);
 }
 
 #[test]
-fn wheel_and_bar_presses_do_not_start_a_capture() {
-    assert!(!held_after(
-        false,
-        MouseButton::WheelUp,
-        MouseAction::Press,
-        MouseRoute::Server
-    ));
-    assert!(!held_after(
-        false,
-        MouseButton::Left,
-        MouseAction::Press,
-        MouseRoute::Bar
-    ));
-    assert!(held_after(
-        false,
-        MouseButton::Right,
-        MouseAction::Press,
-        MouseRoute::Server
-    ));
+fn tab_drag_into_a_pane_never_reaches_the_server() {
+    let mut capture = Capture::Idle;
+    let mut routes = Vec::new();
+    for (in_bar, button, action) in [
+        (true, MouseButton::Left, MouseAction::Press),
+        (true, MouseButton::Left, MouseAction::Motion),
+        (false, MouseButton::Left, MouseAction::Motion),
+        (false, MouseButton::Left, MouseAction::Release),
+        (false, MouseButton::NoButton, MouseAction::Motion),
+    ] {
+        let route = route_mouse(in_bar, button, action, capture);
+        capture = capture_after(capture, button, action, route);
+        routes.push(route);
+    }
+    assert_eq!(
+        routes,
+        [
+            MouseRoute::Bar,
+            MouseRoute::Drop,
+            MouseRoute::Drop,
+            MouseRoute::Drop,
+            MouseRoute::Server
+        ]
+    );
+    assert_eq!(capture, Capture::Idle);
+}
+
+#[test]
+fn wheel_presses_do_not_start_a_capture_and_bar_presses_capture_the_bar() {
+    assert_eq!(
+        capture_after(
+            Capture::Idle,
+            MouseButton::WheelUp,
+            MouseAction::Press,
+            MouseRoute::Server
+        ),
+        Capture::Idle
+    );
+    assert_eq!(
+        capture_after(
+            Capture::Idle,
+            MouseButton::Left,
+            MouseAction::Press,
+            MouseRoute::Bar
+        ),
+        Capture::Bar
+    );
+    assert_eq!(
+        capture_after(
+            Capture::Idle,
+            MouseButton::Right,
+            MouseAction::Press,
+            MouseRoute::Server
+        ),
+        Capture::Server
+    );
 }
 
 #[test]

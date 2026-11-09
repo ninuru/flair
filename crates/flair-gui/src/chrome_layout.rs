@@ -164,15 +164,21 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     let start = chip(input, &mut scene, &mut measure) + px(INSET, scale);
     let end = badges(input, &mut scene, &mut measure) - px(INSET, scale);
     match input.prompt {
-        Some(prompt) => prompt_line(input, prompt, start, &mut scene, &mut measure),
+        Some(prompt) => prompt_line(input, prompt, start, end, &mut scene, &mut measure),
         None => tabs(input, start, end, &mut scene, &mut measure),
     }
-    for separator in input.separators {
-        scene
-            .quads
-            .push(fill(separator_rect(input, separator), surfaces.pane_border));
-    }
     let origin = grid_origin(input.padding, scale);
+    let clip = PxRect {
+        x: origin.0,
+        y: origin.1,
+        w: (width - input.padding.0 * 2.0).max(0.0),
+        h: (height - origin.1 - input.padding.1).max(0.0),
+    };
+    for separator in input.separators {
+        if let Some(rect) = intersect(separator_rect(input, separator), clip) {
+            scene.quads.push(fill(rect, surfaces.pane_border));
+        }
+    }
     let (modal, lifted) = match input.modal {
         Some(Modal::Centered(rect)) => (centered_modal(input, rect), Some(rect)),
         None => (Vec::new(), None),
@@ -180,12 +186,7 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     ChromeLayout {
         chrome: Chrome {
             origin,
-            clip: PxRect {
-                x: origin.0,
-                y: origin.1,
-                w: (width - input.padding.0 * 2.0).max(0.0),
-                h: (height - origin.1 - input.padding.1).max(0.0),
-            },
+            clip,
             quads: scene.quads,
             text: scene.text,
             modal,
@@ -383,10 +384,14 @@ fn prompt_line(
     input: &ChromeInput,
     prompt: &str,
     start: f32,
+    end: f32,
     scene: &mut Scene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
     let bar = bar_height(input.scale);
+    let line = px(LINE, input.scale);
+    let text = tail(prompt, end - start, false, measure);
+    let caret = (start + measure(&text, false)).min(end - line).round();
     let rect = PxRect {
         x: start,
         y: 0.0,
@@ -396,15 +401,15 @@ fn prompt_line(
     scene.text.push(TextRun {
         x: start,
         baseline: baseline(rect, input.ui),
-        text: prompt.to_owned(),
+        text,
         color: input.theme.foreground,
         bold: false,
     });
     scene.quads.push(fill(
         PxRect {
-            x: (start + measure(prompt, false)).round(),
+            x: caret,
             y: ((bar - input.ui.height) / 2.0).round(),
-            w: px(LINE, input.scale),
+            w: line,
             h: input.ui.height,
         },
         input.theme.accent,
@@ -492,15 +497,61 @@ fn ellipsize(
     bold: bool,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> String {
-    if measure(text, bold) <= max {
+    let widths = advances(text, bold, measure);
+    if widths.iter().sum::<f32>() <= max {
         return text.to_owned();
     }
-    let chars: Vec<char> = text.chars().collect();
-    (0..chars.len())
+    let ellipsis = measure(ELLIPSIS, bold);
+    if ellipsis > max {
+        return String::new();
+    }
+    let mut prefix = 0.0;
+    let count = widths
+        .iter()
+        .take_while(|width| {
+            prefix += *width;
+            prefix + ellipsis <= max
+        })
+        .count();
+    text.chars().take(count).collect::<String>() + ELLIPSIS
+}
+
+fn tail(text: &str, max: f32, bold: bool, measure: &mut impl FnMut(&str, bool) -> f32) -> String {
+    let widths = advances(text, bold, measure);
+    if widths.iter().sum::<f32>() <= max {
+        return text.to_owned();
+    }
+    let ellipsis = measure(ELLIPSIS, bold);
+    if ellipsis > max {
+        return String::new();
+    }
+    let mut used = ellipsis;
+    let count = widths
+        .iter()
         .rev()
-        .map(|count| chars[..count].iter().collect::<String>() + ELLIPSIS)
-        .find(|candidate| measure(candidate, bold) <= max)
-        .unwrap_or_default()
+        .take_while(|width| {
+            used += *width;
+            used <= max
+        })
+        .count();
+    ELLIPSIS
+        .chars()
+        .chain(text.chars().skip(widths.len() - count))
+        .collect()
+}
+
+fn advances(text: &str, bold: bool, measure: &mut impl FnMut(&str, bool) -> f32) -> Vec<f32> {
+    text.chars()
+        .map(|c| measure(c.encode_utf8(&mut [0; 4]), bold))
+        .collect()
+}
+
+fn intersect(rect: PxRect, clip: PxRect) -> Option<PxRect> {
+    let x = rect.x.max(clip.x);
+    let y = rect.y.max(clip.y);
+    let w = (rect.x + rect.w).min(clip.x + clip.w) - x;
+    let h = (rect.y + rect.h).min(clip.y + clip.h) - y;
+    (w > 0.0 && h > 0.0).then_some(PxRect { x, y, w, h })
 }
 
 fn span(widths: &[f32], gap: f32) -> f32 {

@@ -540,3 +540,67 @@ fn a_pane_that_exits_while_running_finishes_its_session() {
     let line = status(&out).unwrap();
     assert!(!line.running && line.finished);
 }
+
+fn attach_work(server: &mut Server, now: u64) {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(now),
+        Event::Client(
+            ClientId(2),
+            ClientMsg::Hello {
+                protocol: PROTOCOL,
+                kind: ClientKind::Gui,
+                size: GridSize { cols: 20, rows: 5 },
+                palette: Config::default().theme(),
+                env: Vec::new(),
+                target: Target::Name("work".into()),
+            },
+        ),
+        &mut out,
+    );
+}
+
+fn command_from_work(server: &mut Server, now: u64, command: Command) -> Vec<Effect> {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(now),
+        Event::Client(ClientId(2), ClientMsg::Command(command)),
+        &mut out,
+    );
+    out
+}
+
+#[test]
+fn killing_a_running_pane_finishes_its_session() {
+    let mut server = setup();
+    create_work(&mut server);
+    attach_work(&mut server, 2);
+    command_from_work(&mut server, 3, Command::NewWindow);
+    command_from_work(&mut server, 4, Command::LastWindow);
+    let out = output(&mut server, 5, PaneId(2), b"\x1b]133;C\x07");
+    assert!(status(&out).unwrap().running);
+    let out = command_from_work(&mut server, 6, Command::ClosePane);
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::KillPty(PaneId(2))))
+    );
+    let line = status(&out).unwrap();
+    assert!(!line.running && line.finished);
+}
+
+#[test]
+fn killing_the_last_running_pane_forgets_the_reaped_session() {
+    let mut server = setup();
+    create_work(&mut server);
+    attach_work(&mut server, 2);
+    output(&mut server, 3, PaneId(2), b"\x1b]133;C\x07");
+    let out = command_from_work(&mut server, 4, Command::CloseWindow);
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::KillPty(PaneId(2))))
+    );
+    assert!(server.tree.session(SessionId(2)).is_none());
+    let line = status(&out).unwrap();
+    assert!(!line.running && !line.finished);
+    assert!(server.clients[&ClientId(1)].finished.is_empty());
+}

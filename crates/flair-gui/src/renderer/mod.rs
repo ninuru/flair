@@ -3,7 +3,7 @@ mod context;
 mod pipeline;
 
 use crate::{
-    atlas::{AtlasGlyph, Face, GlyphCache, GlyphKey},
+    atlas::{AtlasFull, AtlasGlyph, Face, GlyphCache, GlyphKey},
     cellgrid::CellGrid,
     font::{CellMetrics, Fonts, Style},
 };
@@ -211,13 +211,15 @@ impl Renderer {
         }
     }
     fn glyph(&mut self, key: GlyphKey, fonts: &mut Fonts) -> Option<AtlasGlyph> {
-        let glyph = self.cache.get_or_insert(key, || match key.face {
+        let glyph = match self.cache.get_or_insert(key, || match key.face {
             Face::Cell => fonts.rasterize(key.c, key.style),
             Face::Ui => fonts.rasterize_ui(key.c, key.style),
-        });
-        let Some(glyph) = glyph else {
-            self.reset_atlas = true;
-            return None;
+        }) {
+            Ok(glyph) => glyph?,
+            Err(AtlasFull) => {
+                self.reset_atlas = true;
+                return None;
+            }
         };
         if self.uploaded.insert(key) {
             unsafe {

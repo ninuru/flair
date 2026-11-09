@@ -224,3 +224,49 @@ fn status_text_keeps_the_old_row_and_adds_chip_marks() {
         );
     }
 }
+
+#[test]
+fn status_text_keeps_wide_and_combining_characters_whole() {
+    let status = StatusLine {
+        session: "ü日".into(),
+        windows: vec![
+            StatusWindow {
+                id: WindowId(1),
+                index: 1,
+                name: "日本語".into(),
+                active: false,
+                last: false,
+            },
+            StatusWindow {
+                id: WindowId(2),
+                index: 2,
+                name: "e\u{301}dit\u{7}".into(),
+                active: true,
+                last: false,
+            },
+        ],
+        pending: Some("^A".into()),
+        ..fixture()
+    };
+    let lines: Vec<String> = [0, 1, 3, 5, 9, 12, 14, 17, 20, 24, 30, 40]
+        .into_iter()
+        .map(|cols| line(&status, cols))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "",
+            "^",
+            " ^A",
+            " | ^A",
+            " 2:|   ^A",
+            " 2:e\u{301}d| ü  ^A",
+            " 2:e\u{301}dit| ü  ^A",
+            " 2:e\u{301}dit | ü日  ^A",
+            " 2:e\u{301}dit    | ü日  ^A",
+            " 2:e\u{301}dit        | ü日  ^A",
+            " 1:日本語 2:e\u{301}dit     | ü日  ^A",
+            " 1:日本語 2:e\u{301}dit               | ü日  ^A",
+        ]
+    );
+}

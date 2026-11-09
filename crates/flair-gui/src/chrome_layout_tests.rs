@@ -517,3 +517,101 @@ fn hit_test_finds_tabs_and_chip_but_not_gaps_or_the_grid() {
     assert_eq!(hit_test(&layout.hits, (52.0, 10.0)), None);
     assert_eq!(hit_test(&layout.hits, (60.0, 100.0)), None);
 }
+
+#[test]
+fn ellipsize_measures_a_long_name_in_one_pass() {
+    let name = "x".repeat(10_000);
+    let mut calls = 0;
+    let mut chars = 0;
+    let result = ellipsize(&name, 160.0, false, &mut |text: &str, bold| {
+        calls += 1;
+        chars += text.chars().count();
+        measure(text, bold)
+    });
+    assert_eq!(result, format!("{}…", "x".repeat(21)));
+    assert!(calls <= 2 * name.len(), "{calls} calls");
+    assert!(chars <= 2 * name.len(), "{chars} chars measured");
+}
+
+#[test]
+fn long_prompts_show_their_tail_left_of_the_badges() {
+    let badged = StatusParts {
+        badges: vec![BadgeParts {
+            kind: BadgeKind::Copy,
+            text: "COPY".into(),
+        }],
+        ..parts()
+    };
+    let prompt = format!("/{}end", "x".repeat(200));
+    let layout = run_layout(1.0, 800, &badged, Some(&prompt), &[], None);
+    let end = 740.0;
+    let run = layout.chrome.text.iter().find(|run| run.x == 56.0).unwrap();
+    assert_eq!(run.text, format!("…{}end", "x".repeat(93)));
+    assert!(run.x + measure(&run.text, false) <= end);
+    let theme = Config::default().theme();
+    let caret = layout
+        .chrome
+        .quads
+        .iter()
+        .find(|quad| quad.color == opaque(theme.accent) && quad.rect.w == 1.0)
+        .unwrap();
+    assert_eq!(caret.rect, rect(735.0, 10.0, 1.0, 14.0));
+
+    let layout = run_layout(1.0, 120, &badged, Some(&prompt), &[], None);
+    let caret = layout
+        .chrome
+        .quads
+        .iter()
+        .find(|quad| quad.color == opaque(theme.accent) && quad.rect.w == 1.0)
+        .unwrap();
+    assert!(caret.rect.x + caret.rect.w <= 60.0);
+    assert!(
+        layout
+            .chrome
+            .text
+            .iter()
+            .filter(|run| run.x == 56.0)
+            .all(|run| run.x + measure(&run.text, false) <= 60.0)
+    );
+}
+
+#[test]
+fn separators_are_clipped_to_the_grid_area() {
+    let surfaces = Config::default().theme().surfaces();
+    let separators = [
+        Separator {
+            axis: Axis::Horizontal,
+            rect: CellRect {
+                origin: CellPoint { col: 10, row: 0 },
+                size: GridSize { cols: 1, rows: 100 },
+            },
+        },
+        Separator {
+            axis: Axis::Vertical,
+            rect: CellRect {
+                origin: CellPoint { col: 0, row: 5 },
+                size: GridSize { cols: 60, rows: 1 },
+            },
+        },
+        Separator {
+            axis: Axis::Horizontal,
+            rect: CellRect {
+                origin: CellPoint { col: 50, row: 0 },
+                size: GridSize { cols: 1, rows: 10 },
+            },
+        },
+    ];
+    let layout = run_layout(1.0, 200, &parts(), None, &separators, None);
+    let borders: Vec<PxRect> = layout
+        .chrome
+        .quads
+        .iter()
+        .filter(|quad| quad.color == opaque(surfaces.pane_border) && quad.rect.y >= 39.0)
+        .map(|quad| quad.rect)
+        .collect();
+    assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 184.0, 557.0));
+    assert_eq!(
+        borders,
+        [rect(92.0, 39.0, 1.0, 557.0), rect(8.0, 127.0, 184.0, 1.0)]
+    );
+}
