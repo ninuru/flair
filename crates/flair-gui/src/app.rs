@@ -131,10 +131,16 @@ impl App {
     fn cell(&self) -> Option<CellPoint> {
         let surface = self.surface.as_ref()?;
         let scale = surface.window.scale_factor();
+        let px = surface.window.inner_size();
         Some(mouse::to_cell(
             (self.pointer.x, self.pointer.y),
             &surface.fonts.metrics(),
-            chrome_layout::grid_origin(self.padding(scale), scale as f32),
+            chrome_layout::grid_origin(
+                (px.width, px.height),
+                self.padding(scale),
+                scale as f32,
+                surface.fonts.metrics(),
+            ),
             self.size(),
         ))
     }

@@ -309,6 +309,7 @@ fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
             w: W as f32,
             h: H as f32 - 35.0,
         },
+        extend: PxRect::default(),
         quads: vec![
             Quad {
                 rect: PxRect {
