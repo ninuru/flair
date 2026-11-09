@@ -136,6 +136,8 @@ const PREFIX_DEFAULTS: &[(&str, &str)] = &[
     ("d", "detach"),
     ("x", "close-pane"),
     ("&", "close-window"),
+    ("\"", "split-vertical"),
+    ("%", "split-horizontal"),
     ("z", "toggle-zoom"),
     ("^", "last-window"),
     ("l", "last-session"),
