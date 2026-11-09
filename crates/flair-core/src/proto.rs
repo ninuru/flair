@@ -71,6 +71,10 @@ pub enum ServerMsg {
     Done,
     Error(String),
     Exit(ExitReason),
+    ChooseSession {
+        sessions: Vec<SessionInfo>,
+        current: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

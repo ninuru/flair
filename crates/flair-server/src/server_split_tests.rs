@@ -536,3 +536,113 @@ fn restored_final_content_must_be_sent_and_acknowledged_after_intermediate_frame
     );
     assert!(!server.panes.contains_key(&PaneId(1)));
 }
+
+fn prefixed(server: &mut Server, c: char, unshifted: char) -> Vec<Effect> {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(10),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Resize(GridSize { cols: 20, rows: 9 }),
+        ),
+        &mut out,
+    );
+    server.handle(
+        Millis(10),
+        Event::PtyOutput(
+            PaneId(1),
+            b"\x1b]7;file://localhost/tmp/split-cwd\x07".to_vec(),
+        ),
+        &mut out,
+    );
+    for (key, mods, text, unshifted) in [
+        (
+            Key::Char('a'),
+            Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+            None,
+            Some('a'),
+        ),
+        (
+            Key::Char(c),
+            Mods {
+                shift: true,
+                ..Mods::default()
+            },
+            Some(c.to_string()),
+            Some(unshifted),
+        ),
+    ] {
+        out.clear();
+        server.handle(
+            Millis(11),
+            Event::Client(
+                ClientId(1),
+                ClientMsg::Input(InputEvent::Key(KeyInput {
+                    key,
+                    mods,
+                    text,
+                    repeat: false,
+                    keypad: false,
+                    action: KeyAction::Press,
+                    unshifted,
+                    shifted: None,
+                    base: unshifted,
+                    locks: Locks::default(),
+                })),
+            ),
+            &mut out,
+        );
+    }
+    out
+}
+
+fn assert_split_in_pane_cwd(out: &[Effect]) {
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Spawn(_, spec) | Effect::SpawnSplit(_, _, spec) if spec.cwd == std::path::Path::new("/tmp/split-cwd"))));
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::WritePty(_, _)))
+    );
+}
+
+#[test]
+fn prefix_quote_stacks_panes_top_and_bottom() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let out = prefixed(&mut server, '"', '\'');
+    assert_split_in_pane_cwd(&out);
+    let layout = server.tree.window(WindowId(1)).unwrap().geometry();
+    let [top, bottom] = layout.panes.as_slice() else {
+        panic!("expected two panes, got {:?}", layout.panes);
+    };
+    assert_eq!(top.rect.origin.col, bottom.rect.origin.col);
+    assert_eq!(top.rect.size.cols, bottom.rect.size.cols);
+    assert!(top.rect.origin.row + top.rect.size.rows <= bottom.rect.origin.row);
+    let [divider] = layout.separators.as_slice() else {
+        panic!("expected one divider, got {:?}", layout.separators);
+    };
+    assert_eq!(divider.rect.size.rows, 1);
+    assert_eq!(divider.rect.size.cols, top.rect.size.cols);
+}
+
+#[test]
+fn prefix_percent_places_panes_left_and_right() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let out = prefixed(&mut server, '%', '5');
+    assert_split_in_pane_cwd(&out);
+    let layout = server.tree.window(WindowId(1)).unwrap().geometry();
+    let [left, right] = layout.panes.as_slice() else {
+        panic!("expected two panes, got {:?}", layout.panes);
+    };
+    assert_eq!(left.rect.origin.row, right.rect.origin.row);
+    assert_eq!(left.rect.size.rows, right.rect.size.rows);
+    assert!(left.rect.origin.col + left.rect.size.cols <= right.rect.origin.col);
+    let [divider] = layout.separators.as_slice() else {
+        panic!("expected one divider, got {:?}", layout.separators);
+    };
+    assert_eq!(divider.rect.size.cols, 1);
+    assert_eq!(divider.rect.size.rows, left.rect.size.rows);
+}

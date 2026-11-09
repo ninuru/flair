@@ -85,6 +85,7 @@ impl Capture {
             | ServerMsg::Bell
             | ServerMsg::SetClipboard { .. }
             | ServerMsg::Sessionizer { .. }
+            | ServerMsg::ChooseSession { .. }
             | ServerMsg::Sessions(_)
             | ServerMsg::ChooseWindow
             | ServerMsg::PasteClipboard

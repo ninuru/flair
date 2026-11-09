@@ -163,6 +163,7 @@ fn all_default_bindings_dispatch_published_commands() {
         ('^', Command::LastWindow),
         ('l', Command::LastSession),
         ('f', Command::Sessionizer),
+        ('s', Command::ChooseSession),
         ('r', Command::ReloadConfig),
         (
             'h',
@@ -311,6 +312,34 @@ fn configured_tables_override_defaults_and_unbound_chords_reach_apps() {
             &config.keys
         ),
         PrefixResult::Forward
+    );
+}
+
+#[test]
+fn choose_session_binding_can_be_rebound_and_unbound() {
+    let dispatch = |toml: &str, c: char| {
+        let config = Config::from_toml(toml).unwrap();
+        let mut machine = PrefixMachine::default();
+        machine.handle(&leader(), Millis(0), &config.keys);
+        machine.handle(&key(c), Millis(1), &config.keys)
+    };
+    assert_eq!(
+        dispatch("", 's'),
+        PrefixResult::Command(Command::ChooseSession)
+    );
+    assert_eq!(
+        dispatch("", 'f'),
+        PrefixResult::Command(Command::Sessionizer)
+    );
+    let rebound = "[keys.prefix]\ns='none'\ng='choose-session'";
+    assert_eq!(dispatch(rebound, 's'), PrefixResult::Consume);
+    assert_eq!(
+        dispatch(rebound, 'g'),
+        PrefixResult::Command(Command::ChooseSession)
+    );
+    assert_eq!(
+        dispatch(rebound, 'f'),
+        PrefixResult::Command(Command::Sessionizer)
     );
 }
 

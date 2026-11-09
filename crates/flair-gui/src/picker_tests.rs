@@ -128,3 +128,149 @@ fn picker_hints_match_available_actions_and_fit_compact_width() {
             .any(|line| line.contains("Edit / Esc"))
     );
 }
+
+fn sessionizer() -> Picker {
+    Picker::new(
+        vec![
+            SessionInfo {
+                name: "main".into(),
+                root: "/home/u".into(),
+                windows: 1,
+            },
+            SessionInfo {
+                name: "work".into(),
+                root: "/home/u/work".into(),
+                windows: 2,
+            },
+        ],
+        "main",
+        None,
+        vec![
+            "/home/u/projects/rust-catchers".into(),
+            "/home/u/projects/gitlab-registry-cleanup".into(),
+        ],
+    )
+}
+
+fn rendered(picker: &Picker, cols: u16, rows: u16) -> Vec<String> {
+    let mut screen = grid(cols, rows);
+    picker.draw(&mut screen, &Config::default().theme());
+    screen.to_lines()
+}
+
+#[test]
+fn sessionizer_rows_mark_open_sessions_without_dir_labels() {
+    let lines = rendered(&sessionizer(), 90, 20);
+    assert!(lines.iter().all(|line| !line.contains("dir ")));
+    assert!(lines.iter().all(|line| !line.contains("open")));
+    let work = lines.iter().find(|line| line.contains("work")).unwrap();
+    assert!(work.starts_with(">* work "));
+    let catchers = lines
+        .iter()
+        .find(|line| line.contains("rust-catchers"))
+        .unwrap();
+    assert!(catchers.starts_with("   rust-catchers "));
+    let cleanup = lines
+        .iter()
+        .find(|line| line.contains("gitlab-registry-cleanup"))
+        .unwrap();
+    let path_column = |line: &str, path: &str| line.find(path).unwrap();
+    assert_eq!(
+        path_column(work, "/home/u/work"),
+        path_column(catchers, "/home/u/projects/rust-catchers")
+    );
+    assert_eq!(
+        path_column(work, "/home/u/work"),
+        path_column(cleanup, "/home/u/projects/gitlab")
+    );
+}
+
+#[test]
+fn compact_sessionizer_rows_keep_names_and_path_tails() {
+    let lines = rendered(&sessionizer(), 30, 8);
+    assert!(lines.iter().all(|line| !line.contains("dir ")));
+    assert!(lines.iter().all(|line| line.chars().count() <= 30));
+    let work = lines.iter().find(|line| line.contains("work")).unwrap();
+    assert!(work.starts_with(">* work "));
+    assert!(work.ends_with("/home/u/work"));
+    let catchers = lines
+        .iter()
+        .find(|line| line.contains("rust-catchers"))
+        .unwrap();
+    assert!(catchers.starts_with("   rust-catchers "));
+    assert_eq!(work.find('/'), catchers.find("..."));
+}
+
+fn chooser() -> Picker {
+    Picker::sessions(
+        vec![
+            SessionInfo {
+                name: "main".into(),
+                root: "/home/u".into(),
+                windows: 1,
+            },
+            SessionInfo {
+                name: "work".into(),
+                root: "/home/u/work".into(),
+                windows: 2,
+            },
+            SessionInfo {
+                name: "rust-catchers".into(),
+                root: "/home/u/projects/rust-catchers".into(),
+                windows: 1,
+            },
+        ],
+        "work",
+    )
+}
+
+#[test]
+fn session_chooser_lists_every_session_and_preselects_current() {
+    let mut picker = chooser();
+    assert_eq!(picker.accept(), Some(Target::Name("work".into())));
+    let lines = rendered(&picker, 90, 20);
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("Sessions  3 matches"))
+    );
+    assert!(lines.iter().all(|line| !line.contains("Sessionizer")));
+    let marked: Vec<_> = lines
+        .iter()
+        .filter(|line| line.get(1..2) == Some("*"))
+        .collect();
+    assert_eq!(marked.len(), 1);
+    assert!(marked[0].starts_with(">* work "));
+    assert!(lines.iter().any(|line| line.starts_with("   main ")));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("   rust-catchers "))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("Enter switch  Up/Down move  Esc cancel"))
+    );
+    picker.move_selection(-1);
+    assert_eq!(picker.accept(), Some(Target::Name("main".into())));
+    picker.insert("rust");
+    assert_eq!(picker.accept(), Some(Target::Name("rust-catchers".into())));
+}
+
+#[test]
+fn compact_session_chooser_keeps_current_marker_and_hint() {
+    let lines = rendered(&chooser(), 30, 8);
+    assert!(lines.iter().all(|line| line.chars().count() <= 30));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("Sessions  3 matches"))
+    );
+    assert!(lines.iter().any(|line| line.starts_with(">* work ")));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("Enter switch  Esc cancel"))
+    );
+}
