@@ -322,3 +322,65 @@ fn paste_cancels_a_pending_prefix() {
     assert_eq!(server.tree.sessions[0].windows.len(), 1);
     assert!(!writes(&out).is_empty());
 }
+
+fn set_title(server: &mut Server, now: u64, title: &str) -> Vec<Effect> {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(now),
+        Event::PtyOutput(PaneId(1), format!("\x1b]0;{title}\x07").into_bytes()),
+        &mut out,
+    );
+    out
+}
+
+#[test]
+fn prompt_title_names_the_window_after_its_directory() {
+    let mut server = setup();
+    let out = set_title(&mut server, 1, "user@host:~/IdeaProjects/flair");
+    assert_eq!(status(&out).unwrap().windows[0].name, "flair");
+    let out = set_title(&mut server, 2, "user@host: ~");
+    assert_eq!(status(&out).unwrap().windows[0].name, "~");
+    let out = set_title(&mut server, 3, "user@host:/");
+    assert_eq!(status(&out).unwrap().windows[0].name, "/");
+    let out = set_title(&mut server, 4, "/srv/www/");
+    assert_eq!(status(&out).unwrap().windows[0].name, "www");
+}
+
+#[test]
+fn command_title_names_the_window_after_the_program() {
+    let mut server = setup();
+    let out = set_title(&mut server, 1, "/usr/bin/htop -d 5");
+    assert_eq!(status(&out).unwrap().windows[0].name, "htop");
+    let out = set_title(&mut server, 2, "cargo build");
+    assert_eq!(status(&out).unwrap().windows[0].name, "cargo");
+}
+
+#[test]
+fn rename_wins_over_a_verbose_title() {
+    let mut server = setup();
+    set_title(&mut server, 1, "user@host:~/IdeaProjects/flair");
+    let out = send(
+        &mut server,
+        2,
+        ClientMsg::Command(Command::RenameWindow(Some("edit".into()))),
+    );
+    assert_eq!(status(&out).unwrap().windows[0].name, "edit");
+    let out = set_title(&mut server, 3, "user@host:~/other");
+    assert_eq!(status(&out), None);
+}
+
+#[test]
+fn blank_title_falls_back_to_the_program_name() {
+    let mut server = setup();
+    set_title(&mut server, 1, "nvim");
+    let out = set_title(&mut server, 2, "   ");
+    assert_eq!(status(&out).unwrap().windows[0].name, "zsh");
+}
+
+#[test]
+fn os_title_keeps_the_full_pane_title() {
+    let mut server = setup();
+    let out = set_title(&mut server, 1, "user@host:~/IdeaProjects/flair");
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::Title(title)) if title == "user@host:~/IdeaProjects/flair")));
+    assert_eq!(status(&out).unwrap().windows[0].name, "flair");
+}
