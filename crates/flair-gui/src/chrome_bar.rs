@@ -393,11 +393,11 @@ fn bar_item(x: f32, width: f32, height: f32, scale: f32) -> PxRect {
     }
 }
 
-fn baseline(rect: PxRect, ui: UiMetrics) -> f32 {
+pub(crate) fn baseline(rect: PxRect, ui: UiMetrics) -> f32 {
     (rect.y + (rect.h - ui.height) / 2.0 + ui.ascent).round()
 }
 
-fn ui_text(x: f32, baseline: f32, text: String, color: Rgb, bold: bool) -> TextRun {
+pub(crate) fn ui_text(x: f32, baseline: f32, text: String, color: Rgb, bold: bool) -> TextRun {
     TextRun {
         x,
         baseline,

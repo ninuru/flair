@@ -1,7 +1,5 @@
 use super::*;
 use flair_core::{
-    config::Config,
-    geom::{CellPoint, CellRect, GridSize},
     ids::WindowId,
     key::{Locks, Mods},
 };
@@ -38,23 +36,6 @@ fn status() -> StatusLine {
             .collect(),
         pending: None,
         copy: false,
-    }
-}
-
-fn grid(cols: u16, rows: u16) -> CellGrid {
-    CellGrid {
-        size: GridSize { cols, rows },
-        cells: vec![
-            DrawCell {
-                c: '.',
-                extra: None,
-                fg: Rgb::default(),
-                bg: Rgb::default(),
-                flags: CellFlags::empty(),
-            };
-            usize::from(cols) * usize::from(rows)
-        ],
-        cursor: None,
     }
 }
 
@@ -96,69 +77,54 @@ fn chooser_ignores_releases() {
     assert_eq!(prompt.key(&release), Outcome::Pending);
 }
 
-fn full(size: GridSize) -> CellRect {
-    CellRect {
-        origin: CellPoint::default(),
-        size,
-    }
+#[test]
+fn chooser_sheet_lists_windows_with_index_caps_and_state_labels() {
+    let mut status = status();
+    status.windows[0].last = true;
+    let sheet = Prompt::choose(&status).sheet().unwrap();
+    assert_eq!(sheet.title, "Windows");
+    assert_eq!(sheet.placement, Placement::Centred);
+    assert_eq!(sheet.field, None);
+    assert_eq!(sheet.selected, 1);
+    let rows: Vec<_> = sheet
+        .rows
+        .iter()
+        .map(|row| (row.mark.clone(), row.name.as_str(), row.label))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (Mark::Index(1), "w1", Some("last")),
+            (Mark::Index(2), "w2", Some("active")),
+            (Mark::Index(3), "w3", None),
+        ]
+    );
+    let keys: Vec<_> = sheet
+        .keys
+        .iter()
+        .map(|(key, verb)| (*key, verb.as_str()))
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            ("↵", "select"),
+            ("↑↓", "move"),
+            ("1-9", "jump"),
+            ("esc", "cancel")
+        ]
+    );
 }
 
 #[test]
-fn chooser_draws_inside_the_area_and_returns_the_lifted_rect() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let mut cells = grid(80, 24);
-    let before = cells.clone();
-    let area = CellRect {
-        origin: CellPoint { col: 4, row: 2 },
-        size: GridSize { cols: 70, rows: 20 },
-    };
-    let lifted = Prompt::choose(&status())
-        .draw(&mut cells, area, &theme)
-        .unwrap();
-    assert_eq!(
-        lifted,
-        CellRect {
-            origin: CellPoint { col: 9, row: 9 },
-            size: GridSize { cols: 60, rows: 5 },
-        }
-    );
-    let lines = cells.to_lines();
-    assert!(lines[10].contains(" 1: w1"));
-    assert!(lines[11].contains(" 2: w2"));
-    assert!(lines[12].contains(" 3: w3"));
-    for row in 0..24 {
-        for col in 0..80 {
-            let index = usize::from(row) * 80 + usize::from(col);
-            let cell = &cells.cells[index];
-            if !lifted.contains(CellPoint { col, row }) {
-                assert_eq!(*cell, before.cells[index]);
-            } else if row == 11 {
-                assert_eq!(cell.bg, surfaces.surface3);
-                assert_eq!(cell.fg, theme.foreground);
-            } else {
-                assert_eq!(cell.bg, surfaces.surface1);
-            }
-        }
-    }
-}
-
-#[test]
-fn chooser_clips_to_a_small_area() {
-    let mut cells = grid(12, 3);
-    let area = full(cells.size);
-    let lifted = Prompt::choose(&status())
-        .draw(&mut cells, area, &Config::default().theme())
-        .unwrap();
-    assert_eq!(
-        lifted,
-        CellRect {
-            origin: CellPoint::default(),
-            size: GridSize { cols: 12, rows: 3 },
-        }
-    );
-    assert_eq!(cells.cells.len(), 36);
-    assert!(cells.to_lines()[1].contains(" 2: w2"));
+fn chooser_moves_the_selection_within_bounds() {
+    let mut prompt = Prompt::choose(&status());
+    prompt.move_selection(5);
+    assert_eq!(prompt.sheet().unwrap().selected, 2);
+    prompt.move_selection(-9);
+    assert_eq!(prompt.sheet().unwrap().selected, 0);
+    let mut rename = Prompt::rename("x".to_owned());
+    rename.move_selection(1);
+    assert_eq!(rename.sheet(), None);
 }
 
 #[test]
@@ -174,15 +140,9 @@ fn rename_edits_text_and_submits_it() {
 }
 
 #[test]
-fn rename_draws_nothing_and_gives_bar_text() {
-    let mut cells = grid(30, 2);
-    let before = cells.clone();
+fn rename_has_no_sheet_and_gives_bar_text() {
     let prompt = Prompt::rename("nvim".to_owned());
-    assert_eq!(
-        prompt.draw(&mut cells, full(before.size), &Config::default().theme()),
-        None
-    );
-    assert_eq!(cells.cells, before.cells);
+    assert_eq!(prompt.sheet(), None);
     assert_eq!(prompt.bar_text().as_deref(), Some("(rename-window) nvim"));
     assert_eq!(Prompt::choose(&status()).bar_text(), None);
 }
@@ -220,16 +180,10 @@ fn search_edits_text_and_submits_a_copy_search() {
 }
 
 #[test]
-fn search_draws_nothing_and_gives_its_direction_as_bar_text() {
-    let mut cells = grid(12, 2);
-    let before = cells.clone();
+fn search_has_no_sheet_and_gives_its_direction_as_bar_text() {
     let mut prompt = Prompt::search(true);
     prompt.insert("err");
-    assert_eq!(
-        prompt.draw(&mut cells, full(before.size), &Config::default().theme()),
-        None
-    );
-    assert_eq!(cells.cells, before.cells);
+    assert_eq!(prompt.sheet(), None);
     assert_eq!(prompt.bar_text().as_deref(), Some("/err"));
     let mut prompt = Prompt::search(false);
     prompt.insert("x");

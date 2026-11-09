@@ -1,9 +1,5 @@
 use super::*;
-use flair_core::{
-    config::Config,
-    geom::{CellPoint, CellRect, GridSize},
-    proto::SessionInfo,
-};
+use crate::overlay_layout::Mark;
 
 fn picker() -> Picker {
     Picker::new(
@@ -16,133 +12,6 @@ fn picker() -> Picker {
         Some(Target::Name("previous".into())),
         Vec::new(),
     )
-}
-
-fn grid(cols: u16, rows: u16) -> CellGrid {
-    let theme = Config::default().theme();
-    CellGrid {
-        size: GridSize { cols, rows },
-        cells: vec![
-            DrawCell {
-                c: ' ',
-                extra: None,
-                fg: theme.foreground,
-                bg: theme.background,
-                flags: CellFlags::empty()
-            };
-            usize::from(cols) * usize::from(rows)
-        ],
-        cursor: None,
-    }
-}
-
-fn full(size: GridSize) -> CellRect {
-    CellRect {
-        origin: CellPoint::default(),
-        size,
-    }
-}
-
-fn draw(picker: &Picker, grid: &mut CellGrid) -> CellRect {
-    let area = full(grid.size);
-    picker.draw(grid, area, &Config::default().theme())
-}
-
-#[test]
-fn empty_enter_uses_last_session_and_query_selects_match() {
-    let mut picker = picker();
-    assert_eq!(picker.accept(), Some(Target::Name("previous".into())));
-    picker.insert("flr");
-    assert_eq!(picker.accept(), Some(Target::Name("flair".into())));
-    picker.insert("no-match");
-    assert_eq!(picker.accept(), None);
-}
-
-#[test]
-fn overlay_shows_search_results_and_clear_empty_state() {
-    let mut picker = picker();
-    let mut screen = grid(80, 24);
-    draw(&picker, &mut screen);
-    assert!(
-        screen
-            .to_lines()
-            .iter()
-            .any(|line| line.contains("Sessionizer"))
-    );
-    assert!(screen.to_lines().iter().any(|line| line.contains("flair")));
-    assert!(screen.cursor.is_none());
-    picker.insert("missing");
-    draw(&picker, &mut screen);
-    assert!(
-        screen
-            .to_lines()
-            .iter()
-            .any(|line| line.contains("No matches"))
-    );
-}
-
-#[test]
-fn overlay_clips_to_tiny_grids_without_changing_dimensions() {
-    for (cols, rows) in [(0, 0), (1, 1), (8, 3), (20, 8)] {
-        let picker = picker();
-        let mut screen = grid(cols, rows);
-        draw(&picker, &mut screen);
-        assert_eq!(screen.cells.len(), usize::from(cols) * usize::from(rows));
-        assert_eq!(screen.size, GridSize { cols, rows });
-    }
-}
-
-#[test]
-fn long_query_paths_and_unicode_backspace_remain_bounded() {
-    let mut picker = picker();
-    picker.insert("é");
-    picker.backspace();
-    assert!(picker.query.is_empty());
-    picker.insert(&"q".repeat(1000));
-    let mut screen = grid(40, 12);
-    draw(&picker, &mut screen);
-    assert!(
-        screen
-            .to_lines()
-            .iter()
-            .all(|line| line.chars().count() <= 40)
-    );
-}
-
-#[test]
-fn picker_hints_match_available_actions_and_fit_compact_width() {
-    let mut picker = picker();
-    let mut screen = grid(40, 12);
-    draw(&picker, &mut screen);
-    assert!(
-        screen
-            .to_lines()
-            .iter()
-            .any(|line| line.contains("Enter last: previous"))
-    );
-    picker.insert("missing");
-    let mut screen = grid(40, 12);
-    draw(&picker, &mut screen);
-    assert!(
-        screen
-            .to_lines()
-            .iter()
-            .any(|line| line.contains("Edit search  Esc cancel"))
-    );
-    assert!(
-        !screen
-            .to_lines()
-            .iter()
-            .any(|line| line.contains("Enter switch"))
-    );
-    let mut narrow = grid(20, 12);
-    draw(&picker, &mut narrow);
-    assert!(
-        narrow
-            .to_lines()
-            .iter()
-            .any(|line| line.contains("Edit / Esc"))
-    );
 }
 
 fn sessionizer() -> Picker {
@@ -168,55 +37,6 @@ fn sessionizer() -> Picker {
     )
 }
 
-fn rendered(picker: &Picker, cols: u16, rows: u16) -> Vec<String> {
-    let mut screen = grid(cols, rows);
-    draw(picker, &mut screen);
-    screen.to_lines()
-}
-
-#[test]
-fn sessionizer_rows_mark_open_sessions_without_dir_labels() {
-    let lines = rendered(&sessionizer(), 90, 20);
-    assert!(lines.iter().all(|line| !line.contains("dir ")));
-    assert!(lines.iter().all(|line| !line.contains("open")));
-    let work = lines.iter().find(|line| line.contains("work")).unwrap();
-    assert!(work.starts_with(">* work "));
-    let catchers = lines
-        .iter()
-        .find(|line| line.contains("rust-catchers"))
-        .unwrap();
-    assert!(catchers.starts_with("   rust-catchers "));
-    let cleanup = lines
-        .iter()
-        .find(|line| line.contains("gitlab-registry-cleanup"))
-        .unwrap();
-    let path_column = |line: &str, path: &str| line.find(path).unwrap();
-    assert_eq!(
-        path_column(work, "/home/u/work"),
-        path_column(catchers, "/home/u/projects/rust-catchers")
-    );
-    assert_eq!(
-        path_column(work, "/home/u/work"),
-        path_column(cleanup, "/home/u/projects/gitlab")
-    );
-}
-
-#[test]
-fn compact_sessionizer_rows_keep_names_and_path_tails() {
-    let lines = rendered(&sessionizer(), 30, 8);
-    assert!(lines.iter().all(|line| !line.contains("dir ")));
-    assert!(lines.iter().all(|line| line.chars().count() <= 30));
-    let work = lines.iter().find(|line| line.contains("work")).unwrap();
-    assert!(work.starts_with(">* work "));
-    assert!(work.ends_with("/home/u/work"));
-    let catchers = lines
-        .iter()
-        .find(|line| line.contains("rust-catchers"))
-        .unwrap();
-    assert!(catchers.starts_with("   rust-catchers "));
-    assert_eq!(work.find('/'), catchers.find("..."));
-}
-
 fn chooser() -> Picker {
     Picker::sessions(
         vec![
@@ -240,34 +60,76 @@ fn chooser() -> Picker {
     )
 }
 
+fn verbs(sheet: &Sheet) -> Vec<(&str, &str)> {
+    sheet
+        .keys
+        .iter()
+        .map(|(key, verb)| (*key, verb.as_str()))
+        .collect()
+}
+
+#[test]
+fn empty_enter_uses_last_session_and_query_selects_match() {
+    let mut picker = picker();
+    assert_eq!(picker.accept(), Some(Target::Name("previous".into())));
+    picker.insert("flr");
+    assert_eq!(picker.accept(), Some(Target::Name("flair".into())));
+    picker.insert("no-match");
+    assert_eq!(picker.accept(), None);
+}
+
+#[test]
+fn sessionizer_sheet_names_the_last_session_and_marks_open_sessions() {
+    let mut picker = sessionizer();
+    let sheet = picker.sheet(Some(Path::new("/home/u")));
+    assert_eq!(sheet.title, "Sessionizer");
+    assert_eq!(sheet.placement, Placement::Centred);
+    assert_eq!(
+        sheet.field.as_ref().map(|field| field.placeholder),
+        Some("Search projects")
+    );
+    let row = |name: &str| sheet.rows.iter().find(|row| row.name == name).unwrap();
+    assert_eq!(row("work").label, Some("open"));
+    assert_eq!(row("work").detail.as_deref(), Some("~/work"));
+    assert_eq!(row("work").mark, Mark::Monogram("work".into()));
+    assert_eq!(row("rust-catchers").label, None);
+    assert_eq!(
+        row("rust-catchers").detail.as_deref(),
+        Some("~/projects/rust-catchers")
+    );
+    assert!(sheet.rows.iter().all(|row| row.name != "main"));
+    assert_eq!(
+        verbs(&sheet),
+        [("↵", "switch"), ("↑↓", "move"), ("esc", "cancel")]
+    );
+    let mut last = self::picker();
+    assert_eq!(verbs(&last.sheet(None))[0], ("↵", "last: previous"));
+    last.insert("f");
+    assert_eq!(verbs(&last.sheet(None))[0], ("↵", "switch"));
+    picker.insert("zzqqx");
+    assert!(picker.sheet(None).rows.is_empty());
+}
+
 #[test]
 fn session_chooser_lists_every_session_and_preselects_current() {
     let mut picker = chooser();
     assert_eq!(picker.accept(), Some(Target::Name("work".into())));
-    let lines = rendered(&picker, 90, 20);
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("Sessions  3 matches"))
+    let sheet = picker.sheet(None);
+    assert_eq!(sheet.title, "Sessions");
+    assert_eq!(
+        sheet.field.as_ref().map(|field| field.placeholder),
+        Some("Search sessions")
     );
-    assert!(lines.iter().all(|line| !line.contains("Sessionizer")));
-    let marked: Vec<_> = lines
+    assert_eq!(sheet.rows.len(), 3);
+    let labelled: Vec<_> = sheet
+        .rows
         .iter()
-        .filter(|line| line.get(1..2) == Some("*"))
+        .filter_map(|row| row.label.map(|label| (row.name.as_str(), label)))
         .collect();
-    assert_eq!(marked.len(), 1);
-    assert!(marked[0].starts_with(">* work "));
-    assert!(lines.iter().any(|line| line.starts_with("   main ")));
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("   rust-catchers "))
-    );
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.contains("Enter switch  Up/Down move  Esc cancel"))
-    );
+    assert_eq!(labelled, [("work", "current")]);
+    assert_eq!(sheet.rows[sheet.selected].name, "work");
+    assert_eq!(sheet.rows[0].name, "main");
+    assert_eq!(sheet.rows[0].detail.as_deref(), Some("/home/u"));
     picker.move_selection(-1);
     assert_eq!(picker.accept(), Some(Target::Name("main".into())));
     picker.insert("rust");
@@ -275,92 +137,34 @@ fn session_chooser_lists_every_session_and_preselects_current() {
 }
 
 #[test]
-fn compact_session_chooser_keeps_current_marker_and_hint() {
-    let lines = rendered(&chooser(), 30, 8);
-    assert!(lines.iter().all(|line| line.chars().count() <= 30));
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.starts_with("Sessions  3 matches"))
-    );
-    assert!(lines.iter().any(|line| line.starts_with(">* work ")));
-    assert!(
-        lines
-            .iter()
-            .any(|line| line.contains("Enter switch  Esc cancel"))
-    );
-}
-
-fn area() -> CellRect {
-    CellRect {
-        origin: CellPoint { col: 10, row: 3 },
-        size: GridSize { cols: 50, rows: 12 },
-    }
-}
-
-#[test]
-fn draw_stays_inside_the_area_and_returns_the_lifted_rect() {
-    let theme = Config::default().theme();
-    let mut screen = grid(80, 24);
-    let before = screen.clone();
-    let lifted = chooser().draw(&mut screen, area(), &theme);
-    assert_eq!(
-        lifted,
-        CellRect {
-            origin: CellPoint { col: 10, row: 5 },
-            size: GridSize { cols: 50, rows: 7 },
-        }
-    );
-    for row in 0..24 {
-        for col in 0..80 {
-            let index = usize::from(row) * 80 + usize::from(col);
-            if !lifted.contains(CellPoint { col, row }) {
-                assert_eq!(screen.cells[index], before.cells[index]);
-            }
-        }
-    }
-}
-
-#[test]
-fn draw_centres_a_capped_width_inside_a_wide_area() {
-    let mut screen = grid(120, 30);
-    let lifted = draw(&chooser(), &mut screen);
-    assert_eq!(lifted.size.cols, 90);
-    assert_eq!(lifted.origin.col, 15);
-    assert_eq!(lifted.origin.row, (30 - lifted.size.rows) / 2);
-}
-
-#[test]
-fn lifted_cells_use_surface1_and_the_selected_row_surface3() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let mut screen = grid(80, 24);
-    let lifted = chooser().draw(&mut screen, area(), &theme);
-    let lines = screen.to_lines();
-    let selected = lines
+fn target_picks_a_ranked_row_without_the_last_session_shortcut() {
+    let picker = picker();
+    assert_eq!(picker.target(0), Some(Target::Name("flair".into())));
+    assert_eq!(picker.target(1), None);
+    let sessionizer = sessionizer();
+    let index = sessionizer
+        .sheet(None)
+        .rows
         .iter()
-        .position(|line| line.contains(">* work"))
+        .position(|row| row.name == "rust-catchers")
         .unwrap();
-    for row in lifted.origin.row..lifted.origin.row + lifted.size.rows {
-        for col in lifted.origin.col..lifted.origin.col + lifted.size.cols {
-            let cell = &screen.cells[usize::from(row) * 80 + usize::from(col)];
-            if usize::from(row) == selected {
-                assert_eq!(cell.bg, surfaces.surface3);
-                assert_eq!(cell.fg, theme.foreground);
-            } else {
-                assert_eq!(cell.bg, surfaces.surface1);
-            }
-        }
-    }
-    let hint = usize::from(lifted.origin.row + lifted.size.rows - 1);
     assert_eq!(
-        screen.cells[hint * 80 + usize::from(lifted.origin.col)].fg,
-        surfaces.muted
+        sessionizer.target(index),
+        Some(Target::Path("/home/u/projects/rust-catchers".into()))
     );
 }
 
 #[test]
-fn query_edits_mid_text_and_draws_the_caret_at_the_cursor() {
+fn display_path_abbreviates_home_and_drops_control_characters() {
+    let home = Some(Path::new("/home/u"));
+    assert_eq!(display_path(Path::new("/home/u"), home), "~");
+    assert_eq!(display_path(Path::new("/home/u/a/b"), home), "~/a/b");
+    assert_eq!(display_path(Path::new("/home/user"), home), "/home/user");
+    assert_eq!(display_path(Path::new("/tmp/a\nb"), None), "/tmp/ab");
+}
+
+#[test]
+fn query_edits_mid_text_and_the_sheet_keeps_the_cursor() {
     let mut picker = picker();
     picker.insert("fair");
     picker.query.home();
@@ -368,18 +172,23 @@ fn query_edits_mid_text_and_draws_the_caret_at_the_cursor() {
     picker.insert("l");
     assert_eq!(picker.query.text(), "flair");
     assert_eq!(picker.accept(), Some(Target::Name("flair".into())));
-    let mut screen = grid(80, 24);
-    draw(&picker, &mut screen);
-    assert!(
-        screen
-            .to_lines()
-            .iter()
-            .any(|line| line.contains("> fl_air"))
-    );
+    let field = picker.sheet(None).field.unwrap();
+    assert_eq!((field.text.as_str(), field.cursor), ("flair", 2));
     picker.backspace();
     assert_eq!(picker.query.text(), "fair");
     picker.query.end();
     picker.query.left();
     picker.clear();
     assert_eq!(picker.query.text(), "r");
+}
+
+#[test]
+fn long_queries_and_unicode_backspace_remain_bounded() {
+    let mut picker = picker();
+    picker.insert("é");
+    picker.backspace();
+    assert!(picker.query.is_empty());
+    picker.insert(&"q".repeat(1000));
+    assert!(picker.sheet(None).rows.is_empty());
+    assert_eq!(picker.accept(), None);
 }

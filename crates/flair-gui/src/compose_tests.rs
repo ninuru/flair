@@ -1,10 +1,8 @@
 use super::*;
 use crate::{
     CellMetrics, Fonts,
-    chrome_layout::{
-        self, ChromeInput, ChromeLayout, Modal, bar_height, grid_origin, grid_size, modal_area,
-    },
-    picker::Picker,
+    chrome_layout::{self, ChromeInput, ChromeLayout, bar_height, grid_origin, grid_size},
+    overlays::Overlays,
     renderer::{HeadlessContext, Renderer},
     status::status_parts,
 };
@@ -14,11 +12,11 @@ use flair_core::{
     ids::WindowId,
     proto::{
         Cell, Cursor, CursorShape, PaneFlags, PanePlacement, PaneUpdate, SelectionSpan, Separator,
-        SessionInfo, WindowLayout,
+        ServerMsg, SessionInfo, WindowLayout,
     },
     status::{StatusLine, StatusWindow},
 };
-use std::{fs, io::Write};
+use std::{fs, io::Write, path::Path};
 
 #[test]
 fn compose_resolves_inverse_and_cursor() {
@@ -416,20 +414,27 @@ fn draw_chrome_frame(
             };
         }
     }
-    let lifted = picker.then(|| {
-        Picker::sessions(
-            ["main", "notes", "work"]
-                .into_iter()
-                .map(|name| SessionInfo {
-                    name: name.into(),
-                    root: format!("/tmp/{name}").into(),
-                    windows: 1,
-                })
-                .collect(),
-            "main",
-        )
-        .draw(&mut grid, modal_area(size, metrics, 1.0), &theme)
-    });
+    let mut overlays = Overlays::default();
+    if picker {
+        assert!(
+            overlays.open(
+                &ServerMsg::ChooseSession {
+                    sessions: ["main", "notes", "work"]
+                        .into_iter()
+                        .map(|name| SessionInfo {
+                            name: name.into(),
+                            root: format!("/tmp/{name}").into(),
+                            windows: 1,
+                        })
+                        .collect(),
+                    current: "main".into(),
+                },
+                &StatusLine::default(),
+                &config,
+                Path::new("/nonexistent/flair.toml"),
+            )
+        );
+    }
     let parts = status_parts(&chrome_status());
     let input = ChromeInput {
         px: (W, H),
@@ -442,7 +447,7 @@ fn draw_chrome_frame(
         prompt: None,
         layout: Some(&layout),
         hover: None,
-        modal: lifted.map(Modal::Centered),
+        overlays: Some(&overlays),
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -580,10 +585,11 @@ fn gpu_frame_draws_a_picker_in_a_rounded_modal_over_a_backdrop() {
     };
     frame.dump("FLAIR_MODAL_PPM");
     let surfaces = Config::default().theme().surfaces();
-    let [backdrop, modal] = chrome.chrome.modal.as_slice() else {
+    let [backdrop, modal, ..] = chrome.chrome.modal.as_slice() else {
         panic!("modal quads {:?}", chrome.chrome.modal);
     };
     assert_eq!(backdrop.color.a, 102);
+    assert!(!chrome.chrome.modal_text.is_empty());
     assert_eq!(frame.at(797.0, 1.0), rgb(surfaces.surface1));
     assert_eq!(frame.at(797.0, 34.0), rgb(surfaces.outline));
     let rect = modal.rect;
@@ -597,6 +603,21 @@ fn gpu_frame_draws_a_picker_in_a_rounded_modal_over_a_backdrop() {
     assert_eq!(
         frame.at(rect.x, rect.y + rect.h / 2.0),
         rgb(surfaces.outline)
+    );
+    assert_eq!(
+        frame.at(rect.x + rect.w / 2.0, rect.y + 4.0),
+        rgb(surfaces.surface1)
+    );
+    let hits = chrome.overlay.as_ref().unwrap();
+    let (index, row) = hits.rows[0];
+    assert_eq!(index, 0);
+    assert_eq!(
+        frame.at(row.x + row.w / 2.0, row.y + row.h - 3.0),
+        rgb(surfaces.surface3)
+    );
+    assert_eq!(
+        frame.at(row.x + row.w / 2.0, row.y + row.h + 1.0),
+        rgb(surfaces.surface1)
     );
 }
 

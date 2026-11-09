@@ -2,7 +2,7 @@ use super::*;
 use crate::cellgrid::{DrawCell, DrawCursor};
 use flair_core::{
     config::Config,
-    geom::{CellPoint, CellRect, GridSize},
+    geom::{CellPoint, GridSize},
     proto::{CellFlags, CursorShape},
     theme::{Rgb, Rgba},
 };
@@ -243,7 +243,7 @@ fn opaque(color: Rgb) -> Rgba {
 }
 
 #[test]
-fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
+fn chrome_draws_bar_border_box_backdrop_text_and_modal_text() {
     const W: usize = 400;
     const H: usize = 300;
     let Some((ctx, gl)) = headless_or_skip((W as u32, H as u32), "chrome") else {
@@ -277,27 +277,11 @@ fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
         g: 140,
         b: 160,
     };
-    let lifted_bg = Rgb {
-        r: 60,
-        g: 70,
-        b: 80,
-    };
     let size = GridSize {
         cols: (W as f32 / metrics.width) as u16 + 1,
         rows: (H as f32 / metrics.height) as u16 + 1,
     };
-    let mut grid = filled_grid(size, white);
-    let lifted = CellRect {
-        origin: CellPoint {
-            col: (300.0 / metrics.width) as u16,
-            row: (120.0 / metrics.height) as u16,
-        },
-        size: GridSize { cols: 2, rows: 1 },
-    };
-    for col in lifted.origin.col..lifted.origin.col + 2 {
-        let index = usize::from(lifted.origin.row) * usize::from(size.cols) + usize::from(col);
-        grid.cells[index].bg = lifted_bg;
-    }
+    let grid = filled_grid(size, white);
     let ui = fonts.ui_metrics();
     let text_width = fonts.ui_width("flair", false);
     let baseline = 22.0;
@@ -375,7 +359,14 @@ fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
                 }),
             },
         ],
-        lifted: Some(lifted),
+        modal_text: vec![TextRun {
+            x: 60.0,
+            baseline: 110.0,
+            text: "flair".to_owned(),
+            color: white,
+            bold: true,
+            face: TextFace::Ui,
+        }],
     };
     let mut renderer = Renderer::new(gl, metrics).unwrap();
     renderer.resize((W as u32, H as u32));
@@ -423,10 +414,11 @@ fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
         (top..bottom).any(|y| (10..right).any(|x| pixel(x, y) != rgb(fill))),
         "ui text left no pixels in its box"
     );
-    let lifted_x = (f32::from(lifted.origin.col) * metrics.width + metrics.width / 2.0) as usize;
-    let lifted_y =
-        (35.0 + f32::from(lifted.origin.row) * metrics.height + metrics.height / 2.0) as usize;
-    assert_eq!(pixel(lifted_x, lifted_y), rgb(lifted_bg));
+    let modal_top = (110.0 - ui.ascent).floor() as usize;
+    assert!(
+        (modal_top..110).any(|y| (60..60 + right).any(|x| pixel(x, y) != rgb(box_fill))),
+        "modal text left no pixels over the box"
+    );
     drop(renderer);
     drop(ctx);
 }

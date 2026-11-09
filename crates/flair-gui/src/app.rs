@@ -1,20 +1,8 @@
-use std::{
-    error::Error,
-    fmt,
-    fs::{self, OpenOptions},
-    io::{self, Write},
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
-    path::{Path, PathBuf},
-    process,
-    sync::mpsc::Sender,
-    thread,
-    time::Instant,
-};
+use std::{env, error::Error, fmt, fs, path::PathBuf, sync::mpsc::Sender, thread, time::Instant};
 
 use flair_core::{
     command::{Command, WindowRef},
     config::Config,
-    config_edit::set_theme,
     geom::{CellPoint, GridSize},
     ids::PaneId,
     key::{InputEvent, KeyInput, MouseAction, MouseButton, MouseInput},
@@ -47,6 +35,7 @@ use crate::{
     probe::Probe,
     renderer::{Renderer, WindowContext},
     status::status_parts,
+    theme_file::{resolve_theme, save_theme},
     theme_picker::ThemeOutcome,
 };
 
@@ -280,7 +269,9 @@ impl App {
             return;
         };
         let metrics = surface.fonts.metrics();
-        let lifted = self.overlays.draw(&mut grid, metrics, scale as f32, &theme);
+        if self.overlays.is_open() {
+            grid.cursor = None;
+        }
         let parts = status_parts(&self.status);
         let prompt = self.overlays.bar_field();
         let px = surface.window.inner_size();
@@ -298,11 +289,15 @@ impl App {
             }),
             layout: self.layout.as_ref(),
             hover: Some((self.pointer.x as f32, self.pointer.y as f32)),
-            modal: lifted,
+            overlays: Some(&self.overlays),
         };
-        let ChromeLayout { chrome, hits } =
-            chrome_layout::layout(&input, |text, bold| surface.fonts.ui_width(text, bold));
+        let ChromeLayout {
+            chrome,
+            hits,
+            overlay,
+        } = chrome_layout::layout(&input, |text, bold| surface.fonts.ui_width(text, bold));
         self.hits = hits;
+        self.overlays.place(overlay);
         if let Err(error) = surface
             .renderer
             .draw_frame(&grid, &chrome, &mut surface.fonts, theme.background)
@@ -552,21 +547,37 @@ impl ApplicationHandler<UserEvent> for App {
                 self.key(key, event_loop);
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let before = chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y));
+                let target = |app: &App, pos: (f64, f64)| {
+                    (
+                        chrome_layout::hit_test(&app.hits, pos),
+                        app.overlays.hit_test(pos),
+                    )
+                };
+                let before = target(self, (self.pointer.x, self.pointer.y));
                 self.pointer = position;
-                if chrome_layout::hit_test(&self.hits, (position.x, position.y)) != before {
+                if target(self, (position.x, position.y)) != before {
                     self.request_redraw();
                 }
-                if self.overlays.is_open() {
+                if self.overlays.is_open() || self.capture == Capture::Overlay {
                     return;
                 }
                 self.mouse(self.button, MouseAction::Motion);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if self.overlays.is_open() {
+                if self.overlays.is_open() || self.capture == Capture::Overlay {
                     if state == ElementState::Released {
                         self.capture = Capture::Idle;
                         self.button = MouseButton::NoButton;
+                        return;
+                    }
+                    let open = self.overlays.is_open();
+                    self.capture = Capture::Overlay;
+                    if open
+                        && button == winit::event::MouseButton::Left
+                        && let Some(hit) = self.overlays.hit_test((self.pointer.x, self.pointer.y))
+                    {
+                        let event = self.overlays.click(hit);
+                        self.overlay_event(event, event_loop);
                     }
                     return;
                 }
@@ -619,14 +630,19 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if self.overlays.is_open() {
-                    return;
-                }
                 let line_px = self
                     .surface
                     .as_ref()
                     .map_or(16.0, |s| s.fonts.metrics().height);
                 let lines = self.wheel.push(delta, line_px);
+                if self.capture == Capture::Overlay {
+                    return;
+                }
+                if self.overlays.is_open() {
+                    let event = self.overlays.wheel(-lines);
+                    self.overlay_event(event, event_loop);
+                    return;
+                }
                 let button = if lines >= 0 {
                     MouseButton::WheelUp
                 } else {
@@ -653,6 +669,7 @@ enum Capture {
     Idle,
     Server,
     Bar,
+    Overlay,
 }
 
 fn route_mouse(
@@ -663,7 +680,7 @@ fn route_mouse(
 ) -> MouseRoute {
     match capture {
         Capture::Server => MouseRoute::Server,
-        Capture::Bar => MouseRoute::Drop,
+        Capture::Bar | Capture::Overlay => MouseRoute::Drop,
         Capture::Idle if !in_bar => MouseRoute::Server,
         Capture::Idle if button == MouseButton::Left && action == MouseAction::Press => {
             MouseRoute::Bar
@@ -687,9 +704,8 @@ fn capture_after(
 ) -> Capture {
     match (action, capture, route) {
         (MouseAction::Release, _, _) => Capture::Idle,
-        (MouseAction::Motion, _, _) | (MouseAction::Press, Capture::Server | Capture::Bar, _) => {
-            capture
-        }
+        (MouseAction::Motion, _, _)
+        | (MouseAction::Press, Capture::Server | Capture::Bar | Capture::Overlay, _) => capture,
         (MouseAction::Press, Capture::Idle, MouseRoute::Bar) => Capture::Bar,
         (MouseAction::Press, Capture::Idle, MouseRoute::Server)
             if matches!(
@@ -701,60 +717,6 @@ fn capture_after(
         }
         (MouseAction::Press, Capture::Idle, MouseRoute::Server | MouseRoute::Drop) => Capture::Idle,
     }
-}
-
-fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
-    let path = match fs::canonicalize(path) {
-        Ok(real) => real,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_owned(),
-        Err(error) => return Err(error),
-    };
-    let (text, permissions) = match fs::read_to_string(&path) {
-        Ok(text) => (text, Some(fs::metadata(&path)?.permissions())),
-        Err(error) if error.kind() == io::ErrorKind::NotFound => (String::new(), None),
-        Err(error) => return Err(error),
-    };
-    let text = set_theme(&text, name);
-    let config = Config::from_toml(&text).map_err(io::Error::other)?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
-    }
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(format!(".{}.tmp", process::id()));
-    let tmp = PathBuf::from(tmp);
-    let replaced = replace_file(&tmp, &path, &text, permissions);
-    if replaced.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    replaced.map(|()| config)
-}
-
-fn replace_file(
-    tmp: &Path,
-    path: &Path,
-    text: &str,
-    permissions: Option<fs::Permissions>,
-) -> io::Result<()> {
-    let mode = permissions.as_ref().map_or(0o666, |p| p.mode() & 0o7777);
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(mode)
-        .open(tmp)?;
-    file.write_all(text.as_bytes())?;
-    if let Some(permissions) = permissions {
-        file.set_permissions(permissions)?;
-    }
-    drop(file);
-    fs::rename(tmp, path)
-}
-
-fn resolve_theme(config: &Config, path: &Path) -> Theme {
-    let (theme, error) = config.load_theme(&Config::themes_dir(path));
-    if let Some(error) = error {
-        log::warn!("{error}; using defaults");
-    }
-    theme
 }
 
 pub fn run(
@@ -824,7 +786,7 @@ pub fn run_target(
         ime: false,
         probe: probe.map(Probe::start),
         error: None,
-        overlays: Overlays::default(),
+        overlays: Overlays::new(env::var_os("HOME").map(PathBuf::from)),
         capture: Capture::Idle,
         input: InputState::default(),
         layout: None,
