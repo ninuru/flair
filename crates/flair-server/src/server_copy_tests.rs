@@ -180,11 +180,7 @@ fn unbound_keys_and_releases_never_reach_the_pty_in_copy_mode() {
         input(Key::Char('x'), Mods::default(), KeyAction::Press),
         input(Key::Char('x'), Mods::default(), KeyAction::Release),
         input(Key::Char('c'), ctrl(), KeyAction::Press),
-        input(
-            Key::Named(NamedKey::Enter),
-            Mods::default(),
-            KeyAction::Press,
-        ),
+        input(Key::Named(NamedKey::Tab), Mods::default(), KeyAction::Press),
         input(
             Key::Named(NamedKey::ShiftLeft),
             Mods::default(),
@@ -474,4 +470,117 @@ fn copy_commands_outside_copy_mode_do_nothing() {
         !out.iter()
             .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptSearch { .. })))
     );
+}
+
+fn clipboard(out: &[Effect]) -> Option<(&str, bool)> {
+    out.iter().find_map(|effect| {
+        if let Effect::Send(ClientId(1), ServerMsg::SetClipboard { text, primary }) = effect {
+            Some((text.as_str(), *primary))
+        } else {
+            None
+        }
+    })
+}
+
+fn ctrl_shift_c(server: &mut Server) -> Vec<Effect> {
+    chord(
+        server,
+        Key::Char('c'),
+        Mods {
+            ctrl: true,
+            shift: true,
+            ..Mods::default()
+        },
+    )
+}
+
+#[test]
+fn y_and_enter_yank_the_selection_to_the_clipboard_and_exit() {
+    let mut server = setup();
+    for key in [Key::Char('y'), Key::Named(NamedKey::Enter)] {
+        enter(&mut server);
+        press(&mut server, Key::Char('0'));
+        press(&mut server, Key::Char('v'));
+        press(&mut server, Key::Char('e'));
+        let out = press(&mut server, key);
+        assert_eq!(clipboard(&out), Some(("hello", false)));
+        assert!(writes(&out).is_empty());
+        assert!(!copy_mode(&server));
+        assert!(!status(&out).unwrap().copy);
+        assert_eq!(selection(&server), None);
+    }
+}
+
+#[test]
+fn yank_without_a_selection_only_exits() {
+    let mut server = setup();
+    enter(&mut server);
+    let out = press(&mut server, Key::Char('y'));
+    assert_eq!(clipboard(&out), None);
+    assert!(!copy_mode(&server));
+}
+
+#[test]
+fn ctrl_shift_c_copies_the_vi_selection_and_stays_in_copy_mode() {
+    let mut server = setup();
+    enter(&mut server);
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('v'));
+    press(&mut server, Key::Char('l'));
+    let out = ctrl_shift_c(&mut server);
+    assert_eq!(clipboard(&out), Some(("he", false)));
+    assert!(writes(&out).is_empty());
+    assert!(copy_mode(&server));
+    assert_eq!(selection(&server).as_deref(), Some("he"));
+}
+
+#[test]
+fn drag_after_the_exiting_click_selects_for_primary_and_ctrl_shift_c() {
+    let mut server = setup();
+    enter(&mut server);
+    mouse(&mut server, 4, MouseButton::Left, MouseAction::Press);
+    assert!(!copy_mode(&server));
+    let out = send(
+        &mut server,
+        ClientMsg::Input(InputEvent::Mouse(MouseInput {
+            point: CellPoint { col: 3, row: 4 },
+            button: MouseButton::Left,
+            action: MouseAction::Motion,
+            mods: Mods::default(),
+        })),
+    );
+    assert_eq!(clipboard(&out), None);
+    let out = send(
+        &mut server,
+        ClientMsg::Input(InputEvent::Mouse(MouseInput {
+            point: CellPoint { col: 3, row: 4 },
+            button: MouseButton::Left,
+            action: MouseAction::Release,
+            mods: Mods::default(),
+        })),
+    );
+    assert_eq!(clipboard(&out), Some(("hell", true)));
+    assert_eq!(clipboard(&ctrl_shift_c(&mut server)), Some(("hell", false)));
+}
+
+#[test]
+fn alt_screen_copy_mode_stays_on_the_visible_screen_and_yanks_it() {
+    let mut server = setup();
+    output(
+        &mut server,
+        b"\x1b[?1049h\x1b[Halt0\r\nalt1\r\nalt2\r\nalt3",
+    );
+    enter(&mut server);
+    press(&mut server, Key::Char('g'));
+    press(&mut server, Key::Char('k'));
+    chord(&mut server, Key::Char('u'), ctrl());
+    wheel(&mut server, MouseButton::WheelUp);
+    assert_eq!(offset(&server), 0);
+    assert_eq!(cursor(&server).row, 0);
+    assert!(copy_mode(&server));
+    press(&mut server, Key::Char('v'));
+    shifted(&mut server, 'G');
+    press(&mut server, Key::Char('$'));
+    let out = press(&mut server, Key::Char('y'));
+    assert_eq!(clipboard(&out), Some(("alt0\nalt1\nalt2\nalt3", false)));
 }

@@ -72,6 +72,10 @@ impl Server {
             }
             CopyCommand::SearchAgain => pane.terminal.copy_search_again(false),
             CopyCommand::SearchReverse => pane.terminal.copy_search_again(true),
+            CopyCommand::Yank => {
+                self.copy_selection(id, false, out);
+                self.exit_copy_mode(pane_id);
+            }
         }
         if let Some(pane) = self.panes.get_mut(&pane_id) {
             pane.dirty = true;

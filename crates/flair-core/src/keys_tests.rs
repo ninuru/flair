@@ -308,6 +308,8 @@ fn copy_mode_defaults_cover_motions_selection_and_search() {
         ),
         (Key::Char('n'), false, false, CopyCommand::SearchAgain),
         (Key::Char('N'), false, true, CopyCommand::SearchReverse),
+        (Key::Char('y'), false, false, CopyCommand::Yank),
+        (Key::Named(NamedKey::Enter), false, false, CopyCommand::Yank),
     ] {
         assert_eq!(
             config.copy_binding(&with_mods(key, ctrl, shift)),
@@ -347,6 +349,7 @@ fn copy_mode_command_names_follow_tmux() {
             CopyCommand::SearchPrompt { forward: false },
         ),
         ("search-reverse", CopyCommand::SearchReverse),
+        ("copy-selection-and-cancel", CopyCommand::Yank),
     ] {
         assert_eq!(parse_copy_command(name), Some(expected));
     }

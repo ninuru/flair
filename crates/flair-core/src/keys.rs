@@ -136,6 +136,7 @@ pub fn parse_copy_command(command: &str) -> Option<CopyCommand> {
         "search-backward" => CopyCommand::SearchPrompt { forward: false },
         "search-again" => CopyCommand::SearchAgain,
         "search-reverse" => CopyCommand::SearchReverse,
+        "copy-selection-and-cancel" => CopyCommand::Yank,
         _ => return None,
     })
 }
@@ -244,6 +245,8 @@ const COPY_DEFAULTS: &[(&str, &str)] = &[
     ("?", "search-backward"),
     ("n", "search-again"),
     ("N", "search-reverse"),
+    ("y", "copy-selection-and-cancel"),
+    ("Enter", "copy-selection-and-cancel"),
 ];
 
 const ROOT_DEFAULTS: &[(&str, &str)] = &[

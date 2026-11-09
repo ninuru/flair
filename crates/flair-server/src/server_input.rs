@@ -214,7 +214,7 @@ impl Server {
         }
     }
 
-    fn copy_selection(&self, id: ClientId, primary: bool, out: &mut Vec<Effect>) {
+    pub(super) fn copy_selection(&self, id: ClientId, primary: bool, out: &mut Vec<Effect>) {
         if let Some(text) = self
             .client_pane(id)
             .and_then(|pane| self.panes[&pane].terminal.selection_text())

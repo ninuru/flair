@@ -204,3 +204,36 @@ fn search_scrolls_into_history() {
     assert_eq!(offset(&mut term), 5);
     assert_eq!(cursor(&mut term), at(0, 0));
 }
+
+#[test]
+fn alt_screen_copy_mode_covers_only_the_visible_screen() {
+    let mut term = term(10, 3, &numbered(10));
+    term.exit_copy_mode();
+    term.advance(b"\x1b[?1049h\x1b[Halt0\r\nalt1\r\nalt2");
+    term.enter_copy_mode();
+    for motions in [
+        &[CopyMotion::HistoryTop][..],
+        &[
+            CopyMotion::Up,
+            CopyMotion::Up,
+            CopyMotion::Up,
+            CopyMotion::Up,
+        ],
+        &[CopyMotion::HalfPageUp, CopyMotion::HalfPageUp],
+    ] {
+        moves(&mut term, motions);
+        assert_eq!(cursor(&mut term).row, 0);
+        assert_eq!(offset(&mut term), 0);
+    }
+    term.scroll(5);
+    assert_eq!(offset(&mut term), 0);
+    moves(&mut term, &[CopyMotion::HistoryTop]);
+    term.copy_select(SelectionKind::Simple);
+    moves(
+        &mut term,
+        &[CopyMotion::HistoryBottom, CopyMotion::EndOfLine],
+    );
+    assert_eq!(term.selection_text().as_deref(), Some("alt0\nalt1\nalt2"));
+    term.copy_search("line", false).unwrap();
+    assert_eq!(cursor(&mut term), at(3, 2));
+}
