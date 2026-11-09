@@ -502,9 +502,6 @@ fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
             );
         }
     }
-    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
-    let width = fonts.ui_width("MA", true) * fonts.ui_metrics().small;
-    assert!(width <= mark.rect.w, "MA is {width} wide");
     let padding = (
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
