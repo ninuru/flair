@@ -1,5 +1,5 @@
 use super::*;
-use crate::config::Config;
+use crate::config::{ColorsConfig, Config};
 
 fn theme() -> Theme {
     Config::default().theme()
@@ -152,4 +152,88 @@ fn flair_dark_surfaces_are_exact() {
         surfaces.accent_soft,
         blend(theme.background, theme.accent, 25)
     );
+}
+
+fn hex(value: &str) -> Rgb {
+    Rgb::from_hex(value).unwrap()
+}
+
+fn palette(values: &str) -> [Rgb; 8] {
+    let colors: Vec<Rgb> = values.split(' ').map(hex).collect();
+    colors.try_into().unwrap()
+}
+
+fn builtin(name: &str) -> Theme {
+    let text = BUILTIN_THEMES
+        .iter()
+        .find(|(builtin, _)| *builtin == name)
+        .map(|(_, text)| *text)
+        .unwrap();
+    ColorsConfig::from_toml(text).unwrap().to_theme()
+}
+
+fn selection(color: Rgb) -> Rgba {
+    Rgba {
+        r: color.r,
+        g: color.g,
+        b: color.b,
+        a: 0x40,
+    }
+}
+
+#[test]
+fn builtin_names_are_sorted_and_complete() {
+    let names: Vec<&str> = BUILTIN_THEMES.iter().map(|(name, _)| *name).collect();
+    assert_eq!(names, ["catppuccin-mocha", "flair-dark", "gruvbox-dark"]);
+}
+
+#[test]
+fn flair_dark_builtin_equals_default_theme() {
+    assert_eq!(builtin("flair-dark"), theme());
+    assert_eq!(theme().cursor, hex("#d4d4d4"));
+    assert_eq!(theme().selection, selection(hex("#19aad8")));
+}
+
+#[test]
+fn catppuccin_mocha_matches_the_table() {
+    let theme = builtin("catppuccin-mocha");
+    assert_eq!(theme.background, hex("#1e1e2e"));
+    assert_eq!(theme.foreground, hex("#cdd6f4"));
+    assert_eq!(theme.accent, hex("#89b4fa"));
+    assert_eq!(theme.cursor, hex("#f5e0dc"));
+    assert_eq!(theme.selection, selection(hex("#89b4fa")));
+    assert_eq!(
+        theme.normal,
+        palette("#45475a #f38ba8 #a6e3a1 #f9e2af #89b4fa #f5c2e7 #94e2d5 #bac2de")
+    );
+    assert_eq!(
+        theme.bright,
+        palette("#585b70 #f38ba8 #a6e3a1 #f9e2af #89b4fa #f5c2e7 #94e2d5 #a6adc8")
+    );
+}
+
+#[test]
+fn gruvbox_dark_matches_the_table() {
+    let theme = builtin("gruvbox-dark");
+    assert_eq!(theme.background, hex("#282828"));
+    assert_eq!(theme.foreground, hex("#ebdbb2"));
+    assert_eq!(theme.accent, hex("#fabd2f"));
+    assert_eq!(theme.cursor, hex("#ebdbb2"));
+    assert_eq!(theme.selection, selection(hex("#fabd2f")));
+    assert_eq!(
+        theme.normal,
+        palette("#282828 #cc241d #98971a #d79921 #458588 #b16286 #689d6a #a89984")
+    );
+    assert_eq!(
+        theme.bright,
+        palette("#928374 #fb4934 #b8bb26 #fabd2f #83a598 #d3869b #8ec07c #ebdbb2")
+    );
+}
+
+#[test]
+fn builtin_themes_resolve_by_name_without_a_dir() {
+    for (name, _) in BUILTIN_THEMES {
+        assert_eq!(Config::default().with_theme(name).theme(), builtin(name));
+    }
+    assert_eq!(Config::default().with_theme("nope").theme(), theme());
 }

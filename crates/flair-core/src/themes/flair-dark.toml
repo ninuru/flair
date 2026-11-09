@@ -1,0 +1,5 @@
+background = "#030303"
+foreground = "#d4d4d4"
+accent = "#19aad8"
+normal = ["#1e1e1e", "#e06c75", "#98c379", "#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#d4d4d4"]
+bright = ["#5c6370", "#ff7a85", "#b5e890", "#ffd68a", "#7cc4ff", "#de8cff", "#6fd6e2", "#ffffff"]
