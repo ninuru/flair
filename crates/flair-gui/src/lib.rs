@@ -20,6 +20,7 @@ pub mod probe;
 pub mod prompt;
 pub mod renderer;
 pub mod settings_layout;
+pub mod settings_page;
 mod settings_rows;
 pub mod status;
 mod theme_file;

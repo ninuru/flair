@@ -3,8 +3,10 @@ use flair_core::{
     key::{Locks, Mods},
     proto::Target,
 };
+use std::fs;
 
 use super::*;
+use crate::settings_layout::{Entry, SettingsHit, SettingsSheet};
 
 fn press(key: Key) -> KeyInput {
     KeyInput {
@@ -379,4 +381,150 @@ fn escape_closes_a_session_picker_without_sending_anything() {
         Some(OverlayEvent::Redraw)
     );
     assert!(!overlays.is_open());
+}
+
+fn settings_page(overlays: &mut Overlays) -> SettingsSheet {
+    overlays.settings_mut().unwrap().sheet()
+}
+
+#[test]
+fn the_settings_message_opens_the_page() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, ServerMsg::Settings);
+    assert!(overlays.is_open());
+    assert!(overlays.panel_open());
+    assert_eq!(settings_page(&mut overlays).crumb, "Appearance");
+}
+
+#[test]
+fn the_settings_page_reads_sources_from_the_config_file() {
+    let dir = std::env::temp_dir().join(format!("flair-overlays-{}", std::process::id()));
+    fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("flair.toml");
+    fs::write(&path, "[font]\nsize = 14\n").unwrap();
+    let mut overlays = Overlays::default();
+    let config = Config::from_toml("[font]\nsize = 14\n").unwrap();
+    assert!(overlays.open(&ServerMsg::Settings, &StatusLine::default(), &config, &path));
+    fs::remove_dir_all(&dir).unwrap();
+    let page = overlays.settings_mut().unwrap();
+    page.click(SettingsHit::Section(1));
+    page.focus(1);
+    let sheet = page.sheet();
+    let sources: Vec<_> = sheet.groups[0]
+        .entries
+        .iter()
+        .map(|entry| match entry {
+            Entry::Setting { source, .. } | Entry::Binding { source, .. } => *source,
+        })
+        .collect();
+    assert_eq!(
+        sources,
+        ["default", "flair.toml", "default", "default", "default"]
+    );
+}
+
+#[test]
+fn keys_and_text_go_to_the_settings_page() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, ServerMsg::Settings);
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::Down)), || None),
+        Some(OverlayEvent::Settings(SettingsOutcome::Pending))
+    );
+    assert_eq!(settings_page(&mut overlays).focus, Some(1));
+    assert_eq!(
+        overlays.text("pad"),
+        Some(OverlayEvent::Settings(SettingsOutcome::Pending))
+    );
+    assert_eq!(settings_page(&mut overlays).search.text, "pad");
+}
+
+#[test]
+fn page_keys_scroll_the_settings_page_by_the_drawn_rows() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, ServerMsg::Settings);
+    overlays.place(Some(hits(3)));
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::PageDown)), || None),
+        Some(OverlayEvent::Settings(SettingsOutcome::Pending))
+    );
+    assert_eq!(settings_page(&mut overlays).focus, Some(3));
+    overlays.key(&press(Key::Named(NamedKey::PageUp)), || None);
+    assert_eq!(settings_page(&mut overlays).focus, Some(0));
+    assert_eq!(
+        overlays.wheel(2),
+        OverlayEvent::Settings(SettingsOutcome::Pending)
+    );
+    assert_eq!(settings_page(&mut overlays).focus, Some(2));
+}
+
+#[test]
+fn the_settings_page_ignores_clicks_on_the_page_and_the_bar() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, ServerMsg::Settings);
+    assert_eq!(overlays.click(OverlayHit::Outside), OverlayEvent::Ignored);
+    assert_eq!(overlays.click(OverlayHit::Panel), OverlayEvent::Ignored);
+    assert!(overlays.is_open());
+}
+
+#[test]
+fn closing_the_settings_page_drops_it() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, ServerMsg::Settings);
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::Escape)), || None),
+        Some(OverlayEvent::Settings(SettingsOutcome::Close))
+    );
+    assert!(!overlays.is_open());
+    assert!(overlays.settings_mut().is_none());
+    open(&mut overlays, ServerMsg::Settings);
+    assert_eq!(
+        overlays.click(OverlayHit::Settings(SettingsHit::Close)),
+        OverlayEvent::Settings(SettingsOutcome::Close)
+    );
+    assert!(!overlays.is_open());
+}
+
+#[test]
+fn settings_hits_and_rows_route_to_the_page() {
+    let mut overlays = Overlays::default();
+    assert_eq!(
+        overlays.click(OverlayHit::Settings(SettingsHit::Search)),
+        OverlayEvent::Ignored
+    );
+    open(&mut overlays, ServerMsg::Settings);
+    assert_eq!(
+        overlays.click(OverlayHit::Row(2)),
+        OverlayEvent::Settings(SettingsOutcome::Pending)
+    );
+    assert_eq!(settings_page(&mut overlays).focus, Some(2));
+    assert_eq!(
+        overlays.click(OverlayHit::Settings(SettingsHit::Section(4))),
+        OverlayEvent::Settings(SettingsOutcome::Pending)
+    );
+    assert_eq!(settings_page(&mut overlays).crumb, "Keys");
+}
+
+#[test]
+fn paste_goes_to_the_settings_editor() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, ServerMsg::Settings);
+    overlays.click(OverlayHit::Row(1));
+    overlays.key(&press(Key::Named(NamedKey::Enter)), || None);
+    let expected = Config::from_toml("[colors]\nbackground = \"#ff0000\"\n").unwrap();
+    assert_eq!(
+        overlays.key(&paste(), || Some("#ff0000".to_owned())),
+        Some(OverlayEvent::Settings(SettingsOutcome::Preview(Box::new(
+            expected
+        ))))
+    );
+    assert_eq!(overlays.key(&paste(), || None), Some(OverlayEvent::Ignored));
+}
+
+#[test]
+fn a_preview_resolves_the_theme_of_its_config() {
+    let config = Config::default().with_theme("gruvbox-dark");
+    let preview = Preview::resolve(config.clone(), Path::new("/nonexistent/flair.toml"));
+    assert_eq!(preview.theme, config.theme());
+    assert_eq!(preview.config, config);
 }

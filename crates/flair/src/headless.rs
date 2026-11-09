@@ -1,12 +1,14 @@
 use crate::scenario::{Scenario, Step, client_size, key_input};
 use flair_core::{
     command::Command,
-    config::Config,
+    config::{Config, FontConfig},
+    config_edit::apply,
     geom::GridSize,
     ids::PaneId,
     key::{InputEvent, KeyInput},
     link::{ClientLink, channel_pair},
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
+    settings::Value,
     status::StatusLine,
     theme::{Rgb, Theme},
 };
@@ -17,8 +19,9 @@ use flair_gui::{
     compose::{compose, compose_frame, separator_glyphs},
     mirror::Mirror,
     notice::Notice,
-    overlays::{OverlayEvent, Overlays},
+    overlays::{OverlayEvent, Overlays, Preview},
     renderer::{Chrome, HeadlessContext, Renderer},
+    settings_page::SettingsOutcome,
     status::{status_parts, status_text},
     theme_picker::ThemeOutcome,
 };
@@ -82,6 +85,7 @@ fn lines(grid: &flair_gui::cellgrid::CellGrid) -> String {
 struct Pixels {
     px: (u32, u32),
     scale: f64,
+    font: FontConfig,
     fonts: Fonts,
     gpu: Option<(Renderer, HeadlessContext, (u32, u32))>,
 }
@@ -148,8 +152,9 @@ struct Capture {
     size: GridSize,
     ended: bool,
     theme: Theme,
-    preview: Option<Theme>,
+    preview: Option<Preview>,
     config: Config,
+    config_text: String,
     config_path: PathBuf,
     overlays: Overlays,
     pixels: Option<Pixels>,
@@ -218,52 +223,147 @@ impl Capture {
         }
     }
 
-    fn key(&mut self, key: KeyInput) -> Option<ClientMsg> {
+    fn effective(&self) -> &Config {
+        self.preview
+            .as_ref()
+            .map_or(&self.config, |preview| &preview.config)
+    }
+
+    fn shown_theme(&self) -> &Theme {
+        self.preview
+            .as_ref()
+            .map_or(&self.theme, |preview| &preview.theme)
+    }
+
+    fn key(&mut self, key: KeyInput) -> Result<Vec<ClientMsg>, String> {
         self.place();
         let event = self.overlays.key(&key, || None);
         self.route(event, ClientMsg::Input(InputEvent::Key(key)))
     }
 
-    fn text(&mut self, text: &str) -> Option<ClientMsg> {
+    fn text(&mut self, text: &str) -> Result<Vec<ClientMsg>, String> {
         let event = self.overlays.text(text);
         self.route(event, ClientMsg::Input(InputEvent::Text(text.to_owned())))
     }
 
-    fn paste(&mut self, text: &str) -> Option<ClientMsg> {
+    fn paste(&mut self, text: &str) -> Result<Vec<ClientMsg>, String> {
         let event = self.overlays.text(text);
         self.route(event, ClientMsg::Input(InputEvent::Paste(text.to_owned())))
     }
 
-    fn route(&mut self, event: Option<OverlayEvent>, fallback: ClientMsg) -> Option<ClientMsg> {
+    fn route(
+        &mut self,
+        event: Option<OverlayEvent>,
+        fallback: ClientMsg,
+    ) -> Result<Vec<ClientMsg>, String> {
         match event {
-            None => Some(fallback),
-            Some(OverlayEvent::Ignored | OverlayEvent::Redraw) => None,
-            Some(OverlayEvent::Send(message)) => Some(message),
-            Some(OverlayEvent::Theme(outcome)) => {
-                match outcome {
-                    ThemeOutcome::Pending => {}
-                    ThemeOutcome::Preview(name) => {
-                        let dir = Config::themes_dir(&self.config_path);
-                        self.preview = Some(self.config.with_theme(&name).load_theme(&dir).0);
-                    }
-                    ThemeOutcome::Cancel => self.preview = None,
-                    ThemeOutcome::Save(name) => {
-                        let dir = Config::themes_dir(&self.config_path);
-                        self.config = self.config.with_theme(&name);
-                        self.overlays
-                            .set_notice(Notice::info(format!("theme saved: {name}")));
-                        let (theme, error) = self.config.load_theme(&dir);
-                        if let Some(error) = error {
-                            self.overlays.set_notice(Notice::theme_fallback(&error));
-                        }
-                        self.theme = theme;
-                        self.preview = None;
-                        return Some(ClientMsg::Palette(self.theme.clone()));
-                    }
+            None => Ok(vec![fallback]),
+            Some(OverlayEvent::Ignored | OverlayEvent::Redraw) => Ok(Vec::new()),
+            Some(OverlayEvent::Send(message)) => Ok(vec![message]),
+            Some(OverlayEvent::Theme(outcome)) => Ok(self.theme_outcome(outcome)),
+            Some(OverlayEvent::Settings(outcome)) => self.settings(outcome),
+        }
+    }
+
+    fn theme_outcome(&mut self, outcome: ThemeOutcome) -> Vec<ClientMsg> {
+        match outcome {
+            ThemeOutcome::Pending => {}
+            ThemeOutcome::Preview(name) => {
+                self.preview = Some(Preview::resolve(
+                    self.config.with_theme(&name),
+                    &self.config_path,
+                ));
+            }
+            ThemeOutcome::Cancel => self.preview = None,
+            ThemeOutcome::Save(name) => {
+                let dir = Config::themes_dir(&self.config_path);
+                self.config = self.config.with_theme(&name);
+                self.overlays
+                    .set_notice(Notice::info(format!("theme saved: {name}")));
+                let (theme, error) = self.config.load_theme(&dir);
+                if let Some(error) = error {
+                    self.overlays.set_notice(Notice::theme_fallback(&error));
                 }
-                None
+                self.theme = theme;
+                self.preview = None;
+                return vec![ClientMsg::Palette(self.theme.clone())];
             }
         }
+        Vec::new()
+    }
+
+    fn settings(&mut self, outcome: SettingsOutcome) -> Result<Vec<ClientMsg>, String> {
+        match outcome {
+            SettingsOutcome::Pending => return Ok(Vec::new()),
+            SettingsOutcome::Preview(config) => {
+                self.preview = Some(Preview::resolve(*config, &self.config_path));
+            }
+            SettingsOutcome::Revert | SettingsOutcome::Close => self.preview = None,
+            SettingsOutcome::Save { key, value } => return self.save(key, value.as_ref()),
+        }
+        Ok(self.refit()?.into_iter().collect())
+    }
+
+    fn save(&mut self, key: &str, value: Option<&Value>) -> Result<Vec<ClientMsg>, String> {
+        self.preview = None;
+        let mut out = Vec::new();
+        match apply(&self.config_text, key, value) {
+            Ok((text, config)) => {
+                let (theme, error) = config.load_theme(&Config::themes_dir(&self.config_path));
+                self.overlays.set_notice(match error {
+                    Some(error) => Notice::theme_fallback(&error),
+                    None => Notice::info(format!("saved {key}")),
+                });
+                self.config_text = text;
+                self.config = config;
+                if theme != self.theme {
+                    self.theme = theme;
+                    out.push(ClientMsg::Palette(self.theme.clone()));
+                }
+                if let Some(page) = self.overlays.settings_mut() {
+                    let outcome =
+                        page.refresh(&self.config, self.theme.clone(), self.config_text.clone());
+                    out.extend(self.settings(outcome)?);
+                }
+            }
+            Err(error) => {
+                if let Some(page) = self.overlays.settings_mut() {
+                    page.fail(key, &error.to_string());
+                }
+            }
+        }
+        out.extend(self.refit()?);
+        Ok(out)
+    }
+
+    fn refit(&mut self) -> Result<Option<ClientMsg>, String> {
+        let Some(pixels) = &mut self.pixels else {
+            return Ok(None);
+        };
+        let effective = self
+            .preview
+            .as_ref()
+            .map_or(&self.config, |preview| &preview.config);
+        if effective.font != pixels.font {
+            match Fonts::load(&effective.font, pixels.scale) {
+                Ok(fonts) => {
+                    if let Some((renderer, _, _)) = &mut pixels.gpu {
+                        renderer.set_metrics(fonts.metrics());
+                    }
+                    pixels.fonts = fonts;
+                    pixels.font = effective.font.clone();
+                }
+                Err(error) => self
+                    .overlays
+                    .set_notice(Notice::error(format!("font not loaded: {error}"))),
+            }
+        }
+        let size = pixels.grid(effective)?;
+        if size == self.size {
+            return Ok(None);
+        }
+        self.size = size;
+        Ok(Some(ClientMsg::Resize(size)))
     }
 
     fn window(&mut self, px: (u32, u32)) -> Result<Option<ClientMsg>, String> {
@@ -271,7 +371,11 @@ impl Capture {
             return Ok(None);
         };
         pixels.px = px;
-        self.size = pixels.grid(&self.config)?;
+        let effective = self
+            .preview
+            .as_ref()
+            .map_or(&self.config, |preview| &preview.config);
+        self.size = pixels.grid(effective)?;
         Ok(Some(ClientMsg::Resize(self.size)))
     }
 
@@ -282,12 +386,15 @@ impl Capture {
         if !self.overlays.is_open() {
             return;
         }
-        let theme = self.preview.as_ref().unwrap_or(&self.theme);
+        let (config, theme) = match &self.preview {
+            Some(preview) => (&preview.config, &preview.theme),
+            None => (&self.config, &self.theme),
+        };
         let parts = status_parts(&self.status);
         let input = ChromeInput {
             px: pixels.px,
             scale: pixels.scale as f32,
-            padding: padding(&self.config, pixels.scale),
+            padding: padding(config, pixels.scale),
             metrics: pixels.fonts.metrics(),
             ui: pixels.fonts.ui_metrics(),
             theme,
@@ -308,7 +415,8 @@ impl Capture {
             return fs::write(output.join(format!("{name}.txt")), self.frame())
                 .map_err(|e| e.to_string());
         }
-        let theme = self.preview.as_ref().unwrap_or(&self.theme).clone();
+        let theme = self.shown_theme().clone();
+        let config = self.effective().clone();
         let mut grid = match (&self.layout, self.pane) {
             (Some(layout), _) => compose_frame(&self.mirror, layout, self.size, &theme, true),
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
@@ -326,7 +434,7 @@ impl Capture {
         let input = ChromeInput {
             px: pixels.px,
             scale,
-            padding: padding(&self.config, pixels.scale),
+            padding: padding(&config, pixels.scale),
             metrics,
             ui: pixels.fonts.ui_metrics(),
             theme: &theme,
@@ -425,7 +533,7 @@ pub fn run(
         Some(path) => path.to_owned(),
         None => home.0.join("config").join("flair").join("flair.toml"),
     };
-    let (mut config, error) = Config::load(&config_path);
+    let (config, error) = Config::load(&config_path);
     if let Some(error) = error {
         return Err(error.to_string());
     }
@@ -439,6 +547,7 @@ pub fn run(
         Some(px) => Some(Pixels {
             px,
             scale,
+            font: config.font.clone(),
             fonts: Fonts::load(&config.font, scale).map_err(|e| e.to_string())?,
             gpu: None,
         }),
@@ -448,9 +557,12 @@ pub fn run(
         Some(pixels) => pixels.grid(&config)?,
         None => client_size(scenario.cols, scenario.rows)?,
     };
-    config.shell.program = scenario.program.clone();
-    config.shell.args = scenario.args.clone();
-    let mut server_config = ServerConfig::from_config(&config);
+    let config_text = fs::read_to_string(&config_path).unwrap_or_default();
+    let mut server_source = config.clone();
+    server_source.shell.program = scenario.program.clone();
+    server_source.shell.args = scenario.args.clone();
+    let mut server_config = ServerConfig::from_config(&server_source);
+    server_config.path = config_path.clone();
     server_config.cwd = scenario.cwd.clone().unwrap_or_else(|| home.0.clone());
     server_config.env.extend([
         ("HOME".into(), home.0.to_string_lossy().into_owned()),
@@ -492,6 +604,7 @@ pub fn run(
         theme: theme.clone(),
         preview: None,
         config,
+        config_text,
         config_path,
         overlays,
         pixels,
@@ -521,10 +634,10 @@ pub fn run(
             if Instant::now() >= deadline {
                 return Err("scenario deadline exceeded".into());
             }
-            let message = match step {
+            let messages = match step {
                 Step::Wait { text } => {
                     capture.wait(&link, deadline, |capture| capture.frame().contains(text))?;
-                    None
+                    Vec::new()
                 }
                 Step::Cursor { col, row } => {
                     capture.wait(&link, deadline, |capture| {
@@ -535,7 +648,7 @@ pub fn run(
                                 pane.cursor.point.col == *col && pane.cursor.point.row == *row
                             })
                     })?;
-                    None
+                    Vec::new()
                 }
                 Step::Key {
                     key,
@@ -544,33 +657,35 @@ pub fn run(
                     alt,
                 } => {
                     capture.drain(&link)?;
-                    capture.key(key_input(key, *ctrl, *shift, *alt)?)
+                    capture.key(key_input(key, *ctrl, *shift, *alt)?)?
                 }
                 Step::Text { text } => {
                     capture.drain(&link)?;
-                    capture.text(text)
+                    capture.text(text)?
                 }
                 Step::Paste { text } => {
                     capture.drain(&link)?;
-                    capture.paste(text)
+                    capture.paste(text)?
                 }
                 Step::Resize { cols, rows } => {
                     capture.size = client_size(*cols, *rows)?;
-                    Some(ClientMsg::Resize(capture.size))
+                    vec![ClientMsg::Resize(capture.size)]
                 }
-                Step::Scroll { lines } => Some(ClientMsg::Command(Command::ScrollLines(*lines))),
+                Step::Scroll { lines } => vec![ClientMsg::Command(Command::ScrollLines(*lines))],
                 Step::Sleep { ms } => {
                     std::thread::sleep(Duration::from_millis(*ms));
-                    None
+                    Vec::new()
                 }
-                Step::Window { width, height } => capture.window((*width, *height))?,
+                Step::Window { width, height } => {
+                    capture.window((*width, *height))?.into_iter().collect()
+                }
                 Step::Capture { name } => {
                     capture.settle(&link, deadline)?;
                     capture.capture(output, name)?;
-                    None
+                    Vec::new()
                 }
             };
-            if let Some(message) = message {
+            for message in messages {
                 link.tx.send(message).map_err(|e| e.to_string())?;
             }
         }
