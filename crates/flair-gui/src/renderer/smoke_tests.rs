@@ -428,3 +428,14 @@ fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
     drop(renderer);
     drop(ctx);
 }
+
+#[test]
+fn scissor_rounds_fractional_clips_outward() {
+    let clip = PxRect {
+        x: 17.6,
+        y: 43.2,
+        w: 768.0,
+        h: 300.5,
+    };
+    assert_eq!(scissor_box(clip, 400), (17, 56, 769, 301));
+}

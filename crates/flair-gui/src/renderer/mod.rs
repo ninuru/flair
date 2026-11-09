@@ -206,11 +206,10 @@ impl Renderer {
         Ok(())
     }
     fn scissor(&self, clip: PxRect) {
-        let bottom = self.px.1 as f32 - clip.y - clip.h;
+        let (x, y, w, h) = scissor_box(clip, self.px.1);
         unsafe {
             self.gl.enable(glow::SCISSOR_TEST);
-            self.gl
-                .scissor(clip.x as i32, bottom as i32, clip.w as i32, clip.h as i32);
+            self.gl.scissor(x, y, w, h);
         }
     }
     fn glyph(&mut self, key: GlyphKey, fonts: &mut Fonts) -> Option<AtlasGlyph> {
@@ -454,6 +453,19 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         self.pipeline.destroy(&self.gl);
     }
+}
+
+fn scissor_box(clip: PxRect, height: u32) -> (i32, i32, i32, i32) {
+    let left = clip.x.floor();
+    let top = clip.y.floor();
+    let right = (clip.x + clip.w).ceil();
+    let bottom = (clip.y + clip.h).ceil();
+    (
+        left as i32,
+        (height as f32 - bottom) as i32,
+        (right - left) as i32,
+        (bottom - top) as i32,
+    )
 }
 
 #[cfg(test)]
