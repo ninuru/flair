@@ -130,8 +130,14 @@ fn grid_starts_below_bar_and_border() {
     assert_eq!(bar_height(1.0), 34.0);
     assert_eq!(bar_height(2.0), 68.0);
     assert_eq!(bar_height(1.5), 51.0);
-    assert_eq!(grid_origin((8.0, 4.0), 1.0), (8.0, 39.0));
-    assert_eq!(grid_origin((16.0, 8.0), 2.0), (16.0, 78.0));
+    assert_eq!(
+        grid_origin((800, 600), (8.0, 4.0), 1.0, metrics(1.0)),
+        (8.0, 45.0)
+    );
+    assert_eq!(
+        grid_origin((1600, 1200), (16.0, 8.0), 2.0, metrics(2.0)),
+        (16.0, 91.0)
+    );
     assert_eq!(
         grid_size((800, 600), (8.0, 4.0), 1.0, metrics(1.0)),
         GridSize { cols: 98, rows: 34 }
@@ -145,11 +151,67 @@ fn grid_starts_below_bar_and_border() {
         GridSize { cols: 1, rows: 1 }
     );
     let layout = run_layout(1.0, 800, &parts(), None, &[], None);
-    assert_eq!(layout.chrome.origin, (8.0, 39.0));
+    assert_eq!(layout.chrome.origin, (8.0, 45.0));
     assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 784.0, 557.0));
+    assert_eq!(layout.chrome.extend, rect(0.0, 35.0, 800.0, 565.0));
     let layout = run_layout(2.0, 800, &parts(), None, &[], None);
-    assert_eq!(layout.chrome.origin, (16.0, 78.0));
+    assert_eq!(layout.chrome.origin, (16.0, 91.0));
     assert_eq!(layout.chrome.clip, rect(16.0, 78.0, 1568.0, 1114.0));
+    assert_eq!(layout.chrome.extend, rect(0.0, 70.0, 1600.0, 1130.0));
+}
+
+#[test]
+fn grid_origin_splits_the_unused_remainder_evenly() {
+    for (scale, width, origin) in [(1.0, 803, (9.0, 45.0)), (2.0, 803, (19.0, 91.0))] {
+        let px = (width * scale as u32, 600 * scale as u32);
+        let padding = (8.0 * scale, 4.0 * scale);
+        let size = grid_size(px, padding, scale, metrics(scale));
+        assert_eq!(size, GridSize { cols: 98, rows: 34 });
+        assert_eq!(grid_origin(px, padding, scale, metrics(scale)), origin);
+        let right = px.0 as f32 - origin.0 - f32::from(size.cols) * metrics(scale).width;
+        let bottom = px.1 as f32 - origin.1 - f32::from(size.rows) * metrics(scale).height;
+        assert!(
+            (right - origin.0).abs() <= 1.0,
+            "left {} right {right}",
+            origin.0
+        );
+        assert!(
+            (bottom - (origin.1 - 35.0 * scale)).abs() <= 1.0,
+            "top {} bottom {bottom}",
+            origin.1
+        );
+        let layout = run_layout(scale, width, &parts(), None, &[], None);
+        assert_eq!(layout.chrome.origin, origin);
+    }
+}
+
+#[test]
+fn mouse_mapping_uses_the_drawn_grid_origin() {
+    for scale in [1.0, 2.0] {
+        let layout = run_layout(scale, 803, &parts(), None, &[], None);
+        let origin = layout.chrome.origin;
+        let cell = metrics(scale);
+        let size = GridSize { cols: 98, rows: 34 };
+        let at = |x: f32, y: f32| {
+            crate::mouse::to_cell((f64::from(x), f64::from(y)), &cell, origin, size)
+        };
+        assert_eq!(at(origin.0, origin.1), CellPoint { col: 0, row: 0 });
+        assert_eq!(
+            at(origin.0 + cell.width - 0.5, origin.1 + cell.height - 0.5),
+            CellPoint { col: 0, row: 0 }
+        );
+        assert_eq!(
+            at(origin.0 + cell.width, origin.1 + cell.height),
+            CellPoint { col: 1, row: 1 }
+        );
+        assert_eq!(
+            at(
+                origin.0 + f32::from(size.cols) * cell.width - 0.5,
+                origin.1 + f32::from(size.rows) * cell.height - 0.5
+            ),
+            CellPoint { col: 97, row: 33 }
+        );
+    }
 }
 
 #[test]
@@ -426,13 +488,13 @@ fn separators_become_lines_centred_in_the_gap() {
     for (scale, vertical, horizontal) in [
         (
             1.0,
-            rect(92.0, 39.0, 1.0, 320.0),
-            rect(8.0, 127.0, 80.0, 1.0),
+            rect(92.0, 45.0, 1.0, 320.0),
+            rect(8.0, 133.0, 80.0, 1.0),
         ),
         (
             2.0,
-            rect(183.0, 78.0, 2.0, 640.0),
-            rect(16.0, 253.0, 160.0, 2.0),
+            rect(183.0, 91.0, 2.0, 640.0),
+            rect(16.0, 266.0, 160.0, 2.0),
         ),
     ] {
         let layout = run_layout(scale, 800, &parts(), None, &separators, None);
@@ -458,8 +520,8 @@ fn centred_modal_grows_the_lifted_rect_over_a_backdrop() {
         size: GridSize { cols: 20, rows: 5 },
     };
     for (scale, expected) in [
-        (1.0, rect(64.0, 47.0, 208.0, 128.0)),
-        (2.0, rect(128.0, 94.0, 416.0, 256.0)),
+        (1.0, rect(64.0, 53.0, 208.0, 128.0)),
+        (2.0, rect(128.0, 107.0, 416.0, 256.0)),
     ] {
         let layout = run_layout(
             scale,
@@ -655,6 +717,6 @@ fn separators_are_clipped_to_the_grid_area() {
     assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 184.0, 557.0));
     assert_eq!(
         borders,
-        [rect(92.0, 39.0, 1.0, 557.0), rect(8.0, 127.0, 184.0, 1.0)]
+        [rect(92.0, 45.0, 1.0, 551.0), rect(8.0, 133.0, 184.0, 1.0)]
     );
 }

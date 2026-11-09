@@ -38,6 +38,7 @@ pub struct TextRun {
 pub struct Chrome {
     pub origin: (f32, f32),
     pub clip: PxRect,
+    pub extend: PxRect,
     pub quads: Vec<Quad>,
     pub text: Vec<TextRun>,
     pub modal: Vec<Quad>,

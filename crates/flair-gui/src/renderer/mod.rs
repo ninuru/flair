@@ -152,6 +152,7 @@ impl Renderer {
             self.reset_atlas = false;
         }
         let lifted = chrome.lifted;
+        let margins = self.margins(grid, chrome.origin, chrome.extend);
         let outside = self.cells(grid, chrome.origin, fonts, |point| {
             !lifted.is_some_and(|rect| rect.contains(point))
         });
@@ -179,6 +180,8 @@ impl Renderer {
             );
             self.gl.clear(glow::COLOR_BUFFER_BIT);
         }
+        self.scissor(chrome.extend);
+        self.pipeline.draw(&self.gl, self.px, &margins);
         self.scissor(chrome.clip);
         for instances in &outside {
             self.pipeline.draw(&self.gl, self.px, instances);
@@ -203,11 +206,10 @@ impl Renderer {
         Ok(())
     }
     fn scissor(&self, clip: PxRect) {
-        let bottom = self.px.1 as f32 - clip.y - clip.h;
+        let (x, y, w, h) = scissor_box(clip, self.px.1);
         unsafe {
             self.gl.enable(glow::SCISSOR_TEST);
-            self.gl
-                .scissor(clip.x as i32, bottom as i32, clip.w as i32, clip.h as i32);
+            self.gl.scissor(x, y, w, h);
         }
     }
     fn glyph(&mut self, key: GlyphKey, fonts: &mut Fonts) -> Option<AtlasGlyph> {
@@ -265,6 +267,47 @@ impl Renderer {
                     );
                 }
                 x += fonts.ui_advance(c, style);
+            }
+        }
+        out
+    }
+    fn margins(&self, grid: &CellGrid, origin: (f32, f32), extend: PxRect) -> Vec<f32> {
+        let mut out = Vec::new();
+        let m = self.metrics;
+        let cols = usize::from(grid.size.cols);
+        let rows = usize::from(grid.size.rows);
+        if cols == 0 || rows == 0 || grid.cells.len() < cols * rows {
+            return out;
+        }
+        let right = origin.0 + cols as f32 * m.width;
+        let bottom = origin.1 + rows as f32 * m.height;
+        let xs = [
+            (extend.x, origin.0 - extend.x),
+            (right, extend.x + extend.w - right),
+        ];
+        let ys = [
+            (extend.y, origin.1 - extend.y),
+            (bottom, extend.y + extend.h - bottom),
+        ];
+        let bg = |col: usize, row: usize| opaque(grid.cells[row * cols + col].bg);
+        let mut push = |x: (f32, f32), y: (f32, f32), color| {
+            if x.1 > 0.0 && y.1 > 0.0 {
+                instance(&mut out, [x.0, y.0, x.1, y.1], [0.0; 4], color, 0.0);
+            }
+        };
+        for row in 0..rows {
+            let y = (origin.1 + row as f32 * m.height, m.height);
+            push(xs[0], y, bg(0, row));
+            push(xs[1], y, bg(cols - 1, row));
+        }
+        for col in 0..cols {
+            let x = (origin.0 + col as f32 * m.width, m.width);
+            push(x, ys[0], bg(col, 0));
+            push(x, ys[1], bg(col, rows - 1));
+        }
+        for (x, col) in [(xs[0], 0), (xs[1], cols - 1)] {
+            for (y, row) in [(ys[0], 0), (ys[1], rows - 1)] {
+                push(x, y, bg(col, row));
             }
         }
         out
@@ -410,6 +453,19 @@ impl Drop for Renderer {
     fn drop(&mut self) {
         self.pipeline.destroy(&self.gl);
     }
+}
+
+fn scissor_box(clip: PxRect, height: u32) -> (i32, i32, i32, i32) {
+    let left = clip.x.floor();
+    let top = clip.y.floor();
+    let right = (clip.x + clip.w).ceil();
+    let bottom = (clip.y + clip.h).ceil();
+    (
+        left as i32,
+        (height as f32 - bottom) as i32,
+        (right - left) as i32,
+        (bottom - top) as i32,
+    )
 }
 
 #[cfg(test)]

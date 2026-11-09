@@ -94,8 +94,20 @@ pub fn bar_height(scale: f32) -> f32 {
     px(BAR, scale)
 }
 
-pub fn grid_origin(padding: (f32, f32), scale: f32) -> (f32, f32) {
-    (padding.0, chrome_bottom(scale) + padding.1)
+pub fn grid_origin(
+    px: (u32, u32),
+    padding: (f32, f32),
+    scale: f32,
+    metrics: CellMetrics,
+) -> (f32, f32) {
+    let size = grid_size(px, padding, scale, metrics);
+    let top = chrome_bottom(scale) + padding.1;
+    let width = px.0 as f32 - padding.0 * 2.0 - f32::from(size.cols) * metrics.width;
+    let height = px.1 as f32 - top - padding.1 - f32::from(size.rows) * metrics.height;
+    (
+        padding.0 + (width.max(0.0) / 2.0).floor(),
+        top + (height.max(0.0) / 2.0).floor(),
+    )
 }
 
 pub fn grid_size(
@@ -168,12 +180,13 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
         Some(prompt) => prompt_line(input, prompt, start, end, &mut scene, &mut measure),
         None => tabs(input, start, end, &mut scene, &mut measure),
     }
-    let origin = grid_origin(input.padding, scale);
+    let origin = grid_origin(input.px, input.padding, scale, input.metrics);
+    let top = chrome_bottom(scale) + input.padding.1;
     let clip = PxRect {
-        x: origin.0,
-        y: origin.1,
+        x: input.padding.0,
+        y: top,
         w: (width - input.padding.0 * 2.0).max(0.0),
-        h: (height - origin.1 - input.padding.1).max(0.0),
+        h: (height - top - input.padding.1).max(0.0),
     };
     for separator in input.separators {
         if let Some(rect) = intersect(separator_rect(input, separator), clip) {
@@ -189,6 +202,12 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
         chrome: Chrome {
             origin,
             clip,
+            extend: PxRect {
+                x: 0.0,
+                y: chrome_bottom(scale),
+                w: width,
+                h: (height - chrome_bottom(scale)).max(0.0),
+            },
             quads: scene.quads,
             text: scene.text,
             modal,
@@ -490,7 +509,7 @@ fn docked_modal(input: &ChromeInput, lifted: CellRect) -> Vec<Quad> {
 }
 
 fn cell_rect(input: &ChromeInput, rect: CellRect) -> PxRect {
-    let origin = grid_origin(input.padding, input.scale);
+    let origin = grid_origin(input.px, input.padding, input.scale, input.metrics);
     let metrics = input.metrics;
     PxRect {
         x: origin.0 + f32::from(rect.origin.col) * metrics.width,
