@@ -31,6 +31,7 @@ pub enum Command {
     ReloadConfig,
     ChooseSession,
     ChooseTheme,
+    Settings,
     CopyMode,
     Copy(CopyCommand),
 }

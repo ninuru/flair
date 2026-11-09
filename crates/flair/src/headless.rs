@@ -172,6 +172,7 @@ impl Capture {
             | ServerMsg::Sessions(_)
             | ServerMsg::ChooseWindow
             | ServerMsg::ChooseTheme
+            | ServerMsg::Settings
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }

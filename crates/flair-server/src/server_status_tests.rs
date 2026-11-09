@@ -291,6 +291,23 @@ fn choose_theme_asks_only_that_client_to_open_the_picker() {
 }
 
 #[test]
+fn prefix_shift_s_opens_settings_only_for_that_client() {
+    let mut server = setup();
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
+    key(&mut server, 2, press(Key::Char('a'), true));
+    let mut shift_s = press(Key::Char('S'), false);
+    shift_s.mods.shift = true;
+    let out = key(&mut server, 3, shift_s);
+    let sent: Vec<_> = out
+        .iter()
+        .filter(|effect| matches!(effect, Effect::Send(_, ServerMsg::Settings)))
+        .collect();
+    assert!(matches!(sent[..], [Effect::Send(ClientId(1), _)]));
+    assert!(writes(&out).is_empty());
+}
+
+#[test]
 fn palette_answers_background_queries_in_every_pane() {
     let mut server = setup();
     send(&mut server, 1, ClientMsg::Command(Command::NewWindow));

@@ -373,3 +373,91 @@ fn prefix_t_chooses_a_theme() {
     );
     assert_eq!(parse_command("choose-theme"), Some(Command::ChooseTheme));
 }
+
+#[test]
+fn prefix_shift_s_opens_settings_and_s_still_chooses_a_session() {
+    let config = KeysConfig::default();
+    assert_eq!(
+        config.binding(&with_mods(Key::Char('S'), false, true), true),
+        Some(Command::Settings)
+    );
+    assert_eq!(
+        config.binding(&plain(Key::Char('s')), true),
+        Some(Command::ChooseSession)
+    );
+    assert_eq!(parse_command("settings"), Some(Command::Settings));
+}
+
+#[test]
+fn default_bindings_list_every_table_in_order() {
+    let bindings = KeysConfig::default().bindings();
+    let count = |table| bindings.iter().filter(|b| b.table == table).count();
+    assert_eq!(count(KeyTable::Prefix), PREFIX_DEFAULTS.len());
+    assert_eq!(count(KeyTable::Root), ROOT_DEFAULTS.len());
+    assert_eq!(count(KeyTable::CopyMode), COPY_DEFAULTS.len());
+    assert_eq!(
+        bindings.len(),
+        PREFIX_DEFAULTS.len() + ROOT_DEFAULTS.len() + COPY_DEFAULTS.len()
+    );
+    assert_eq!(
+        bindings[0],
+        Binding {
+            table: KeyTable::Prefix,
+            chord: "c".into(),
+            command: Some("new-window".into()),
+            source: Source::Default,
+        }
+    );
+    assert_eq!(bindings[PREFIX_DEFAULTS.len()].table, KeyTable::Root);
+    assert_eq!(bindings[PREFIX_DEFAULTS.len()].chord, "C-S-c");
+    assert_eq!(bindings.last().unwrap().table, KeyTable::CopyMode);
+    assert_eq!(bindings.last().unwrap().chord, "Enter");
+    assert!(
+        bindings
+            .iter()
+            .any(|b| b.chord == "S" && b.command.as_deref() == Some("settings"))
+    );
+    assert_eq!(KeyTable::Prefix.name(), "prefix");
+    assert_eq!(KeyTable::Root.name(), "root");
+    assert_eq!(KeyTable::CopyMode.name(), "copy-mode");
+}
+
+#[test]
+fn user_bindings_replace_defaults_in_place_or_append() {
+    let mut config = KeysConfig::default();
+    config.prefix.insert("C".into(), "close-pane".into());
+    config.prefix.insert("v".into(), "split-vertical".into());
+    config.prefix.insert("ctrl-q".into(), "detach".into());
+    config.prefix.insert("x".into(), "none".into());
+    config.copy_mode.insert("escape".into(), "none".into());
+    let bindings = config.bindings();
+    let prefix: Vec<_> = bindings
+        .iter()
+        .filter(|b| b.table == KeyTable::Prefix)
+        .collect();
+    assert_eq!(prefix.len(), PREFIX_DEFAULTS.len() + 3);
+    assert_eq!(prefix[6].chord, "x");
+    assert_eq!(prefix[6].command, None);
+    assert_eq!(prefix[6].source, Source::File);
+    assert_eq!(prefix[5].source, Source::Default);
+    let appended: Vec<_> = prefix[PREFIX_DEFAULTS.len()..]
+        .iter()
+        .map(|b| (b.chord.as_str(), b.command.as_deref(), b.source))
+        .collect();
+    assert_eq!(
+        appended,
+        [
+            ("C", Some("close-pane"), Source::File),
+            ("ctrl-q", Some("detach"), Source::File),
+            ("v", Some("split-vertical"), Source::File),
+        ]
+    );
+    let copy: Vec<_> = bindings
+        .iter()
+        .filter(|b| b.table == KeyTable::CopyMode)
+        .collect();
+    assert_eq!(copy.len(), COPY_DEFAULTS.len());
+    assert_eq!(copy[1].chord, "escape");
+    assert_eq!(copy[1].command, None);
+    assert_eq!(copy[1].source, Source::File);
+}

@@ -97,6 +97,7 @@ impl Overlays {
             | ServerMsg::Status(_)
             | ServerMsg::PasteClipboard
             | ServerMsg::ReloadConfig { .. }
+            | ServerMsg::Settings
             | ServerMsg::Sessions(_)
             | ServerMsg::Done
             | ServerMsg::Error(_)

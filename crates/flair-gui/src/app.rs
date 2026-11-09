@@ -495,6 +495,7 @@ impl ApplicationHandler<UserEvent> for App {
                 | ServerMsg::PromptRename { .. }
                 | ServerMsg::PromptSearch { .. }
                 | ServerMsg::ChooseTheme
+                | ServerMsg::Settings
                 | ServerMsg::Sessions(_)
                 | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),

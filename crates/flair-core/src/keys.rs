@@ -9,6 +9,7 @@ use crate::{
     command::{Command, CopyCommand, CopyMotion, PaneRef, SelectionKind, WindowRef},
     geom::{Axis, Direction},
     key::{Key, KeyInput, Mods, NamedKey},
+    settings::Source,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,6 +85,7 @@ pub fn parse_command(command: &str) -> Option<Command> {
         "sessionizer" => Command::Sessionizer,
         "choose-session" => Command::ChooseSession,
         "choose-theme" => Command::ChooseTheme,
+        "settings" => Command::Settings,
         "reload-config" => Command::ReloadConfig,
         "select-pane-left" => Command::SelectPane(PaneRef::Direction(Direction::Left)),
         "select-pane-down" => Command::SelectPane(PaneRef::Direction(Direction::Down)),
@@ -157,6 +159,71 @@ impl KeysConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyTable {
+    Prefix,
+    Root,
+    CopyMode,
+}
+
+impl KeyTable {
+    pub fn name(self) -> &'static str {
+        match self {
+            KeyTable::Prefix => "prefix",
+            KeyTable::Root => "root",
+            KeyTable::CopyMode => "copy-mode",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Binding {
+    pub table: KeyTable,
+    pub chord: String,
+    pub command: Option<String>,
+    pub source: Source,
+}
+
+impl KeysConfig {
+    pub fn bindings(&self) -> Vec<Binding> {
+        [
+            merged(KeyTable::Prefix, &self.prefix, PREFIX_DEFAULTS),
+            merged(KeyTable::Root, &self.root, ROOT_DEFAULTS),
+            merged(KeyTable::CopyMode, &self.copy_mode, COPY_DEFAULTS),
+        ]
+        .concat()
+    }
+}
+
+fn merged(
+    table: KeyTable,
+    overrides: &BTreeMap<String, String>,
+    defaults: &[(&str, &str)],
+) -> Vec<Binding> {
+    let binding = |chord: &str, command: &str, source| Binding {
+        table,
+        chord: chord.into(),
+        command: (command != "none").then(|| command.into()),
+        source,
+    };
+    let mut rows: Vec<(Option<KeyChord>, Binding)> = defaults
+        .iter()
+        .map(|(chord, command)| (chord.parse().ok(), binding(chord, command, Source::Default)))
+        .collect();
+    for (chord, command) in overrides {
+        let parsed = chord.parse::<KeyChord>().ok();
+        let row = binding(chord, command, Source::File);
+        match rows
+            .iter_mut()
+            .find(|(existing, _)| parsed.is_some() && *existing == parsed)
+        {
+            Some(slot) => slot.1 = row,
+            None => rows.push((parsed, row)),
+        }
+    }
+    rows.into_iter().map(|(_, row)| row).collect()
+}
+
 fn lookup<T>(
     overrides: &BTreeMap<String, String>,
     defaults: &[(&str, &str)],
@@ -196,6 +263,7 @@ const PREFIX_DEFAULTS: &[(&str, &str)] = &[
     ("f", "sessionizer"),
     ("s", "choose-session"),
     ("t", "choose-theme"),
+    ("S", "settings"),
     ("r", "reload-config"),
     ("[", "copy-mode"),
     ("h", "select-pane-left"),
