@@ -89,6 +89,7 @@ impl Capture {
             | ServerMsg::ChooseSession { .. }
             | ServerMsg::Sessions(_)
             | ServerMsg::ChooseWindow
+            | ServerMsg::ChooseTheme
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }

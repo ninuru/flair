@@ -211,11 +211,9 @@ impl Server {
             }
         };
         self.config = self.config.reloaded(&config);
-        let palette = config.theme();
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
         for id in ids {
             let client = self.clients.get_mut(&id).unwrap();
-            client.palette = palette.clone();
             let before = client.prefix.deadline();
             client.prefix.reset();
             self.prefix_changed(id, before, out);

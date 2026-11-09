@@ -261,13 +261,52 @@ fn reload_reads_the_config_file_and_reaches_every_client() {
     server.handle(Millis(4), Event::ConfigRead(Ok(toml.clone())), &mut out);
     for id in [ClientId(1), ClientId(2)] {
         assert!(out.iter().any(|effect| matches!(effect, Effect::Send(client, ServerMsg::ReloadConfig { toml: sent }) if *client == id && *sent == toml)));
-        assert_eq!(
-            server.clients[&id].palette.background,
-            Config::from_toml(&toml).unwrap().theme().background
-        );
+        assert_eq!(server.clients[&id].palette, Config::default().theme());
     }
     let out = key(&mut server, 5, press(Key::Char('b'), true));
     assert_eq!(status(&out).unwrap().pending.as_deref(), Some("^B"));
+}
+
+#[test]
+fn choose_theme_asks_only_that_client_to_open_the_picker() {
+    let mut server = setup();
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
+    key(&mut server, 2, press(Key::Char('a'), true));
+    let out = key(&mut server, 3, press(Key::Char('t'), false));
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::ChooseTheme)))
+    );
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::Send(ClientId(2), ServerMsg::ChooseTheme)))
+    );
+    assert!(writes(&out).is_empty());
+}
+
+#[test]
+fn palette_answers_background_queries_in_every_pane() {
+    let mut server = setup();
+    send(&mut server, 1, ClientMsg::Command(Command::NewWindow));
+    let mut palette = Config::default().theme();
+    palette.background = Config::from_toml("[colors]\nbackground = \"#101010\"\n")
+        .unwrap()
+        .theme()
+        .background;
+    send(&mut server, 2, ClientMsg::Palette(palette.clone()));
+    assert_eq!(server.clients[&ClientId(1)].palette, palette);
+    let panes: Vec<PaneId> = server.panes.keys().copied().collect();
+    assert_eq!(panes.len(), 2);
+    for pane in panes {
+        let mut out = Vec::new();
+        server.handle(
+            Millis(3),
+            Event::PtyOutput(pane, b"\x1b]11;?\x07".to_vec()),
+            &mut out,
+        );
+        assert!(out.iter().any(|effect| matches!(effect, Effect::WritePty(target, bytes) if *target == pane && String::from_utf8_lossy(bytes).contains("1010/1010/1010"))));
+    }
 }
 
 #[test]

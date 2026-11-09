@@ -450,6 +450,7 @@ impl ApplicationHandler<UserEvent> for App {
                     Ok(config) => self.reload(config, event_loop),
                     Err(error) => log::warn!("ignoring reloaded config: {error}"),
                 },
+                ServerMsg::ChooseTheme => {}
                 ServerMsg::Sessions(_) | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
                 ServerMsg::Exit(_) => {

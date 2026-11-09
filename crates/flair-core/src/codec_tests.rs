@@ -132,6 +132,8 @@ fn client_messages() -> Vec<ClientMsg> {
         ClientMsg::Command(Command::ToggleZoom),
         ClientMsg::Command(Command::ReloadConfig),
         ClientMsg::Command(Command::ChooseSession),
+        ClientMsg::Command(Command::ChooseTheme),
+        ClientMsg::Palette(Config::default().theme()),
         ClientMsg::Command(Command::CopyMode),
         ClientMsg::Command(Command::Copy(CopyCommand::Cancel)),
         ClientMsg::Command(Command::Copy(CopyCommand::Yank)),
@@ -226,6 +228,7 @@ fn server_messages() -> Vec<ServerMsg> {
             copy: true,
         }),
         ServerMsg::ChooseWindow,
+        ServerMsg::ChooseTheme,
         ServerMsg::PasteClipboard,
         ServerMsg::PromptRename {
             current: "zsh".to_owned(),
