@@ -215,6 +215,7 @@ impl Capture {
     }
 
     fn key(&mut self, key: KeyInput) -> Option<ClientMsg> {
+        self.place();
         let event = self.overlays.key(&key, || None);
         self.route(event, ClientMsg::Input(InputEvent::Key(key)))
     }
@@ -264,6 +265,37 @@ impl Capture {
         Ok(Some(ClientMsg::Resize(self.size)))
     }
 
+    fn place(&mut self) {
+        let Some(pixels) = &mut self.pixels else {
+            return;
+        };
+        if !self.overlays.is_open() {
+            return;
+        }
+        let theme = self.preview.as_ref().unwrap_or(&self.theme);
+        let parts = status_parts(&self.status);
+        let prompt = self.overlays.bar_field();
+        let input = ChromeInput {
+            px: pixels.px,
+            scale: pixels.scale as f32,
+            padding: padding(&self.config, pixels.scale),
+            metrics: pixels.fonts.metrics(),
+            ui: pixels.fonts.ui_metrics(),
+            theme,
+            status: &parts,
+            prompt: prompt.as_ref().map(|(text, cursor)| BarField {
+                text,
+                cursor: *cursor,
+            }),
+            layout: self.layout.as_ref(),
+            hover: None,
+            overlays: Some(&self.overlays),
+        };
+        let ChromeLayout { overlay, .. } =
+            chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
+        self.overlays.place(overlay);
+    }
+
     fn capture(&mut self, output: &Path, name: &str) -> Result<(), String> {
         if self.pixels.is_none() {
             return fs::write(output.join(format!("{name}.txt")), self.frame())
@@ -301,9 +333,11 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
         };
-        let ChromeLayout { chrome, .. } =
-            chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
+        let ChromeLayout {
+            chrome, overlay, ..
+        } = chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
         let image = pixels.render(&grid, &chrome, theme.background)?;
+        self.overlays.place(overlay);
         fs::write(output.join(format!("{name}.ppm")), image).map_err(|e| e.to_string())
     }
 

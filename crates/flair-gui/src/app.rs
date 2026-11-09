@@ -558,17 +558,22 @@ impl ApplicationHandler<UserEvent> for App {
                 if target(self, (position.x, position.y)) != before {
                     self.request_redraw();
                 }
-                if self.overlays.is_open() {
+                if self.overlays.is_open() || self.capture == Capture::Overlay {
                     return;
                 }
                 self.mouse(self.button, MouseAction::Motion);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if self.overlays.is_open() {
+                if self.overlays.is_open() || self.capture == Capture::Overlay {
                     if state == ElementState::Released {
                         self.capture = Capture::Idle;
                         self.button = MouseButton::NoButton;
-                    } else if button == winit::event::MouseButton::Left
+                        return;
+                    }
+                    let open = self.overlays.is_open();
+                    self.capture = Capture::Overlay;
+                    if open
+                        && button == winit::event::MouseButton::Left
                         && let Some(hit) = self.overlays.hit_test((self.pointer.x, self.pointer.y))
                     {
                         let event = self.overlays.click(hit);
@@ -630,6 +635,9 @@ impl ApplicationHandler<UserEvent> for App {
                     .as_ref()
                     .map_or(16.0, |s| s.fonts.metrics().height);
                 let lines = self.wheel.push(delta, line_px);
+                if self.capture == Capture::Overlay {
+                    return;
+                }
                 if self.overlays.is_open() {
                     let event = self.overlays.wheel(-lines);
                     self.overlay_event(event, event_loop);
@@ -661,6 +669,7 @@ enum Capture {
     Idle,
     Server,
     Bar,
+    Overlay,
 }
 
 fn route_mouse(
@@ -671,7 +680,7 @@ fn route_mouse(
 ) -> MouseRoute {
     match capture {
         Capture::Server => MouseRoute::Server,
-        Capture::Bar => MouseRoute::Drop,
+        Capture::Bar | Capture::Overlay => MouseRoute::Drop,
         Capture::Idle if !in_bar => MouseRoute::Server,
         Capture::Idle if button == MouseButton::Left && action == MouseAction::Press => {
             MouseRoute::Bar
@@ -695,9 +704,8 @@ fn capture_after(
 ) -> Capture {
     match (action, capture, route) {
         (MouseAction::Release, _, _) => Capture::Idle,
-        (MouseAction::Motion, _, _) | (MouseAction::Press, Capture::Server | Capture::Bar, _) => {
-            capture
-        }
+        (MouseAction::Motion, _, _)
+        | (MouseAction::Press, Capture::Server | Capture::Bar | Capture::Overlay, _) => capture,
         (MouseAction::Press, Capture::Idle, MouseRoute::Bar) => Capture::Bar,
         (MouseAction::Press, Capture::Idle, MouseRoute::Server)
             if matches!(

@@ -21,6 +21,46 @@ fn bar_press_goes_to_the_bar_and_other_bar_events_drop() {
 }
 
 #[test]
+fn an_overlay_gesture_is_dropped_until_release() {
+    assert_eq!(
+        route_mouse(
+            false,
+            MouseButton::Left,
+            MouseAction::Motion,
+            Capture::Overlay
+        ),
+        MouseRoute::Drop
+    );
+    assert_eq!(
+        route_mouse(
+            false,
+            MouseButton::Left,
+            MouseAction::Release,
+            Capture::Overlay
+        ),
+        MouseRoute::Drop
+    );
+    assert_eq!(
+        capture_after(
+            Capture::Overlay,
+            MouseButton::Left,
+            MouseAction::Motion,
+            MouseRoute::Drop
+        ),
+        Capture::Overlay
+    );
+    assert_eq!(
+        capture_after(
+            Capture::Overlay,
+            MouseButton::Left,
+            MouseAction::Release,
+            MouseRoute::Drop
+        ),
+        Capture::Idle
+    );
+}
+
+#[test]
 fn route_mouse_table() {
     for (in_bar, button, action, held, route) in [
         (
