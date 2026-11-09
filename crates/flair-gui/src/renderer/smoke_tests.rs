@@ -439,3 +439,126 @@ fn scissor_rounds_fractional_clips_outward() {
     };
     assert_eq!(scissor_box(clip, 400), (17, 56, 769, 301));
 }
+
+#[test]
+fn dominant_picks_the_most_frequent_colour_and_breaks_ties_by_first_cell() {
+    let a = Rgb { r: 1, g: 2, b: 3 };
+    let b = Rgb { r: 4, g: 5, b: 6 };
+    let c = Rgb { r: 7, g: 8, b: 9 };
+    assert_eq!(dominant([a, b, b, c, b, a].into_iter()), Some(b));
+    assert_eq!(dominant([a, b, b, a].into_iter()), Some(a));
+    assert_eq!(dominant([b, a, a, b, c].into_iter()), Some(b));
+    assert_eq!(dominant([c].into_iter()), Some(c));
+    assert_eq!(dominant(std::iter::empty()), None);
+}
+
+#[test]
+fn top_and_bottom_margins_use_the_dominant_edge_row_colour() {
+    const W: usize = 400;
+    const H: usize = 300;
+    let Some((ctx, gl)) = headless_or_skip((W as u32, H as u32), "edges") else {
+        return;
+    };
+    let config = Config::default();
+    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
+    let metrics = fonts.metrics();
+    let colour = |r, g, b| Rgb { r, g, b };
+    let base = colour(0x0f, 0x10, 0x11);
+    let tab = colour(0x28, 0x28, 0x25);
+    let status = colour(0x50, 0x30, 0x20);
+    let foot = colour(0x20, 0x40, 0x60);
+    let corner = colour(0x70, 0x10, 0x10);
+    let left = colour(0x10, 0x70, 0x10);
+    let right = colour(0x10, 0x10, 0x70);
+    let size = GridSize { cols: 20, rows: 6 };
+    let cols = usize::from(size.cols);
+    let last = usize::from(size.rows) - 1;
+    let mut grid = filled_grid(size, base);
+    for col in 8..11 {
+        grid.cells[col].bg = tab;
+        grid.cells[last * cols + col].bg = status;
+    }
+    for col in 0..cols {
+        if !(8..11).contains(&col) {
+            grid.cells[last * cols + col].bg = foot;
+        }
+    }
+    grid.cells[0].bg = corner;
+    grid.cells[last * cols + cols - 1].bg = corner;
+    grid.cells[2 * cols].bg = left;
+    grid.cells[2 * cols + cols - 1].bg = right;
+    let origin = (24.0_f32, 60.0_f32);
+    let grid_w = f32::from(size.cols) * metrics.width;
+    let grid_h = f32::from(size.rows) * metrics.height;
+    assert!(origin.0 + grid_w < W as f32 - 8.0 && origin.1 + grid_h < H as f32 - 8.0);
+    let chrome = Chrome {
+        origin,
+        clip: PxRect {
+            x: origin.0,
+            y: origin.1,
+            w: grid_w,
+            h: grid_h,
+        },
+        extend: PxRect {
+            x: 0.0,
+            y: 40.0,
+            w: W as f32,
+            h: H as f32 - 40.0,
+        },
+        ..Chrome::default()
+    };
+    let mut renderer = Renderer::new(gl, metrics).unwrap();
+    renderer.resize((W as u32, H as u32));
+    renderer
+        .draw_frame(&grid, &chrome, &mut fonts, config.theme().background)
+        .unwrap();
+    let pixels = renderer.read_pixels();
+    let pixel = |x: f32, y: f32| -> [u8; 3] {
+        let i = ((H - 1 - y as usize) * W + x as usize) * 4;
+        [pixels[i], pixels[i + 1], pixels[i + 2]]
+    };
+    if let Some(path) = std::env::var_os("FLAIR_DUMP_EDGES_PPM") {
+        let mut file = fs::File::create(path).unwrap();
+        write!(file, "P6\n{W} {H}\n255\n").unwrap();
+        for y in 0..H {
+            for x in 0..W {
+                file.write_all(&pixel(x as f32, y as f32)).unwrap();
+            }
+        }
+    }
+    let rgb = |c: Rgb| [c.r, c.g, c.b];
+    let run_x = origin.0 + metrics.width * 9.5;
+    let bottom = origin.1 + grid_h;
+    let right_x = origin.0 + grid_w;
+    let row_y = |row: f32| origin.1 + metrics.height * (row + 0.5);
+    assert_eq!(pixel(run_x, row_y(0.0)), rgb(tab));
+    assert_eq!(pixel(run_x, row_y(last as f32)), rgb(status));
+    for y in [40.0, origin.1 - 1.0] {
+        assert_eq!(pixel(run_x, y), rgb(base), "top margin above run at {y}");
+        for x in [0.0, origin.0 + 1.0, right_x, W as f32 - 1.0] {
+            assert_eq!(pixel(x, y), rgb(base), "top margin at {x},{y}");
+        }
+    }
+    for y in [bottom, H as f32 - 1.0] {
+        assert_eq!(pixel(run_x, y), rgb(foot), "bottom margin below run at {y}");
+        for x in [0.0, origin.0 + 1.0, right_x, W as f32 - 1.0] {
+            assert_eq!(pixel(x, y), rgb(foot), "bottom margin at {x},{y}");
+        }
+    }
+    for x in [0.0, origin.0 - 1.0] {
+        assert_eq!(pixel(x, row_y(2.0)), rgb(left), "left margin at {x}");
+        assert_eq!(pixel(x, row_y(1.0)), rgb(base), "left margin at {x}");
+        assert_eq!(pixel(x, row_y(0.0)), rgb(corner), "left of row 0 at {x}");
+    }
+    for x in [right_x, W as f32 - 1.0] {
+        assert_eq!(pixel(x, row_y(2.0)), rgb(right), "right margin at {x}");
+        assert_eq!(pixel(x, row_y(1.0)), rgb(base), "right margin at {x}");
+        assert_eq!(
+            pixel(x, row_y(last as f32)),
+            rgb(corner),
+            "right of last row at {x}"
+        );
+    }
+    drop(renderer);
+    drop(ctx);
+}

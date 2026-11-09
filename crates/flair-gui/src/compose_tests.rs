@@ -490,18 +490,23 @@ fn gpu_frame_draws_bar_border_pane_border_and_grid_below_the_bar() {
         f32::from(config.window.padding_y),
     );
     let origin = grid_origin((800, 300), padding, 1.0, metrics);
-    assert!(origin.0 >= 16.0 && origin.1 >= 35.0 + 8.0, "{origin:?}");
+    assert!(
+        origin.0 >= padding.0 && origin.1 >= 35.0 + padding.1,
+        "{origin:?}"
+    );
     assert_eq!(chrome.chrome.origin, origin);
     assert_eq!(frame.at(origin.0 + 1.0, origin.1), rgb(theme.foreground));
-    assert_eq!(
-        frame.at(origin.0 + 1.0, origin.1 - 1.0),
+    let above = if origin.1 > 35.0 {
         rgb(theme.foreground)
-    );
+    } else {
+        rgb(surfaces.outline)
+    };
+    assert_eq!(frame.at(origin.0 + 1.0, origin.1 - 1.0), above);
     assert_eq!(
         frame.at(origin.0 - 1.0, origin.1 + 1.0),
         rgb(theme.foreground)
     );
-    let size = grid_size((800, 300), (16.0, 8.0), 1.0, metrics);
+    let size = grid_size((800, 300), padding, 1.0, metrics);
     let gap = origin.0 + f32::from((size.cols - 1) / 2) * metrics.width;
     let line = (gap + (metrics.width - 1.0) / 2.0).round();
     let y = origin.1 + metrics.height * 3.5;
@@ -527,9 +532,14 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
         return;
     };
     frame.dump("FLAIR_EXTEND_PPM");
-    let surfaces = Config::default().theme().surfaces();
+    let config = Config::default();
+    let surfaces = config.theme().surfaces();
     let origin = chrome.chrome.origin;
-    let size = grid_size((800, 300), (16.0, 8.0), 1.0, metrics);
+    let padding = (
+        f32::from(config.window.padding_x),
+        f32::from(config.window.padding_y),
+    );
+    let size = grid_size((800, 300), padding, 1.0, metrics);
     let right = origin.0 + f32::from(size.cols) * metrics.width;
     let bottom = origin.1 + f32::from(size.rows) * metrics.height;
     let row = origin.1 + metrics.height * 3.5;
@@ -538,7 +548,7 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
         assert_eq!(frame.at(x, 35.0), rgb(first), "top margin at {x}");
         assert_eq!(frame.at(x, 299.0), rgb(rest), "bottom margin at {x}");
     }
-    assert!(bottom < 299.0 && right < 799.0, "{right} {bottom}");
+    assert!(bottom <= 300.0 && right < 799.0, "{right} {bottom}");
     for x in [0.0, origin.0 - 1.0, right, 799.0] {
         assert_eq!(frame.at(x, row), rgb(rest), "side margin at {x}");
         assert_eq!(

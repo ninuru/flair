@@ -17,8 +17,8 @@ size = 13.0
 line_height = 1.0
 
 [window]
-padding_x = 16
-padding_y = 8
+padding_x = 8
+padding_y = 0
 
 [scrollback]
 lines = 10000
@@ -66,6 +66,12 @@ fn blueprint_example_equals_defaults() {
         },
         Config::default()
     );
+}
+
+#[test]
+fn window_padding_defaults_to_eight_by_zero() {
+    let window = Config::default().window;
+    assert_eq!((window.padding_x, window.padding_y), (8, 0));
 }
 
 #[test]

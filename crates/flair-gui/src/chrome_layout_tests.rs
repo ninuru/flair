@@ -186,6 +186,44 @@ fn grid_origin_splits_the_unused_remainder_evenly() {
 }
 
 #[test]
+fn zero_padding_puts_the_grid_below_the_bar_line_plus_half_the_leftover() {
+    for (scale, width) in [(1.0, 803), (2.0, 803)] {
+        let px = (width * scale as u32, 600 * scale as u32);
+        let cell = metrics(scale);
+        let size = grid_size(px, (0.0, 0.0), scale, cell);
+        let top = 35.0 * scale;
+        let leftover = (
+            px.0 as f32 - f32::from(size.cols) * cell.width,
+            px.1 as f32 - top - f32::from(size.rows) * cell.height,
+        );
+        assert!(leftover.0 >= 0.0 && leftover.1 >= 0.0, "{leftover:?}");
+        assert_eq!(
+            grid_origin(px, (0.0, 0.0), scale, cell),
+            ((leftover.0 / 2.0).floor(), top + (leftover.1 / 2.0).floor())
+        );
+        let theme = Config::default().theme();
+        let status = parts();
+        let input = ChromeInput {
+            px,
+            scale,
+            padding: (0.0, 0.0),
+            metrics: cell,
+            ui: ui(scale),
+            theme: &theme,
+            status: &status,
+            prompt: None,
+            separators: &[],
+            modal: None,
+        };
+        let chrome = layout(&input, measure).chrome;
+        let full = rect(0.0, top, px.0 as f32, px.1 as f32 - top);
+        assert_eq!(chrome.origin, grid_origin(px, (0.0, 0.0), scale, cell));
+        assert_eq!(chrome.clip, full);
+        assert_eq!(chrome.extend, full);
+    }
+}
+
+#[test]
 fn mouse_mapping_uses_the_drawn_grid_origin() {
     for scale in [1.0, 2.0] {
         let layout = run_layout(scale, 803, &parts(), None, &[], None);
