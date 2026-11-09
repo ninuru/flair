@@ -183,7 +183,6 @@ impl Capture {
                 self.layout = Some(layout);
             }
             ServerMsg::Status(status) => {
-                self.overlays.status(&self.status, &status);
                 self.status = status;
             }
             ServerMsg::Frame { seq, panes } => {

@@ -464,7 +464,6 @@ impl ApplicationHandler<UserEvent> for App {
                     self.request_redraw();
                 }
                 ServerMsg::Status(status) => {
-                    self.overlays.status(&self.status, &status);
                     self.status = status;
                     self.request_redraw();
                 }

@@ -340,16 +340,6 @@ fn clear_notice_drops_it() {
 }
 
 #[test]
-fn a_changed_status_clears_the_notice_and_an_unchanged_one_keeps_it() {
-    let mut overlays = Overlays::default();
-    overlays.set_notice(Notice::info("config reloaded"));
-    overlays.status(&windows(), &windows());
-    assert_eq!(overlays.notice(), Some(&Notice::info("config reloaded")));
-    overlays.status(&windows(), &StatusLine::default());
-    assert_eq!(overlays.notice(), None);
-}
-
-#[test]
 fn opening_an_overlay_clears_the_notice() {
     let mut overlays = Overlays::default();
     overlays.set_notice(Notice::info("config reloaded"));

@@ -198,19 +198,19 @@ impl Server {
     }
 
     pub(super) fn config_read(&mut self, result: Result<String, String>, out: &mut Vec<Effect>) {
-        let parsed = result.and_then(|text| {
-            Config::from_toml(&text)
-                .map(|config| (text, config))
-                .map_err(|error| error.to_string())
-        });
-        let (text, config) = match parsed {
-            Ok(value) => value,
+        let text = match result {
+            Ok(text) => text,
             Err(error) => {
                 log::warn!("config reload failed, keeping the current config: {error}");
                 return;
             }
         };
-        self.config = self.config.reloaded(&config);
+        match Config::from_toml(&text) {
+            Ok(config) => self.config = self.config.reloaded(&config),
+            Err(error) => {
+                log::warn!("config reload failed, keeping the current config: {error}");
+            }
+        }
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
         for id in ids {
             let client = self.clients.get_mut(&id).unwrap();

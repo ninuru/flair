@@ -110,7 +110,7 @@ pub fn layout(
     let scale = input.scale;
     let surfaces = input.theme.surfaces();
     let mut scene = OverlayScene::default();
-    let (panel, (capacity, has_footer)) = match sheet.placement {
+    let (panel, (capacity, has_footer, has_field)) = match sheet.placement {
         Placement::Centred => centred(sheet, input, &mut scene),
         Placement::Docked => docked(sheet, input),
     };
@@ -128,7 +128,7 @@ pub fn layout(
     let mut y = panel.y + px(PANEL_PAD_Y, scale);
     title(sheet, input, (x, y, width), &mut scene, measure);
     y += px(ITEM_HEIGHT, scale) + px(ITEM_GAP, scale);
-    if let Some(field) = &sheet.field {
+    if has_field && let Some(field) = &sheet.field {
         search(field, input, (x, y, width), &mut scene, measure);
         y += px(FIELD_HEIGHT, scale) + px(FIELD_GAP, scale);
     }
@@ -198,10 +198,10 @@ pub fn layout(
     scene
 }
 
-fn head_height(sheet: &Sheet, scale: f32) -> f32 {
-    let field = match sheet.field {
-        Some(_) => px(FIELD_HEIGHT, scale) + px(FIELD_GAP, scale),
-        None => 0.0,
+fn head_height(sheet: &Sheet, has_field: bool, scale: f32) -> f32 {
+    let field = match (&sheet.field, has_field) {
+        (Some(_), true) => px(FIELD_HEIGHT, scale) + px(FIELD_GAP, scale),
+        (Some(_), false) | (None, _) => 0.0,
     };
     px(PANEL_PAD_Y, scale) * 2.0 + px(ITEM_HEIGHT, scale) + px(ITEM_GAP, scale) + field
 }
@@ -210,17 +210,18 @@ fn footer_height(scale: f32) -> f32 {
     px(FOOTER_RULE_GAP, scale) * 2.0 + px(LINE, scale) + px(CAP_HEIGHT, scale)
 }
 
-fn fit(sheet: &Sheet, room: f32, scale: f32) -> (usize, bool) {
-    let head = head_height(sheet, scale);
+fn fit(sheet: &Sheet, room: f32, scale: f32) -> (usize, bool, bool) {
+    let has_field = sheet.field.is_some() && head_height(sheet, true, scale) <= room;
+    let head = head_height(sheet, has_field, scale);
     let footer = footer_height(scale);
     match capacity(room - head - footer, scale) {
-        0 => (capacity(room - head, scale).min(1), false),
-        rows => (rows, true),
+        0 => (capacity(room - head, scale).min(1), false, has_field),
+        rows => (rows, true, has_field),
     }
 }
 
-fn panel_height(sheet: &Sheet, fit: (usize, bool), scale: f32) -> f32 {
-    let (capacity, has_footer) = fit;
+fn panel_height(sheet: &Sheet, fit: (usize, bool, bool), scale: f32) -> f32 {
+    let (capacity, has_footer, has_field) = fit;
     let count = match capacity {
         0 => 0.0,
         _ => sheet.rows.len().clamp(1, capacity) as f32,
@@ -230,7 +231,7 @@ fn panel_height(sheet: &Sheet, fit: (usize, bool), scale: f32) -> f32 {
         true => footer_height(scale),
         false => 0.0,
     };
-    head_height(sheet, scale) + rows + footer
+    head_height(sheet, has_field, scale) + rows + footer
 }
 
 fn capacity(room: f32, scale: f32) -> usize {
@@ -242,7 +243,7 @@ fn centred(
     sheet: &Sheet,
     input: &OverlayInput,
     scene: &mut OverlayScene,
-) -> (PxRect, (usize, bool)) {
+) -> (PxRect, (usize, bool, bool)) {
     let scale = input.scale;
     let (width, height) = (input.px.0 as f32, input.px.1 as f32);
     let below = chrome_bottom(scale);
@@ -264,7 +265,7 @@ fn centred(
         false => (below + margin, height - below - margin * 2.0),
     };
     let fit = fit(sheet, room, scale);
-    let panel_height = panel_height(sheet, fit, scale);
+    let panel_height = panel_height(sheet, fit, scale).min(room.max(0.0));
     let panel_width = px(PANEL_WIDTH, scale)
         .min(width - px(PANEL_PAD_X, scale) * 2.0)
         .max(0.0)
@@ -284,7 +285,7 @@ fn centred(
     )
 }
 
-fn docked(sheet: &Sheet, input: &OverlayInput) -> (PxRect, (usize, bool)) {
+fn docked(sheet: &Sheet, input: &OverlayInput) -> (PxRect, (usize, bool, bool)) {
     let scale = input.scale;
     let (width, height) = (input.px.0 as f32, input.px.1 as f32);
     let inset = px(DOCK_INSET, scale);

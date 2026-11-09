@@ -499,10 +499,31 @@ fn rows_then_the_footer_drop_before_the_search_field() {
 
     let scene = run(&many(12, 0), (400, 180), 1.0, None);
     assert_inside(&scene, (400, 180), 1.0);
-    assert!(scene.hits.rows.is_empty());
-    assert!(field_quad(&scene));
+    assert_eq!(scene.hits.rows.len(), 1);
+    assert!(!field_quad(&scene));
     assert!(text(&scene, "Sessions").is_some());
     assert!(text(&scene, "12").is_some());
+}
+
+#[test]
+fn the_search_field_drops_before_the_panel_leaves_a_tiny_window() {
+    let theme = Config::default().theme();
+    let field_quad = |scene: &OverlayScene| {
+        scene
+            .quads
+            .iter()
+            .any(|quad| quad.color == opaque(theme.background) && quad.rect.h == 32.0)
+    };
+    let scene = run(&many(12, 0), (400, 160), 1.0, None);
+    assert_inside(&scene, (400, 160), 1.0);
+    assert!(scene.hits.rows.is_empty());
+    assert!(!field_quad(&scene));
+    assert!(text(&scene, "Sessions").is_some());
+
+    let scene = run(&many(12, 0), (400, 120), 1.0, None);
+    assert_inside(&scene, (400, 120), 1.0);
+    assert!(!field_quad(&scene));
+    assert!(text(&scene, "Sessions").is_some());
 }
 
 #[test]

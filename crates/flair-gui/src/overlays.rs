@@ -117,12 +117,6 @@ impl Overlays {
         self.notice = None;
     }
 
-    pub fn status(&mut self, current: &StatusLine, next: &StatusLine) {
-        if current != next {
-            self.notice = None;
-        }
-    }
-
     pub fn is_open(&self) -> bool {
         self.picker.is_some() || self.prompt.is_some() || self.theme_picker.is_some()
     }
