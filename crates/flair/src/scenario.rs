@@ -62,6 +62,16 @@ pub enum Step {
         col: u16,
         row: u16,
     },
+    Sleep {
+        ms: u64,
+    },
+    Window {
+        width: u32,
+        height: u32,
+    },
+    Capture {
+        name: String,
+    },
 }
 impl Scenario {
     pub fn parse(text: &str) -> Result<Self, String> {
@@ -78,11 +88,23 @@ impl Scenario {
                 Step::Key { key, .. } => {
                     parse_key(key)?;
                 }
+                Step::Capture { name } => {
+                    if name.is_empty()
+                        || name.starts_with('.')
+                        || !name
+                            .chars()
+                            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                    {
+                        return Err(format!("invalid capture name {name:?}"));
+                    }
+                }
                 Step::Wait { .. }
                 | Step::Text { .. }
                 | Step::Paste { .. }
                 | Step::Scroll { .. }
-                | Step::Cursor { .. } => {}
+                | Step::Cursor { .. }
+                | Step::Sleep { .. }
+                | Step::Window { .. } => {}
             }
         }
         Ok(scenario)

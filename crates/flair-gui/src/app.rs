@@ -7,16 +7,17 @@ use std::{
     path::{Path, PathBuf},
     process,
     sync::mpsc::Sender,
+    thread,
     time::Instant,
 };
 
 use flair_core::{
     command::{Command, WindowRef},
-    config::{Config, theme_names},
+    config::Config,
     config_edit::set_theme,
     geom::{CellPoint, GridSize},
     ids::PaneId,
-    key::{InputEvent, Key, KeyAction, KeyInput, MouseAction, MouseButton, MouseInput, NamedKey},
+    key::{InputEvent, KeyInput, MouseAction, MouseButton, MouseInput},
     link::ClientLink,
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
     status::StatusLine,
@@ -24,9 +25,9 @@ use flair_core::{
 };
 use winit::{
     application::ApplicationHandler,
-    dpi::{LogicalSize, PhysicalPosition},
+    dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
     event::{ElementState, Ime, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::ModifiersState,
     platform::wayland::WindowAttributesExtWayland,
     raw_window_handle::HasDisplayHandle,
@@ -35,18 +36,18 @@ use winit::{
 
 use crate::{
     Fonts,
-    chrome_layout::{self, ChromeInput, ChromeLayout, Hit, HitTarget, Modal},
+    chrome_layout::{self, ChromeInput, ChromeLayout, Hit, HitTarget},
     clipboard::Clipboard,
     compose::{compose, compose_frame},
-    input::{self, InputState, LocalAction},
+    drive::Drive,
+    input::InputState,
     mirror::Mirror,
     mouse::{self, WheelAccumulator},
-    picker::{self, Picker},
+    overlays::{OverlayEvent, Overlays},
     probe::Probe,
-    prompt::{Outcome, Prompt},
     renderer::{Renderer, WindowContext},
     status::status_parts,
-    theme_picker::{ThemeOutcome, ThemePicker},
+    theme_picker::ThemeOutcome,
 };
 
 #[derive(Debug)]
@@ -61,6 +62,7 @@ impl Error for GuiError {}
 enum UserEvent {
     Message(ServerMsg),
     Disconnected,
+    Drive(Drive),
 }
 
 struct Surface {
@@ -76,7 +78,6 @@ struct App {
     config_path: PathBuf,
     theme: Theme,
     preview: Option<Theme>,
-    theme_picker: Option<ThemePicker>,
     tx: Sender<ClientMsg>,
     surface: Option<Surface>,
     mirror: Mirror,
@@ -89,13 +90,13 @@ struct App {
     ime: bool,
     probe: Option<Probe>,
     error: Option<GuiError>,
-    picker: Option<Picker>,
-    prompt: Option<Prompt>,
+    overlays: Overlays,
     capture: Capture,
     input: InputState,
     layout: Option<WindowLayout>,
     status: StatusLine,
     hits: Vec<Hit>,
+    drive: Option<(Vec<Drive>, EventLoopProxy<UserEvent>)>,
 }
 
 impl App {
@@ -111,8 +112,8 @@ impl App {
     }
     fn padding(&self, scale: f64) -> (f32, f32) {
         (
-            f32::from(self.config.window.padding_x) * scale as f32,
-            f32::from(self.config.window.padding_y) * scale as f32,
+            (f32::from(self.config.window.padding_x) * scale as f32).round(),
+            (f32::from(self.config.window.padding_y) * scale as f32).round(),
         )
     }
     fn size(&self) -> GridSize {
@@ -188,58 +189,6 @@ impl App {
             surface.window.request_redraw();
         }
     }
-    fn picker_key(&mut self, key: &KeyInput) {
-        let Some(picker) = &mut self.picker else {
-            return;
-        };
-        let mut close = false;
-        let mut target = None;
-        match key.key {
-            Key::Named(NamedKey::Escape) => close = true,
-            Key::Named(NamedKey::Enter) => {
-                target = picker.accept();
-                close = target.is_some();
-            }
-            Key::Named(NamedKey::Backspace) => picker.backspace(),
-            Key::Named(NamedKey::Up) => picker.move_selection(-1),
-            Key::Named(NamedKey::Down) => picker.move_selection(1),
-            Key::Char('u' | 'U') if key.mods.ctrl => picker.clear(),
-            Key::Char(_) if !key.mods.ctrl && !key.mods.alt && !key.mods.super_ => {
-                if let Some(text) = &key.text {
-                    picker.insert(text);
-                }
-            }
-            Key::Char(_) | Key::Named(_) => {}
-        }
-        if close {
-            self.picker = None;
-        }
-        if let Some(target) = target {
-            self.send(ClientMsg::Command(Command::Switch(target)));
-        }
-        self.request_redraw();
-    }
-    fn prompt_key(&mut self, key: &KeyInput) {
-        let Some(prompt) = &mut self.prompt else {
-            return;
-        };
-        match prompt.key(key) {
-            Outcome::Pending => {}
-            Outcome::Close => self.prompt = None,
-            Outcome::Run(command) => {
-                self.prompt = None;
-                self.send(ClientMsg::Command(command));
-            }
-        }
-        self.request_redraw();
-    }
-    fn theme_key(&mut self, key: &KeyInput, event_loop: &ActiveEventLoop) {
-        let Some(picker) = &mut self.theme_picker else {
-            return;
-        };
-        let outcome = picker.key(key);
-        self.theme_outcome(outcome, event_loop);
-    }
     fn theme_outcome(&mut self, outcome: ThemeOutcome, event_loop: &ActiveEventLoop) {
         match outcome {
             ThemeOutcome::Pending => {}
@@ -247,12 +196,8 @@ impl App {
                 let dir = Config::themes_dir(&self.config_path);
                 self.preview = Some(self.config.with_theme(&name).load_theme(&dir).0);
             }
-            ThemeOutcome::Cancel => {
-                self.theme_picker = None;
-                self.preview = None;
-            }
+            ThemeOutcome::Cancel => self.preview = None,
             ThemeOutcome::Save(name) => {
-                self.theme_picker = None;
                 self.preview = None;
                 match save_theme(&self.config_path, &name) {
                     Ok(config) => {
@@ -268,8 +213,16 @@ impl App {
         }
         self.request_redraw();
     }
-    fn overlay_open(&self) -> bool {
-        self.picker.is_some() || self.prompt.is_some() || self.theme_picker.is_some()
+    fn overlay_event(&mut self, event: OverlayEvent, event_loop: &ActiveEventLoop) {
+        match event {
+            OverlayEvent::Ignored => {}
+            OverlayEvent::Redraw => self.request_redraw(),
+            OverlayEvent::Send(message) => {
+                self.send(message);
+                self.request_redraw();
+            }
+            OverlayEvent::Theme(outcome) => self.theme_outcome(outcome, event_loop),
+        }
     }
     fn set_ime(&mut self, active: bool) {
         if self.ime != active {
@@ -327,23 +280,9 @@ impl App {
             return;
         };
         let metrics = surface.fonts.metrics();
-        let area = chrome_layout::modal_area(grid.size, metrics, scale as f32);
-        let mut lifted = None;
-        if let Some(picker) = &self.picker {
-            lifted = Some(Modal::Centered(picker.draw(&mut grid, area, &theme)));
-        }
-        if let Some(prompt) = &self.prompt {
-            lifted = prompt
-                .draw(&mut grid, area, &theme)
-                .map(Modal::Centered)
-                .or(lifted);
-        }
-        if let Some(picker) = &self.theme_picker {
-            let area = ThemePicker::area(grid.size, metrics, scale as f32);
-            lifted = Some(Modal::Docked(picker.draw(&mut grid, area, &theme)));
-        }
+        let lifted = self.overlays.draw(&mut grid, metrics, scale as f32, &theme);
         let parts = status_parts(&self.status);
-        let prompt = self.prompt.as_ref().and_then(Prompt::bar_text);
+        let prompt = self.overlays.bar_text();
         let px = surface.window.inner_size();
         let input = ChromeInput {
             px: (px.width, px.height),
@@ -354,10 +293,8 @@ impl App {
             theme: &theme,
             status: &parts,
             prompt: prompt.as_deref(),
-            separators: self
-                .layout
-                .as_ref()
-                .map_or(&[], |layout| layout.separators.as_slice()),
+            layout: self.layout.as_ref(),
+            hover: Some((self.pointer.x as f32, self.pointer.y as f32)),
             modal: lifted,
         };
         let ChromeLayout { chrome, hits } =
@@ -379,6 +316,37 @@ impl App {
             probe.finish();
             self.send(ClientMsg::Detach);
             event_loop.exit();
+        }
+        if let Some((steps, proxy)) = self.drive.take() {
+            thread::spawn(move || {
+                for step in steps {
+                    match step {
+                        Drive::Sleep(duration) => thread::sleep(duration),
+                        Drive::Key(_) | Drive::Text(_) | Drive::Resize { .. } => {
+                            if proxy.send_event(UserEvent::Drive(step)).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+    fn text(&mut self, text: String, event_loop: &ActiveEventLoop) {
+        self.set_ime(false);
+        match self.overlays.text(&text) {
+            Some(event) => self.overlay_event(event, event_loop),
+            None => self.send(ClientMsg::Input(InputEvent::Text(text))),
+        }
+    }
+    fn key(&mut self, key: KeyInput, event_loop: &ActiveEventLoop) {
+        let surface = &self.surface;
+        match self
+            .overlays
+            .key(&key, || surface.as_ref().and_then(|s| s.clipboard.load()))
+        {
+            Some(event) => self.overlay_event(event, event_loop),
+            None => self.send(ClientMsg::Input(InputEvent::Key(key))),
         }
     }
 }
@@ -445,6 +413,13 @@ impl ApplicationHandler<UserEvent> for App {
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: UserEvent) {
         match event {
+            UserEvent::Message(message)
+                if self
+                    .overlays
+                    .open(&message, &self.status, &self.config, &self.config_path) =>
+            {
+                self.request_redraw();
+            }
             UserEvent::Message(message) => match message {
                 ServerMsg::Welcome { .. } => {
                     if let Some(probe) = &mut self.probe {
@@ -470,19 +445,6 @@ impl ApplicationHandler<UserEvent> for App {
                         surface.clipboard.store(text, primary);
                     }
                 }
-                ServerMsg::Sessionizer {
-                    sessions,
-                    current,
-                    last,
-                } => {
-                    self.picker =
-                        Some(Picker::new(sessions, &current, last, picker::directories()));
-                    self.request_redraw();
-                }
-                ServerMsg::ChooseSession { sessions, current } => {
-                    self.picker = Some(Picker::sessions(sessions, &current));
-                    self.request_redraw();
-                }
                 ServerMsg::Layout(layout) => {
                     self.mirror.retain_layout(&layout);
                     self.layout = Some(layout);
@@ -490,28 +452,6 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 ServerMsg::Status(status) => {
                     self.status = status;
-                    self.request_redraw();
-                }
-                ServerMsg::ChooseWindow => {
-                    self.prompt = Some(Prompt::choose(&self.status));
-                    self.request_redraw();
-                }
-                ServerMsg::PromptRename { current } => {
-                    let current = if current.is_empty() {
-                        self.status
-                            .windows
-                            .iter()
-                            .find(|window| window.active)
-                            .map(|window| window.name.clone())
-                            .unwrap_or_default()
-                    } else {
-                        current
-                    };
-                    self.prompt = Some(Prompt::rename(current));
-                    self.request_redraw();
-                }
-                ServerMsg::PromptSearch { forward } => {
-                    self.prompt = Some(Prompt::search(forward));
                     self.request_redraw();
                 }
                 ServerMsg::PasteClipboard => {
@@ -525,19 +465,19 @@ impl ApplicationHandler<UserEvent> for App {
                         Ok(config) => self.reload(config, event_loop),
                         Err(error) => log::warn!("ignoring reloaded config: {error}"),
                     }
-                    if let Some(picker) = &mut self.theme_picker {
+                    if let Some(picker) = self.overlays.theme_picker_mut() {
                         let outcome = picker.refresh(&self.config.theme);
                         self.theme_outcome(outcome, event_loop);
                     }
                 }
-                ServerMsg::ChooseTheme => {
-                    self.theme_picker = Some(ThemePicker::new(
-                        theme_names(&Config::themes_dir(&self.config_path)),
-                        &self.config.theme,
-                    ));
-                    self.request_redraw();
-                }
-                ServerMsg::Sessions(_) | ServerMsg::Done => {}
+                ServerMsg::Sessionizer { .. }
+                | ServerMsg::ChooseSession { .. }
+                | ServerMsg::ChooseWindow
+                | ServerMsg::PromptRename { .. }
+                | ServerMsg::PromptSearch { .. }
+                | ServerMsg::ChooseTheme
+                | ServerMsg::Sessions(_)
+                | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
                 ServerMsg::Exit(_) => {
                     self.redraw(event_loop);
@@ -545,6 +485,16 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             },
             UserEvent::Disconnected => event_loop.exit(),
+            UserEvent::Drive(Drive::Key(key)) => self.key(key, event_loop),
+            UserEvent::Drive(Drive::Text(text)) => self.text(text, event_loop),
+            UserEvent::Drive(Drive::Resize { width, height }) => {
+                if let Some(surface) = &self.surface {
+                    let _ = surface
+                        .window
+                        .request_inner_size(PhysicalSize::new(width, height));
+                }
+            }
+            UserEvent::Drive(Drive::Sleep(duration)) => thread::sleep(duration),
         }
     }
 
@@ -583,21 +533,7 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
             WindowEvent::Focused(focused) => self.send(ClientMsg::Focus(focused)),
             WindowEvent::Ime(Ime::Preedit(text, _)) => self.set_ime(!text.is_empty()),
-            WindowEvent::Ime(Ime::Commit(text)) => {
-                self.set_ime(false);
-                if let Some(picker) = &mut self.theme_picker {
-                    let outcome = picker.insert(&text);
-                    self.theme_outcome(outcome, event_loop);
-                } else if let Some(picker) = &mut self.picker {
-                    picker.insert(&text);
-                    self.request_redraw();
-                } else if let Some(prompt) = &mut self.prompt {
-                    prompt.insert(&text);
-                    self.request_redraw();
-                } else {
-                    self.send(ClientMsg::Input(InputEvent::Text(text)));
-                }
-            }
+            WindowEvent::Ime(Ime::Commit(text)) => self.text(text, event_loop),
             WindowEvent::Ime(Ime::Disabled) => self.set_ime(false),
             WindowEvent::KeyboardInput {
                 event,
@@ -610,41 +546,21 @@ impl ApplicationHandler<UserEvent> for App {
                 let Some(key) = self.input.translate(&event, self.mods) else {
                     return;
                 };
-                if self.theme_picker.is_some() {
-                    self.theme_key(&key, event_loop);
-                    return;
-                }
-                if self.picker.is_some() {
-                    if key.action == KeyAction::Release {
-                        return;
-                    }
-                    if input::local_action(&key) == Some(LocalAction::Paste) {
-                        if let Some(text) = self.surface.as_ref().and_then(|s| s.clipboard.load()) {
-                            if let Some(picker) = &mut self.picker {
-                                picker.insert(&text);
-                            }
-                            self.request_redraw();
-                        }
-                    } else {
-                        self.picker_key(&key);
-                    }
-                    return;
-                }
-                if self.prompt.is_some() {
-                    self.prompt_key(&key);
-                    return;
-                }
-                self.send(ClientMsg::Input(InputEvent::Key(key)));
+                self.key(key, event_loop);
             }
             WindowEvent::CursorMoved { position, .. } => {
+                let before = chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y));
                 self.pointer = position;
-                if self.overlay_open() {
+                if chrome_layout::hit_test(&self.hits, (position.x, position.y)) != before {
+                    self.request_redraw();
+                }
+                if self.overlays.is_open() {
                     return;
                 }
                 self.mouse(self.button, MouseAction::Motion);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if self.overlay_open() {
+                if self.overlays.is_open() {
                     if state == ElementState::Released {
                         self.capture = Capture::Idle;
                         self.button = MouseButton::NoButton;
@@ -700,7 +616,7 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if self.overlay_open() {
+                if self.overlays.is_open() {
                     return;
                 }
                 let line_px = self
@@ -844,7 +760,15 @@ pub fn run(
     link: ClientLink,
     probe: Option<Instant>,
 ) -> Result<(), GuiError> {
-    run_target(config, config_path, link, probe, Target::Main, Vec::new())
+    run_target(
+        config,
+        config_path,
+        link,
+        probe,
+        Target::Main,
+        Vec::new(),
+        Vec::new(),
+    )
 }
 
 pub fn run_target(
@@ -854,6 +778,7 @@ pub fn run_target(
     probe: Option<Instant>,
     target: Target,
     env: Vec<(String, String)>,
+    drive: Vec<Drive>,
 ) -> Result<(), GuiError> {
     let theme = resolve_theme(&config, &config_path);
     link.tx
@@ -870,6 +795,7 @@ pub fn run_target(
         .build()
         .map_err(|e| GuiError(e.to_string()))?;
     let proxy = event_loop.create_proxy();
+    let drive = (!drive.is_empty()).then(|| (drive, proxy.clone()));
     std::thread::spawn(move || {
         while let Ok(message) = link.rx.recv() {
             if proxy.send_event(UserEvent::Message(message)).is_err() {
@@ -883,7 +809,6 @@ pub fn run_target(
         config_path,
         theme,
         preview: None,
-        theme_picker: None,
         tx: link.tx,
         surface: None,
         mirror: Mirror::default(),
@@ -896,13 +821,13 @@ pub fn run_target(
         ime: false,
         probe: probe.map(Probe::start),
         error: None,
-        picker: None,
-        prompt: None,
+        overlays: Overlays::default(),
         capture: Capture::Idle,
         input: InputState::default(),
         layout: None,
         status: StatusLine::default(),
         hits: Vec::new(),
+        drive,
     };
     if let Some(probe) = &mut app.probe {
         probe.mark("event_loop");

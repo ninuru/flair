@@ -314,3 +314,110 @@ text = "isolated-env"
         String::from_utf8_lossy(&run.stderr)
     );
 }
+
+#[test]
+fn pixel_capture_writes_a_ppm_of_the_session_chooser() {
+    let output = OutputDir::new();
+    let scenario = output.0.join("capture.toml");
+    fs::write(
+        &scenario,
+        r#"program = "/bin/sh"
+args = ["-i"]
+[env]
+PS1 = "ready> "
+[[steps]]
+action = "wait"
+text = "ready> "
+[[steps]]
+action = "key"
+key = "a"
+ctrl = true
+[[steps]]
+action = "key"
+key = "s"
+[[steps]]
+action = "capture"
+name = "chooser"
+[[steps]]
+action = "window"
+width = 320
+height = 400
+[[steps]]
+action = "capture"
+name = "narrow"
+"#,
+    )
+    .unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "20s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--pixels",
+            "640x400",
+            "--scenario",
+        ])
+        .arg(scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    if !run.status.success() && stderr.contains("capture needs an EGL device") {
+        if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
+            panic!("required EGL unavailable: {stderr}");
+        }
+        eprintln!("skipped pixel capture: {stderr}");
+        return;
+    }
+    assert!(run.status.success(), "{stderr}");
+    for (name, width, height) in [("chooser", 640, 400), ("narrow", 320, 400)] {
+        let image = fs::read(output.0.join(format!("{name}.ppm"))).unwrap();
+        let header = format!("P6\n{width} {height}\n255\n");
+        assert!(image.starts_with(header.as_bytes()), "{name}");
+        assert_eq!(image.len(), header.len() + width * height * 3, "{name}");
+    }
+}
+
+#[test]
+fn capture_without_pixels_writes_the_text_frame() {
+    let output = OutputDir::new();
+    let scenario = output.0.join("capture.toml");
+    fs::write(
+        &scenario,
+        r#"program = "/bin/sh"
+args = ["-c", "printf captured; read x"]
+[[steps]]
+action = "wait"
+text = "captured"
+[[steps]]
+action = "capture"
+name = "text"
+"#,
+    )
+    .unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "10s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--scenario",
+        ])
+        .arg(scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    assert!(
+        fs::read_to_string(output.0.join("text.txt"))
+            .unwrap()
+            .contains("captured")
+    );
+}

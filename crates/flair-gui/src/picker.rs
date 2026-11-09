@@ -2,15 +2,19 @@ use std::{env, fs, path::PathBuf};
 
 use flair_core::{
     geom::{CellPoint, CellRect, GridSize},
+    key::KeyInput,
     proto::{CellFlags, SessionInfo, Target},
     sessionizer::{self, Candidate},
     theme::Theme,
 };
 
-use crate::cellgrid::{CellGrid, DrawCell};
+use crate::{
+    cellgrid::{CellGrid, DrawCell},
+    cursor::{Edit, TextCursor},
+};
 
 pub struct Picker {
-    pub query: String,
+    pub query: TextCursor,
     entries: Vec<Candidate>,
     selected: usize,
     last: Option<Target>,
@@ -25,7 +29,7 @@ impl Picker {
         directories: Vec<PathBuf>,
     ) -> Self {
         Self {
-            query: String::new(),
+            query: TextCursor::new(""),
             entries: sessionizer::candidates(&sessions, current, directories),
             selected: 0,
             last,
@@ -47,7 +51,7 @@ impl Picker {
             .position(|entry| entry.name == current)
             .unwrap_or(0);
         Self {
-            query: String::new(),
+            query: TextCursor::new(""),
             entries,
             selected,
             last: None,
@@ -56,12 +60,21 @@ impl Picker {
     }
 
     pub fn insert(&mut self, text: &str) {
-        self.query.extend(text.chars().filter(|c| !c.is_control()));
+        self.query.insert(text);
         self.selected = 0;
     }
 
+    pub fn edit(&mut self, key: &KeyInput) -> Edit {
+        let edit = self.query.edit(key);
+        match edit {
+            Edit::Changed => self.selected = 0,
+            Edit::Moved | Edit::Ignored => {}
+        }
+        edit
+    }
+
     pub fn backspace(&mut self) {
-        self.query.pop();
+        self.query.backspace();
         self.selected = 0;
     }
 
@@ -71,7 +84,7 @@ impl Picker {
     }
 
     pub fn move_selection(&mut self, delta: i32) {
-        let count = sessionizer::rank(&self.entries, &self.query).len();
+        let count = sessionizer::rank(&self.entries, self.query.text()).len();
         self.selected = self
             .selected
             .saturating_add_signed(delta as isize)
@@ -84,7 +97,7 @@ impl Picker {
         {
             return Some(last.clone());
         }
-        sessionizer::rank(&self.entries, &self.query)
+        sessionizer::rank(&self.entries, self.query.text())
             .get(self.selected)
             .map(|entry| entry.target())
     }
@@ -92,7 +105,7 @@ impl Picker {
     pub fn draw(&self, grid: &mut CellGrid, area: CellRect, theme: &Theme) -> CellRect {
         grid.cursor = None;
         let width = usize::from(area.size.cols).min(90);
-        let entries = sessionizer::rank(&self.entries, &self.query);
+        let entries = sessionizer::rank(&self.entries, self.query.text());
         let height = usize::from(area.size.rows)
             .min(18)
             .min(entries.len().max(1) + 4);
@@ -128,8 +141,20 @@ impl Picker {
             Style::Normal,
         );
         if height > 1 {
-            let query = tail(&self.query, width.saturating_sub(4));
-            write(grid, 1, &format!("> {query}_"), Style::Normal);
+            let text: String = self
+                .query
+                .text()
+                .chars()
+                .take(self.query.cursor())
+                .collect();
+            let rest: String = self
+                .query
+                .text()
+                .chars()
+                .skip(self.query.cursor())
+                .collect();
+            let query = tail(&format!("{text}_{rest}"), width.saturating_sub(3));
+            write(grid, 1, &format!("> {query}"), Style::Normal);
         }
         if height < 4 {
             return rect;

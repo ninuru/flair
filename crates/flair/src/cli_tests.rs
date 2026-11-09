@@ -29,6 +29,48 @@ fn help_and_headless_options_parse() {
 }
 
 #[test]
+fn headless_pixel_options_parse() {
+    assert_eq!(
+        Args::parse_from([
+            "test-headless",
+            "--scenario",
+            "a.toml",
+            "--output",
+            "/tmp/proof",
+            "--pixels",
+            "640x400",
+            "--scale",
+            "2",
+            "--config",
+            "c.toml"
+        ])
+        .unwrap(),
+        Args::Headless {
+            scenario: "a.toml".into(),
+            output: "/tmp/proof".into(),
+            timeout_ms: 5000,
+            config: Some("c.toml".into()),
+            pixels: Some((640, 400)),
+            scale: 2.0,
+        }
+    );
+    for bad in [["--pixels", "640"], ["--pixels", "0x400"], ["--scale", "0"]] {
+        assert!(
+            Args::parse_from([
+                "test-headless",
+                "--scenario",
+                "a",
+                "--output",
+                "b",
+                bad[0],
+                bad[1]
+            ])
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn daemon_commands_parse_and_reject_missing_targets() {
     assert_eq!(Args::parse_from(["ls"]).unwrap(), Args::List);
     assert_eq!(Args::parse_from(["kill-server"]).unwrap(), Args::KillServer);

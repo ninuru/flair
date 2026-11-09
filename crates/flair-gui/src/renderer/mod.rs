@@ -6,8 +6,9 @@ use crate::{
     atlas::{AtlasFull, AtlasGlyph, Face, GlyphCache, GlyphKey},
     cellgrid::CellGrid,
     font::{CellMetrics, Fonts, Style},
+    ui::px,
 };
-pub use chrome::{Border, Chrome, PxRect, Quad, TextRun};
+pub use chrome::{Border, Chrome, PxRect, Quad, TextFace, TextRun};
 pub use context::{HeadlessContext, WindowContext};
 use flair_core::{
     geom::CellPoint,
@@ -153,7 +154,8 @@ impl Renderer {
         }
         let lifted = chrome.lifted;
         let margins = self.margins(grid, chrome.origin, chrome.extend);
-        let outside = self.cells(grid, chrome.origin, fonts, |point| {
+        let scale = chrome.scale;
+        let outside = self.cells(grid, chrome.origin, scale, fonts, |point| {
             !lifted.is_some_and(|rect| rect.contains(point))
         });
         let mut quads = Vec::new();
@@ -166,7 +168,9 @@ impl Renderer {
             quad(&mut modal, q);
         }
         let inside = match lifted {
-            Some(rect) => self.cells(grid, chrome.origin, fonts, |point| rect.contains(point)),
+            Some(rect) => self.cells(grid, chrome.origin, scale, fonts, |point| {
+                rect.contains(point)
+            }),
             None => [Vec::new(), Vec::new(), Vec::new()],
         };
         unsafe {
@@ -216,6 +220,7 @@ impl Renderer {
         let glyph = match self.cache.get_or_insert(key, || match key.face {
             Face::Cell => fonts.rasterize(key.c, key.style),
             Face::Ui => fonts.rasterize_ui(key.c, key.style),
+            Face::Small => fonts.rasterize_small(key.c, key.style),
         }) {
             Ok(glyph) => glyph?,
             Err(AtlasFull) => {
@@ -251,13 +256,14 @@ impl Renderer {
             } else {
                 Style::Regular
             };
+            let face = match run.face {
+                TextFace::Ui => Face::Ui,
+                TextFace::Small => Face::Small,
+                TextFace::Mono => Face::Cell,
+            };
             let mut x = run.x;
             for c in run.text.chars() {
-                let key = GlyphKey {
-                    face: Face::Ui,
-                    c,
-                    style,
-                };
+                let key = GlyphKey { face, c, style };
                 if let Some(glyph) = (c != ' ').then(|| self.glyph(key, fonts)).flatten() {
                     glyph_instance(
                         &mut out,
@@ -266,7 +272,11 @@ impl Renderer {
                         run.color,
                     );
                 }
-                x += fonts.ui_advance(c, style);
+                x += match run.face {
+                    TextFace::Ui => fonts.ui_advance(c, style),
+                    TextFace::Small => fonts.small_advance(c, style),
+                    TextFace::Mono => self.metrics.width,
+                };
             }
         }
         out
@@ -319,9 +329,12 @@ impl Renderer {
         &mut self,
         grid: &CellGrid,
         origin: (f32, f32),
+        scale: f32,
         fonts: &mut Fonts,
         keep: impl Fn(CellPoint) -> bool,
     ) -> [Vec<f32>; 3] {
+        let thin = px(1.0, scale);
+        let thick = px(2.0, scale);
         let mut rects = Vec::new();
         let mut glyphs = Vec::new();
         let mut decorations = Vec::new();
@@ -388,7 +401,7 @@ impl Renderer {
             if cell.flags.contains(CellFlags::UNDERLINE) {
                 instance(
                     &mut decorations,
-                    [x, y + m.height - 2.0, width, 1.0],
+                    [x, y + m.height - thick, width, thin],
                     [0.0; 4],
                     opaque(fg),
                     0.0,
@@ -397,7 +410,7 @@ impl Renderer {
             if cell.flags.contains(CellFlags::STRIKE) {
                 instance(
                     &mut decorations,
-                    [x, y + m.height / 2.0, width, 1.0],
+                    [x, y + m.height / 2.0, width, thin],
                     [0.0; 4],
                     opaque(fg),
                     0.0,
@@ -413,21 +426,21 @@ impl Renderer {
                     instance(&mut rects, [x, y, m.width, m.height], [0.0; 4], color, 0.0);
                 }
                 CursorShape::Beam => {
-                    instance(&mut rects, [x, y, 2.0, m.height], [0.0; 4], color, 0.0);
+                    instance(&mut rects, [x, y, thick, m.height], [0.0; 4], color, 0.0);
                 }
                 CursorShape::Underline => instance(
                     &mut rects,
-                    [x, y + m.height - 2.0, m.width, 2.0],
+                    [x, y + m.height - thick, m.width, thick],
                     [0.0; 4],
                     color,
                     0.0,
                 ),
                 CursorShape::HollowBlock => {
                     for rect in [
-                        [x, y, m.width, 1.0],
-                        [x, y + m.height - 1.0, m.width, 1.0],
-                        [x, y, 1.0, m.height],
-                        [x + m.width - 1.0, y, 1.0, m.height],
+                        [x, y, m.width, thin],
+                        [x, y + m.height - thin, m.width, thin],
+                        [x, y, thin, m.height],
+                        [x + m.width - thin, y, thin, m.height],
                     ] {
                         instance(&mut rects, rect, [0.0; 4], color, 0.0);
                     }

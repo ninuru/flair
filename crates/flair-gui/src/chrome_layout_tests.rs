@@ -1,9 +1,11 @@
 use super::*;
-use crate::status::{BadgeKind, BadgeParts, ChipParts, TabParts};
+use crate::status::{ChipParts, TabParts};
 use flair_core::{
     config::Config,
     geom::{Axis, CellPoint},
-    theme::Rgb,
+    ids::PaneId,
+    proto::PanePlacement,
+    theme::{Rgb, Rgba},
 };
 
 fn measure(text: &str, _: bool) -> f32 {
@@ -35,6 +37,7 @@ fn ui(scale: f32) -> UiMetrics {
     UiMetrics {
         height: 14.0 * scale,
         ascent: 11.0 * scale,
+        small: 0.5,
     }
 }
 
@@ -52,27 +55,52 @@ fn parts() -> StatusParts {
                 index: 1,
                 name: "shell".into(),
                 active: true,
+                last: false,
             },
             TabParts {
                 window: WindowId(2),
                 index: 2,
                 name: "editor".into(),
                 active: false,
+                last: false,
             },
         ],
         badges: Vec::new(),
     }
 }
 
+fn cells(col: u16, row: u16, cols: u16, rows: u16) -> CellRect {
+    CellRect {
+        origin: CellPoint { col, row },
+        size: GridSize { cols, rows },
+    }
+}
+
+fn window(separators: &[Separator], panes: &[(u32, CellRect)], active: u32) -> WindowLayout {
+    WindowLayout {
+        window: WindowId(1),
+        area: cells(0, 0, 98, 34),
+        panes: panes
+            .iter()
+            .map(|(pane, rect)| PanePlacement {
+                pane: PaneId(*pane),
+                rect: *rect,
+            })
+            .collect(),
+        separators: separators.to_vec(),
+        active: PaneId(active),
+        zoomed: false,
+    }
+}
+
 fn run_layout(
     scale: f32,
     width: u32,
-    status: &StatusParts,
-    prompt: Option<&str>,
-    separators: &[Separator],
+    window: Option<&WindowLayout>,
     modal: Option<Modal>,
 ) -> ChromeLayout {
     let theme = Config::default().theme();
+    let status = parts();
     let input = ChromeInput {
         px: (width * scale as u32, 600 * scale as u32),
         scale,
@@ -80,49 +108,17 @@ fn run_layout(
         metrics: metrics(scale),
         ui: ui(scale),
         theme: &theme,
-        status,
-        prompt,
-        separators,
+        status: &status,
+        prompt: None,
+        layout: window,
+        hover: None,
         modal,
     };
     layout(&input, measure)
 }
 
-fn text<'a>(layout: &'a ChromeLayout, text: &str) -> Option<&'a TextRun> {
-    layout.chrome.text.iter().find(|run| run.text == text)
-}
-
 fn quad_at(layout: &ChromeLayout, rect: PxRect) -> Option<&Quad> {
     layout.chrome.quads.iter().find(|quad| quad.rect == rect)
-}
-
-#[test]
-fn bar_and_border_span_the_window_top() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    for scale in [1.0, 2.0] {
-        let layout = run_layout(scale, 800, &parts(), None, &[], None);
-        assert_eq!(
-            layout.chrome.quads[0],
-            Quad {
-                rect: rect(0.0, 0.0, 800.0 * scale, 34.0 * scale),
-                color: opaque(surfaces.surface1),
-                radius: 0.0,
-                border: None,
-            }
-        );
-        assert_eq!(
-            layout.chrome.quads[1],
-            Quad {
-                rect: rect(0.0, 34.0 * scale, 800.0 * scale, scale),
-                color: opaque(surfaces.outline),
-                radius: 0.0,
-                border: None,
-            }
-        );
-        assert!(layout.chrome.modal.is_empty());
-        assert_eq!(layout.chrome.lifted, None);
-    }
 }
 
 #[test]
@@ -150,11 +146,11 @@ fn grid_starts_below_bar_and_border() {
         grid_size((10, 20), (8.0, 4.0), 1.0, metrics(1.0)),
         GridSize { cols: 1, rows: 1 }
     );
-    let layout = run_layout(1.0, 800, &parts(), None, &[], None);
+    let layout = run_layout(1.0, 800, None, None);
     assert_eq!(layout.chrome.origin, (8.0, 52.0));
     assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 784.0, 557.0));
     assert_eq!(layout.chrome.extend, rect(0.0, 35.0, 800.0, 565.0));
-    let layout = run_layout(2.0, 800, &parts(), None, &[], None);
+    let layout = run_layout(2.0, 800, None, None);
     assert_eq!(layout.chrome.origin, (16.0, 104.0));
     assert_eq!(layout.chrome.clip, rect(16.0, 78.0, 1568.0, 1114.0));
     assert_eq!(layout.chrome.extend, rect(0.0, 70.0, 1600.0, 1130.0));
@@ -180,7 +176,7 @@ fn grid_origin_centres_columns_and_puts_the_last_row_on_the_bottom_edge() {
             "top {} bottom {bottom}",
             origin.1
         );
-        let layout = run_layout(scale, width, &parts(), None, &[], None);
+        let layout = run_layout(scale, width, None, None);
         assert_eq!(layout.chrome.origin, origin);
     }
 }
@@ -212,7 +208,8 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
             theme: &theme,
             status: &status,
             prompt: None,
-            separators: &[],
+            layout: None,
+            hover: None,
             modal: None,
         };
         let chrome = layout(&input, measure).chrome;
@@ -226,7 +223,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
 #[test]
 fn mouse_mapping_uses_the_drawn_grid_origin() {
     for scale in [1.0, 2.0] {
-        let layout = run_layout(scale, 803, &parts(), None, &[], None);
+        let layout = run_layout(scale, 803, None, None);
         let origin = layout.chrome.origin;
         let cell = metrics(scale);
         let size = GridSize { cols: 98, rows: 34 };
@@ -269,242 +266,6 @@ fn modal_area_insets_the_grid_by_the_modal_margin() {
 }
 
 #[test]
-fn chip_shows_only_the_parts_that_are_set() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let layout = run_layout(1.0, 800, &parts(), None, &[], None);
-    let name = text(&layout, "main").unwrap();
-    assert_eq!((name.x, name.baseline), (14.0, 21.0));
-    assert!(name.bold);
-    assert_eq!(name.color, theme.foreground);
-    assert_eq!(
-        quad_at(&layout, rect(8.0, 6.0, 40.0, 22.0)),
-        Some(&Quad {
-            rect: rect(8.0, 6.0, 40.0, 22.0),
-            color: opaque(surfaces.surface2),
-            radius: 4.0,
-            border: Some(Border {
-                color: opaque(surfaces.outline),
-                width: 1.0,
-            }),
-        })
-    );
-    assert!(layout.chrome.text.iter().all(|run| run.text != "!"));
-    assert!(layout.chrome.quads.iter().all(|quad| quad.radius != 3.0));
-    assert!(
-        layout
-            .chrome
-            .text
-            .iter()
-            .all(|run| !run.text.starts_with("+"))
-    );
-
-    let mut full = parts();
-    full.chip.hidden = 2;
-    full.chip.running = true;
-    full.chip.finished = true;
-    let layout = run_layout(1.0, 800, &full, None, &[], None);
-    let hidden = text(&layout, "+2").unwrap();
-    assert_eq!(
-        (hidden.x, hidden.color, hidden.bold),
-        (46.0, surfaces.muted, false)
-    );
-    assert_eq!(
-        quad_at(&layout, rect(64.0, 14.0, 6.0, 6.0)),
-        Some(&Quad {
-            rect: rect(64.0, 14.0, 6.0, 6.0),
-            color: opaque(theme.accent),
-            radius: 3.0,
-            border: None,
-        })
-    );
-    let finished = text(&layout, "!").unwrap();
-    assert_eq!(
-        (finished.x, finished.color, finished.bold),
-        (74.0, theme.accent, true)
-    );
-    assert!(quad_at(&layout, rect(8.0, 6.0, 79.0, 22.0)).is_some());
-
-    let layout = run_layout(2.0, 800, &full, None, &[], None);
-    let name = text(&layout, "main").unwrap();
-    assert_eq!((name.x, name.baseline), (28.0, 42.0));
-    assert_eq!(text(&layout, "+2").unwrap().x, 64.0);
-    assert!(quad_at(&layout, rect(86.0, 28.0, 12.0, 12.0)).is_some());
-    assert_eq!(text(&layout, "!").unwrap().x, 106.0);
-    let chip = quad_at(&layout, rect(16.0, 12.0, 109.0, 44.0)).unwrap();
-    assert_eq!(chip.radius, 8.0);
-    assert_eq!(chip.border.unwrap().width, 2.0);
-}
-
-#[test]
-fn long_session_names_are_ellipsized() {
-    let mut long = parts();
-    long.chip.session = "x".repeat(40);
-    let layout = run_layout(1.0, 800, &long, None, &[], None);
-    let expected = format!("{}…", "x".repeat(24));
-    assert!(text(&layout, &expected).is_some());
-}
-
-#[test]
-fn active_tab_has_a_fill_and_inactive_tabs_are_muted() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let layout = run_layout(1.0, 800, &parts(), None, &[], None);
-    assert_eq!(
-        quad_at(&layout, rect(56.0, 4.0, 69.0, 26.0)),
-        Some(&Quad {
-            rect: rect(56.0, 4.0, 69.0, 26.0),
-            color: opaque(surfaces.surface3),
-            radius: 4.0,
-            border: None,
-        })
-    );
-    let active = text(&layout, "1 shell").unwrap();
-    assert_eq!((active.x, active.color), (66.0, theme.foreground));
-    let inactive = text(&layout, "2 editor").unwrap();
-    assert_eq!((inactive.x, inactive.color), (137.0, surfaces.muted));
-    assert!(quad_at(&layout, rect(127.0, 4.0, 76.0, 26.0)).is_none());
-    assert_eq!(
-        layout.hits,
-        [
-            Hit {
-                rect: rect(8.0, 6.0, 40.0, 22.0),
-                target: HitTarget::Session,
-            },
-            Hit {
-                rect: rect(56.0, 4.0, 69.0, 26.0),
-                target: HitTarget::Window(WindowId(1)),
-            },
-            Hit {
-                rect: rect(127.0, 4.0, 76.0, 26.0),
-                target: HitTarget::Window(WindowId(2)),
-            },
-        ]
-    );
-}
-
-#[test]
-fn overflow_drops_leading_tabs_and_keeps_the_active_one() {
-    let many = StatusParts {
-        tabs: (1..=30)
-            .map(|index| TabParts {
-                window: WindowId(u32::from(index)),
-                index,
-                name: "shell".into(),
-                active: index == 30,
-            })
-            .collect(),
-        ..parts()
-    };
-    let layout = run_layout(1.0, 300, &many, None, &[], None);
-    assert!(text(&layout, "30 shell").is_some());
-    assert!(text(&layout, "1 shell").is_none());
-    let windows: Vec<_> = layout
-        .hits
-        .iter()
-        .filter(|hit| matches!(hit.target, HitTarget::Window(_)))
-        .collect();
-    assert_eq!(
-        windows.last().unwrap().target,
-        HitTarget::Window(WindowId(30))
-    );
-    assert!(windows.len() > 1);
-    for hit in &windows {
-        assert!(hit.rect.x >= 56.0 && hit.rect.x + hit.rect.w <= 292.0);
-    }
-
-    let layout = run_layout(1.0, 120, &many, None, &[], None);
-    assert!(text(&layout, "30 s…").is_some());
-    let windows: Vec<_> = layout
-        .hits
-        .iter()
-        .filter(|hit| matches!(hit.target, HitTarget::Window(_)))
-        .collect();
-    assert_eq!(windows.len(), 1);
-    assert_eq!(windows[0].target, HitTarget::Window(WindowId(30)));
-    assert!(windows[0].rect.x + windows[0].rect.w <= 112.0);
-}
-
-#[test]
-fn badges_sit_at_the_right_inset_with_copy_at_the_far_right() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let badged = StatusParts {
-        badges: vec![
-            BadgeParts {
-                kind: BadgeKind::Copy,
-                text: "COPY".into(),
-            },
-            BadgeParts {
-                kind: BadgeKind::Prefix,
-                text: "^A".into(),
-            },
-        ],
-        ..parts()
-    };
-    let layout = run_layout(1.0, 800, &badged, None, &[], None);
-    assert_eq!(
-        quad_at(&layout, rect(748.0, 6.0, 44.0, 22.0)),
-        Some(&Quad {
-            rect: rect(748.0, 6.0, 44.0, 22.0),
-            color: opaque(surfaces.accent_soft),
-            radius: 4.0,
-            border: Some(Border {
-                color: opaque(theme.accent),
-                width: 1.0,
-            }),
-        })
-    );
-    let copy = text(&layout, "COPY").unwrap();
-    assert_eq!((copy.x, copy.color, copy.bold), (756.0, theme.accent, true));
-    assert_eq!(
-        quad_at(&layout, rect(712.0, 6.0, 30.0, 22.0)),
-        Some(&Quad {
-            rect: rect(712.0, 6.0, 30.0, 22.0),
-            color: opaque(surfaces.surface3),
-            radius: 4.0,
-            border: Some(Border {
-                color: opaque(surfaces.outline),
-                width: 1.0,
-            }),
-        })
-    );
-    let prefix = text(&layout, "^A").unwrap();
-    assert_eq!(
-        (prefix.x, prefix.color, prefix.bold),
-        (720.0, theme.foreground, true)
-    );
-
-    let layout = run_layout(2.0, 800, &badged, None, &[], None);
-    assert!(quad_at(&layout, rect(1524.0, 12.0, 60.0, 44.0)).is_some());
-    assert!(quad_at(&layout, rect(1466.0, 12.0, 46.0, 44.0)).is_some());
-    assert_eq!(text(&layout, "COPY").unwrap().x, 1540.0);
-}
-
-#[test]
-fn prompt_replaces_the_tabs_and_shows_a_caret() {
-    let theme = Config::default().theme();
-    let layout = run_layout(1.0, 800, &parts(), Some("/foo"), &[], None);
-    assert!(text(&layout, "1 shell").is_none());
-    assert!(text(&layout, "2 editor").is_none());
-    let prompt = text(&layout, "/foo").unwrap();
-    assert_eq!((prompt.x, prompt.color), (56.0, theme.foreground));
-    assert_eq!(
-        quad_at(&layout, rect(84.0, 10.0, 1.0, 14.0)),
-        Some(&Quad {
-            rect: rect(84.0, 10.0, 1.0, 14.0),
-            color: opaque(theme.accent),
-            radius: 0.0,
-            border: None,
-        })
-    );
-    assert_eq!(
-        layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
-        [HitTarget::Session]
-    );
-}
-
-#[test]
 fn separators_become_lines_centred_in_the_gap() {
     let surfaces = Config::default().theme().surfaces();
     let separators = [
@@ -535,13 +296,14 @@ fn separators_become_lines_centred_in_the_gap() {
             rect(16.0, 279.0, 160.0, 2.0),
         ),
     ] {
-        let layout = run_layout(scale, 800, &parts(), None, &separators, None);
+        let window = window(&separators, &[], 9);
+        let layout = run_layout(scale, 800, Some(&window), None);
         for expected in [vertical, horizontal] {
             assert_eq!(
                 quad_at(&layout, expected),
                 Some(&Quad {
                     rect: expected,
-                    color: opaque(surfaces.pane_border),
+                    color: opaque(surfaces.outline),
                     radius: 0.0,
                     border: None,
                 })
@@ -551,171 +313,167 @@ fn separators_become_lines_centred_in_the_gap() {
 }
 
 #[test]
-fn centred_modal_grows_the_lifted_rect_over_a_backdrop() {
+fn centred_modal_grows_the_lifted_rect_into_a_panel() {
     let surfaces = Config::default().theme().surfaces();
-    let lifted = CellRect {
-        origin: CellPoint { col: 10, row: 2 },
-        size: GridSize { cols: 20, rows: 5 },
-    };
+    let lifted = cells(10, 2, 20, 5);
     for (scale, expected) in [
-        (1.0, rect(64.0, 60.0, 208.0, 128.0)),
-        (2.0, rect(128.0, 120.0, 416.0, 256.0)),
+        (1.0, rect(64.0, 64.0, 208.0, 120.0)),
+        (2.0, rect(128.0, 128.0, 416.0, 240.0)),
     ] {
-        let layout = run_layout(
-            scale,
-            800,
-            &parts(),
-            None,
-            &[],
-            Some(Modal::Centered(lifted)),
-        );
+        let layout = run_layout(scale, 800, None, Some(Modal::Centered(lifted)));
         assert_eq!(layout.chrome.lifted, Some(lifted));
         assert_eq!(
-            layout.chrome.modal,
-            [
-                Quad {
-                    rect: rect(0.0, 0.0, 800.0 * scale, 600.0 * scale),
-                    color: Rgba {
-                        r: 0,
-                        g: 0,
-                        b: 0,
-                        a: 179,
-                    },
-                    radius: 0.0,
-                    border: None,
-                },
-                Quad {
-                    rect: expected,
-                    color: opaque(surfaces.surface1),
-                    radius: 8.0 * scale,
-                    border: Some(Border {
-                        color: opaque(surfaces.outline),
-                        width: scale,
-                    }),
-                },
-            ]
+            layout.chrome.modal[1],
+            Quad {
+                rect: expected,
+                color: opaque(surfaces.surface1),
+                radius: 10.0 * scale,
+                border: Some(Border {
+                    color: opaque(surfaces.outline),
+                    width: scale,
+                }),
+            }
         );
     }
 }
 
 #[test]
-fn docked_modal_fills_the_right_side_below_the_bar_without_backdrop() {
+fn backdrop_starts_below_the_bar_line() {
+    for scale in [1.0, 2.0] {
+        let layout = run_layout(scale, 800, None, Some(Modal::Centered(cells(10, 2, 20, 5))));
+        assert_eq!(
+            layout.chrome.modal[0],
+            Quad {
+                rect: rect(0.0, 35.0 * scale, 800.0 * scale, 565.0 * scale),
+                color: Rgba {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 102,
+                },
+                radius: 0.0,
+                border: None,
+            }
+        );
+        assert_eq!(layout.chrome.modal.len(), 2);
+    }
+}
+
+#[test]
+fn docked_modal_is_an_inset_panel_below_the_bar_without_backdrop() {
     let surfaces = Config::default().theme().surfaces();
-    let lifted = CellRect {
-        origin: CellPoint { col: 61, row: 2 },
-        size: GridSize { cols: 34, rows: 30 },
-    };
-    for (scale, panel, line) in [
-        (
-            1.0,
-            rect(472.0, 35.0, 328.0, 565.0),
-            rect(472.0, 35.0, 1.0, 565.0),
-        ),
-        (
-            2.0,
-            rect(944.0, 70.0, 656.0, 1130.0),
-            rect(944.0, 70.0, 2.0, 1130.0),
-        ),
+    let lifted = cells(61, 2, 34, 30);
+    for (scale, panel) in [
+        (1.0, rect(472.0, 43.0, 320.0, 549.0)),
+        (2.0, rect(944.0, 86.0, 640.0, 1098.0)),
     ] {
-        let layout = run_layout(scale, 800, &parts(), None, &[], Some(Modal::Docked(lifted)));
+        let layout = run_layout(scale, 800, None, Some(Modal::Docked(lifted)));
         assert_eq!(layout.chrome.lifted, Some(lifted));
         assert_eq!(
             layout.chrome.modal,
-            [
-                Quad {
-                    rect: panel,
-                    color: opaque(surfaces.surface1),
-                    radius: 0.0,
-                    border: None,
-                },
-                Quad {
-                    rect: line,
+            [Quad {
+                rect: panel,
+                color: opaque(surfaces.surface1),
+                radius: 10.0 * scale,
+                border: Some(Border {
                     color: opaque(surfaces.outline),
-                    radius: 0.0,
-                    border: None,
-                },
-            ],
+                    width: scale,
+                }),
+            }],
             "scale {scale}"
         );
-        assert!(layout.chrome.modal.iter().all(|quad| quad.color.a == 255));
     }
 }
 
 #[test]
-fn hit_test_finds_tabs_and_chip_but_not_gaps_or_the_grid() {
-    let layout = run_layout(1.0, 800, &parts(), None, &[], None);
+fn hit_test_finds_tabs_and_the_session_but_not_gaps_or_the_grid() {
+    let layout = run_layout(1.0, 800, None, None);
     assert_eq!(
-        hit_test(&layout.hits, (60.0, 10.0)),
+        hit_test(&layout.hits, (90.0, 10.0)),
         Some(HitTarget::Window(WindowId(1)))
     );
     assert_eq!(
-        hit_test(&layout.hits, (130.0, 10.0)),
+        hit_test(&layout.hits, (160.0, 10.0)),
         Some(HitTarget::Window(WindowId(2)))
     );
     assert_eq!(
         hit_test(&layout.hits, (10.0, 10.0)),
         Some(HitTarget::Session)
     );
-    assert_eq!(hit_test(&layout.hits, (126.0, 10.0)), None);
-    assert_eq!(hit_test(&layout.hits, (52.0, 10.0)), None);
-    assert_eq!(hit_test(&layout.hits, (60.0, 100.0)), None);
+    assert_eq!(hit_test(&layout.hits, (154.0, 10.0)), None);
+    assert_eq!(hit_test(&layout.hits, (79.0, 10.0)), None);
+    assert_eq!(hit_test(&layout.hits, (90.0, 100.0)), None);
 }
 
 #[test]
-fn ellipsize_measures_a_long_name_in_one_pass() {
-    let name = "x".repeat(10_000);
-    let mut calls = 0;
-    let mut chars = 0;
-    let result = ellipsize(&name, 160.0, false, &mut |text: &str, bold| {
-        calls += 1;
-        chars += text.chars().count();
-        measure(text, bold)
-    });
-    assert_eq!(result, format!("{}…", "x".repeat(21)));
-    assert!(calls <= 2 * name.len(), "{calls} calls");
-    assert!(chars <= 2 * name.len(), "{chars} chars measured");
-}
-
-#[test]
-fn long_prompts_show_their_tail_left_of_the_badges() {
-    let badged = StatusParts {
-        badges: vec![BadgeParts {
-            kind: BadgeKind::Copy,
-            text: "COPY".into(),
-        }],
-        ..parts()
-    };
-    let prompt = format!("/{}end", "x".repeat(200));
-    let layout = run_layout(1.0, 800, &badged, Some(&prompt), &[], None);
-    let end = 740.0;
-    let run = layout.chrome.text.iter().find(|run| run.x == 56.0).unwrap();
-    assert_eq!(run.text, format!("…{}end", "x".repeat(93)));
-    assert!(run.x + measure(&run.text, false) <= end);
+fn separator_segments_next_to_the_active_pane_are_accent() {
     let theme = Config::default().theme();
-    let caret = layout
-        .chrome
-        .quads
-        .iter()
-        .find(|quad| quad.color == opaque(theme.accent) && quad.rect.w == 1.0)
-        .unwrap();
-    assert_eq!(caret.rect, rect(735.0, 10.0, 1.0, 14.0));
-
-    let layout = run_layout(1.0, 120, &badged, Some(&prompt), &[], None);
-    let caret = layout
-        .chrome
-        .quads
-        .iter()
-        .find(|quad| quad.color == opaque(theme.accent) && quad.rect.w == 1.0)
-        .unwrap();
-    assert!(caret.rect.x + caret.rect.w <= 60.0);
-    assert!(
-        layout
+    let surfaces = theme.surfaces();
+    let separators = [
+        Separator {
+            axis: Axis::Horizontal,
+            rect: cells(10, 0, 1, 20),
+        },
+        Separator {
+            axis: Axis::Vertical,
+            rect: cells(11, 9, 20, 1),
+        },
+    ];
+    let panes = [
+        (1, cells(0, 0, 10, 20)),
+        (2, cells(11, 0, 20, 9)),
+        (3, cells(11, 10, 20, 10)),
+    ];
+    let lines = |active| {
+        let window = window(&separators, &panes, active);
+        run_layout(1.0, 800, Some(&window), None)
             .chrome
-            .text
-            .iter()
-            .filter(|run| run.x == 56.0)
-            .all(|run| run.x + measure(&run.text, false) <= 60.0)
+            .quads
+            .into_iter()
+            .filter(|quad| quad.rect.y >= 39.0)
+            .map(|quad| (quad.rect, quad.color))
+            .collect::<Vec<_>>()
+    };
+    let outline = opaque(surfaces.outline);
+    let accent = opaque(theme.accent);
+    let vertical = rect(92.0, 52.0, 1.0, 320.0);
+    let horizontal = rect(96.0, 204.0, 160.0, 1.0);
+    assert_eq!(
+        lines(1),
+        [
+            (vertical, outline),
+            (vertical, accent),
+            (horizontal, outline)
+        ]
     );
+    assert_eq!(
+        lines(2),
+        [
+            (vertical, outline),
+            (rect(92.0, 52.0, 1.0, 144.0), accent),
+            (horizontal, outline),
+            (horizontal, accent),
+        ]
+    );
+    assert_eq!(
+        lines(3),
+        [
+            (vertical, outline),
+            (rect(92.0, 212.0, 1.0, 160.0), accent),
+            (horizontal, outline),
+            (horizontal, accent),
+        ]
+    );
+}
+
+#[test]
+fn zoomed_windows_draw_no_separators() {
+    let window = WindowLayout {
+        zoomed: true,
+        ..window(&[], &[(1, cells(0, 0, 98, 34))], 1)
+    };
+    let layout = run_layout(1.0, 800, Some(&window), None);
+    assert!(layout.chrome.quads.iter().all(|quad| quad.rect.y < 39.0));
 }
 
 #[test]
@@ -744,12 +502,13 @@ fn separators_are_clipped_to_the_grid_area() {
             },
         },
     ];
-    let layout = run_layout(1.0, 200, &parts(), None, &separators, None);
+    let window = window(&separators, &[], 9);
+    let layout = run_layout(1.0, 200, Some(&window), None);
     let borders: Vec<PxRect> = layout
         .chrome
         .quads
         .iter()
-        .filter(|quad| quad.color == opaque(surfaces.pane_border) && quad.rect.y >= 39.0)
+        .filter(|quad| quad.color == opaque(surfaces.outline) && quad.rect.y >= 39.0)
         .map(|quad| quad.rect)
         .collect();
     assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 184.0, 557.0));

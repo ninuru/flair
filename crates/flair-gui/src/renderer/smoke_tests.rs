@@ -302,6 +302,7 @@ fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
     let text_width = fonts.ui_width("flair", false);
     let baseline = 22.0;
     let chrome = Chrome {
+        scale: 1.0,
         origin: (0.0, 35.0),
         clip: PxRect {
             x: 0.0,
@@ -340,6 +341,7 @@ fn chrome_draws_bar_border_box_backdrop_text_and_lifted_cells() {
             text: "flair".to_owned(),
             color: white,
             bold: false,
+            face: TextFace::Ui,
         }],
         modal: vec![
             Quad {

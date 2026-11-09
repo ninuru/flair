@@ -143,15 +143,70 @@ fn flair_dark_surfaces_are_exact() {
     let surfaces = theme.surfaces();
     let gray = |v| Rgb { r: v, g: v, b: v };
     assert_eq!(surfaces.surface1, gray(0x0d));
-    assert_eq!(surfaces.surface2, gray(0x18));
-    assert_eq!(surfaces.surface3, gray(0x22));
-    assert_eq!(surfaces.outline, gray(0x18));
-    assert_eq!(surfaces.pane_border, gray(0x22));
-    assert_eq!(surfaces.muted, gray(0x80));
+    assert_eq!(surfaces.surface2, gray(0x16));
+    assert_eq!(surfaces.surface3, gray(0x1e));
+    assert_eq!(surfaces.outline, gray(0x24));
+    assert_eq!(surfaces.outline_strong, gray(0x2b));
+    assert_eq!(surfaces.faint, gray(0x61));
+    assert_eq!(surfaces.muted, gray(0x95));
+    assert_eq!(surfaces.bright, gray(0xb5));
     assert_eq!(
         surfaces.accent_soft,
         blend(theme.background, theme.accent, 25)
     );
+    assert_eq!(surfaces.running, theme.normal[2]);
+    assert_eq!(surfaces.attention, theme.normal[3]);
+}
+
+#[test]
+fn builtin_surfaces_are_pairwise_distinct() {
+    for (name, _) in BUILTIN_THEMES {
+        let theme = builtin(name);
+        let s = theme.surfaces();
+        let tokens = [
+            theme.background,
+            s.surface1,
+            s.surface2,
+            s.surface3,
+            s.outline,
+            s.outline_strong,
+            s.faint,
+            s.muted,
+            s.bright,
+            theme.foreground,
+        ];
+        for (i, a) in tokens.iter().enumerate() {
+            for b in &tokens[i + 1..] {
+                assert_ne!(a, b, "{name}");
+            }
+        }
+    }
+}
+
+fn luminance(color: Rgb) -> f64 {
+    let channel = |v: u8| {
+        let c = f64::from(v) / 255.0;
+        if c <= 0.03928 {
+            c / 12.92
+        } else {
+            ((c + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
+}
+
+fn contrast(a: Rgb, b: Rgb) -> f64 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+#[test]
+fn muted_text_on_surface1_meets_the_contrast_floor() {
+    for (name, _) in BUILTIN_THEMES {
+        let surfaces = builtin(name).surfaces();
+        let ratio = contrast(surfaces.muted, surfaces.surface1);
+        assert!(ratio >= 4.5, "{name}: {ratio}");
+    }
 }
 
 fn hex(value: &str) -> Rgb {

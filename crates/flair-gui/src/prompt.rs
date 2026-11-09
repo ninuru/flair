@@ -9,6 +9,7 @@ use flair_core::{
 
 use crate::{
     cellgrid::{CellGrid, DrawCell},
+    cursor::TextCursor,
     picker::centred,
 };
 
@@ -21,10 +22,10 @@ pub enum Prompt {
         selected: usize,
     },
     Rename {
-        text: String,
+        field: TextCursor,
     },
     Search {
-        text: String,
+        field: TextCursor,
         forward: bool,
     },
 }
@@ -32,6 +33,7 @@ pub enum Prompt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
     Pending,
+    Invalid,
     Close,
     Run(Command),
 }
@@ -49,12 +51,14 @@ impl Prompt {
     }
 
     pub fn rename(current: String) -> Prompt {
-        Prompt::Rename { text: current }
+        Prompt::Rename {
+            field: TextCursor::new(&current).with_limit(NAME_LIMIT),
+        }
     }
 
     pub fn search(forward: bool) -> Prompt {
         Prompt::Search {
-            text: String::new(),
+            field: TextCursor::new("").with_limit(NAME_LIMIT),
             forward,
         }
     }
@@ -62,7 +66,7 @@ impl Prompt {
     pub fn insert(&mut self, input: &str) {
         match self {
             Prompt::Choose { .. } => {}
-            Prompt::Rename { text } | Prompt::Search { text, .. } => push_name(text, input),
+            Prompt::Rename { field } | Prompt::Search { field, .. } => field.insert(input),
         }
     }
 
@@ -92,32 +96,25 @@ impl Prompt {
                 )),
                 Key::Char(_) | Key::Named(_) => Outcome::Pending,
             },
-            Prompt::Rename { text } if key.key == Key::Named(NamedKey::Enter) => {
-                Outcome::Run(Command::RenameWindow(Some(text.clone())))
+            Prompt::Rename { field } if key.key == Key::Named(NamedKey::Enter) => {
+                if field.is_empty() {
+                    Outcome::Invalid
+                } else {
+                    Outcome::Run(Command::RenameWindow(Some(field.text().to_owned())))
+                }
             }
-            Prompt::Search { text, forward } if key.key == Key::Named(NamedKey::Enter) => {
+            Prompt::Search { field, forward } if key.key == Key::Named(NamedKey::Enter) => {
                 Outcome::Run(Command::Copy(CopyCommand::Search {
-                    pattern: text.clone(),
+                    pattern: field.text().to_owned(),
                     forward: *forward,
                 }))
             }
-            Prompt::Rename { text } | Prompt::Search { text, .. } => match key.key {
+            Prompt::Rename { field } | Prompt::Search { field, .. } => match key.key {
                 Key::Named(NamedKey::Escape) => Outcome::Close,
-                Key::Named(NamedKey::Backspace) => {
-                    text.pop();
+                Key::Char(_) | Key::Named(_) => {
+                    field.edit(key);
                     Outcome::Pending
                 }
-                Key::Char('u' | 'U') if key.mods.ctrl => {
-                    text.clear();
-                    Outcome::Pending
-                }
-                Key::Char(_) if plain => {
-                    if let Some(input) = &key.text {
-                        push_name(text, input);
-                    }
-                    Outcome::Pending
-                }
-                Key::Char(_) | Key::Named(_) => Outcome::Pending,
             },
         }
     }
@@ -175,23 +172,31 @@ impl Prompt {
     }
 
     pub fn bar_text(&self) -> Option<String> {
+        Some(format!("{}{}", self.field_prefix()?, self.field_text()?))
+    }
+
+    pub fn field_prefix(&self) -> Option<&str> {
         match self {
             Prompt::Choose { .. } => None,
-            Prompt::Rename { text } => Some(format!("(rename-window) {text}")),
-            Prompt::Search { text, forward } => {
-                let label = if *forward { '/' } else { '?' };
-                Some(format!("{label}{text}"))
-            }
+            Prompt::Rename { .. } => Some("(rename-window) "),
+            Prompt::Search { forward: true, .. } => Some("/"),
+            Prompt::Search { forward: false, .. } => Some("?"),
         }
     }
-}
 
-fn push_name(text: &mut String, input: &str) {
-    for c in input.chars().filter(|c| !c.is_control()) {
-        if text.len() + c.len_utf8() > NAME_LIMIT {
-            return;
+    pub fn field_text(&self) -> Option<&str> {
+        self.field().map(TextCursor::text)
+    }
+
+    pub fn cursor(&self) -> Option<usize> {
+        self.field().map(TextCursor::cursor)
+    }
+
+    fn field(&self) -> Option<&TextCursor> {
+        match self {
+            Prompt::Choose { .. } => None,
+            Prompt::Rename { field } | Prompt::Search { field, .. } => Some(field),
         }
-        text.push(c);
     }
 }
 

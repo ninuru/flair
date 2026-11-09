@@ -3,6 +3,8 @@ use std::{collections::HashMap, error::Error, fmt};
 use crossfont::{BitmapBuffer, FontDesc, Rasterize, Slant, Weight};
 use flair_core::config::FontConfig;
 
+use crate::ui::MONOGRAM_TEXT;
+
 pub struct Fonts {
     rasterizer: crossfont::Rasterizer,
     faces: [crossfont::FontKey; 4],
@@ -10,8 +12,9 @@ pub struct Fonts {
     metrics: CellMetrics,
     ui_faces: [crossfont::FontKey; 2],
     ui_size: crossfont::Size,
+    small_size: crossfont::Size,
     ui_metrics: UiMetrics,
-    ui_advances: HashMap<(char, Style), f32>,
+    ui_advances: HashMap<(char, Style, bool), f32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -25,6 +28,7 @@ pub struct CellMetrics {
 pub struct UiMetrics {
     pub height: f32,
     pub ascent: f32,
+    pub small: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -129,9 +133,11 @@ impl Fonts {
         let raw = rasterizer
             .metrics(ui_faces[0], ui_size)
             .map_err(|e| FontError(e.to_string()))?;
+        let small_size = crossfont::Size::from_px(MONOGRAM_TEXT * scale as f32);
         let ui_metrics = UiMetrics {
             height: (raw.line_height as f32).ceil().max(1.0),
             ascent: raw.line_height as f32 + raw.descent,
+            small: small_size.as_px() / ui_size.as_px(),
         };
         Ok(Fonts {
             rasterizer,
@@ -140,6 +146,7 @@ impl Fonts {
             metrics,
             ui_faces: ui_faces.try_into().unwrap(),
             ui_size,
+            small_size,
             ui_metrics,
             ui_advances: HashMap::new(),
         })
@@ -169,13 +176,21 @@ impl Fonts {
     }
 
     pub fn ui_advance(&mut self, c: char, style: Style) -> f32 {
-        if let Some(advance) = self.ui_advances.get(&(c, style)) {
+        self.advance(c, style, false)
+    }
+
+    pub fn small_advance(&mut self, c: char, style: Style) -> f32 {
+        self.advance(c, style, true)
+    }
+
+    fn advance(&mut self, c: char, style: Style, small: bool) -> f32 {
+        if let Some(advance) = self.ui_advances.get(&(c, style, small)) {
             return *advance;
         }
         let advance = self
-            .glyph(self.ui_key(c, style))
+            .glyph(self.ui_key(c, style, small))
             .map_or(0.0, |glyph| glyph.advance.0 as f32);
-        self.ui_advances.insert((c, style), advance);
+        self.ui_advances.insert((c, style, small), advance);
         advance
     }
 
@@ -185,10 +200,14 @@ impl Fonts {
     }
 
     pub fn rasterize_ui(&mut self, c: char, style: Style) -> Option<RasterGlyph> {
-        self.raster(self.ui_key(c, style))
+        self.raster(self.ui_key(c, style, false))
     }
 
-    fn ui_key(&self, c: char, style: Style) -> crossfont::GlyphKey {
+    pub fn rasterize_small(&mut self, c: char, style: Style) -> Option<RasterGlyph> {
+        self.raster(self.ui_key(c, style, true))
+    }
+
+    fn ui_key(&self, c: char, style: Style, small: bool) -> crossfont::GlyphKey {
         let index = match style {
             Style::Regular | Style::Italic => 0,
             Style::Bold | Style::BoldItalic => 1,
@@ -196,7 +215,7 @@ impl Fonts {
         crossfont::GlyphKey {
             character: c,
             font_key: self.ui_faces[index],
-            size: self.ui_size,
+            size: if small { self.small_size } else { self.ui_size },
         }
     }
 
