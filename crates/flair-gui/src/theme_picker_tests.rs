@@ -1,10 +1,10 @@
 use super::*;
 use crate::{
     Fonts,
-    cellgrid::DrawCursor,
-    chrome_layout::{self, ChromeInput, Modal, grid_size},
+    chrome_layout::{self, ChromeInput, grid_size},
     compose::compose,
     mirror::Mirror,
+    overlays::Overlays,
     renderer::{HeadlessContext, Renderer},
     status::status_parts,
 };
@@ -13,11 +13,11 @@ use flair_core::{
     geom::CellPoint,
     ids::PaneId,
     key::{Locks, Mods},
-    proto::{Cell, Cursor, CursorShape, PaneFlags, PaneUpdate},
+    proto::{Cell, Cursor, CursorShape, PaneFlags, PaneUpdate, ServerMsg},
     status::StatusLine,
     theme::Rgb,
 };
-use std::{fs, io::Write};
+use std::{fs, io::Write, path::Path};
 
 fn key(key: Key, text: Option<&str>) -> KeyInput {
     KeyInput {
@@ -61,43 +61,6 @@ fn names() -> Vec<String> {
 
 fn preview(name: &str) -> ThemeOutcome {
     ThemeOutcome::Preview(name.to_owned())
-}
-
-fn metrics(scale: f32) -> CellMetrics {
-    CellMetrics {
-        width: 8.0 * scale,
-        height: 16.0 * scale,
-        baseline: 12.0 * scale,
-    }
-}
-
-fn blank(cols: u16, rows: u16) -> CellGrid {
-    CellGrid {
-        size: GridSize { cols, rows },
-        cells: vec![
-            DrawCell {
-                c: '.',
-                extra: None,
-                fg: Rgb::default(),
-                bg: Rgb::default(),
-                flags: CellFlags::empty(),
-            };
-            usize::from(cols) * usize::from(rows)
-        ],
-        cursor: None,
-    }
-}
-
-fn cell(grid: &CellGrid, col: u16, row: u16) -> &DrawCell {
-    &grid.cells[usize::from(row) * usize::from(grid.size.cols) + usize::from(col)]
-}
-
-fn row_text(grid: &CellGrid, rect: CellRect, row: u16) -> String {
-    (rect.origin.col..rect.origin.col + rect.size.cols)
-        .map(|col| cell(grid, col, rect.origin.row + row).c)
-        .collect::<String>()
-        .trim_end()
-        .to_owned()
 }
 
 #[test]
@@ -191,90 +154,48 @@ fn releases_and_modified_chars_do_nothing() {
 }
 
 #[test]
-fn area_is_the_right_panel_below_the_bar_inset_by_the_margin() {
-    for scale in [1.0, 2.0] {
-        assert_eq!(
-            ThemePicker::area(GridSize { cols: 98, rows: 34 }, metrics(scale), scale),
-            CellRect {
-                origin: CellPoint { col: 61, row: 2 },
-                size: GridSize { cols: 34, rows: 30 },
-            },
-            "scale {scale}"
-        );
-    }
-    assert_eq!(
-        ThemePicker::area(GridSize { cols: 20, rows: 10 }, metrics(1.0), 1.0),
-        CellRect {
-            origin: CellPoint { col: 3, row: 2 },
-            size: GridSize { cols: 14, rows: 6 },
-        }
-    );
-    let tiny = ThemePicker::area(GridSize { cols: 1, rows: 1 }, metrics(1.0), 1.0);
-    assert_eq!(tiny.size, GridSize { cols: 1, rows: 1 });
-}
-
-#[test]
-fn draw_lists_themes_with_selection_and_saved_marker_inside_the_area() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
+fn sheet_docks_the_themes_with_the_saved_label_and_the_query_caret() {
     let mut picker = ThemePicker::new(names(), "flair-dark");
     picker.key(&named(NamedKey::Down));
-    let mut grid = blank(60, 12);
-    grid.cursor = Some(DrawCursor {
-        point: CellPoint { col: 0, row: 0 },
-        shape: CursorShape::Block,
-        color: Rgb::default(),
-    });
-    let area = CellRect {
-        origin: CellPoint { col: 30, row: 1 },
-        size: GridSize { cols: 26, rows: 10 },
-    };
-    assert_eq!(picker.draw(&mut grid, area, &theme), area);
-    assert!(grid.cursor.is_none());
-    let rows: Vec<String> = (0..7).map(|row| row_text(&grid, area, row)).collect();
+    let sheet = picker.sheet();
+    assert_eq!(sheet.placement, Placement::Docked);
+    assert_eq!(sheet.title, "Themes");
+    assert_eq!(sheet.selected, 2);
+    let rows: Vec<_> = sheet
+        .rows
+        .iter()
+        .map(|row| (row.name.as_str(), row.label))
+        .collect();
     assert_eq!(
         rows,
         [
-            "Themes  3",
-            "> _",
-            "",
-            "  catppuccin-mocha",
-            "  flair-dark *",
-            "> gruvbox-dark",
-            "",
+            ("catppuccin-mocha", None),
+            ("flair-dark", Some("saved")),
+            ("gruvbox-dark", None),
         ]
     );
-    for row in 0..grid.size.rows {
-        for col in 0..grid.size.cols {
-            let drawn = cell(&grid, col, row);
-            if area.contains(CellPoint { col, row }) {
-                let bg = if row == area.origin.row + 5 {
-                    surfaces.surface3
-                } else {
-                    surfaces.surface1
-                };
-                assert_eq!(drawn.bg, bg, "{col},{row}");
-            } else {
-                assert_eq!(drawn.c, '.', "{col},{row}");
-            }
-        }
-    }
+    assert!(sheet.rows.iter().all(|row| row.mark == Mark::Blank));
+    let keys: Vec<_> = sheet
+        .keys
+        .iter()
+        .map(|(key, verb)| (*key, verb.as_str()))
+        .collect();
+    assert_eq!(keys, [("↵", "save"), ("↑↓", "move"), ("esc", "revert")]);
+    picker.insert("grü");
+    let field = picker.sheet().field.unwrap();
+    assert_eq!(
+        (field.text.as_str(), field.cursor, field.placeholder),
+        ("grü", 3, "Search themes")
+    );
 }
 
 #[test]
-fn draw_scrolls_to_keep_the_selection_visible() {
-    let theme = Config::default().theme();
-    let names: Vec<String> = (0..10).map(|i| format!("theme-{i}")).collect();
-    let mut picker = ThemePicker::new(names, "theme-9");
-    let mut grid = blank(20, 6);
-    let area = CellRect {
-        origin: CellPoint { col: 0, row: 0 },
-        size: GridSize { cols: 20, rows: 6 },
-    };
-    picker.draw(&mut grid, area, &theme);
-    let rows: Vec<String> = (3..6).map(|row| row_text(&grid, area, row)).collect();
-    assert_eq!(rows, ["  theme-7", "  theme-8", "> theme-9 *"]);
-    assert_eq!(picker.key(&named(NamedKey::Up)), preview("theme-8"));
+fn select_previews_a_row_once_and_ignores_rows_out_of_range() {
+    let mut picker = ThemePicker::new(names(), "flair-dark");
+    assert_eq!(picker.select(0), preview("catppuccin-mocha"));
+    assert_eq!(picker.select(0), ThemeOutcome::Pending);
+    assert_eq!(picker.select(3), ThemeOutcome::Pending);
+    assert_eq!(picker.step(5), preview("gruvbox-dark"));
 }
 
 fn rgb(color: Rgb) -> [u8; 3] {
@@ -328,10 +249,16 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
         flags: PaneFlags::default(),
         selection: vec![],
     }]);
-    let mut grid = compose(&mirror, PaneId(1), &theme, true);
-    let mut picker = ThemePicker::new(names(), "flair-dark");
-    assert_eq!(picker.key(&named(NamedKey::Down)), preview("gruvbox-dark"));
-    let lifted = picker.draw(&mut grid, ThemePicker::area(size, metrics, 1.0), &theme);
+    let grid = compose(&mirror, PaneId(1), &theme, true);
+    let mut overlays = Overlays::default();
+    assert!(overlays.open(
+        &ServerMsg::ChooseTheme,
+        &StatusLine::default(),
+        &config,
+        Path::new("/nonexistent/flair.toml"),
+    ));
+    let picker = overlays.theme_picker_mut().unwrap();
+    assert_eq!(picker.insert("gruvbox-dark"), preview("gruvbox-dark"));
     let status = StatusLine {
         session: "main".into(),
         ..StatusLine::default()
@@ -348,7 +275,7 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
         prompt: None,
         layout: None,
         hover: None,
-        modal: Some(Modal::Docked(lifted)),
+        overlays: Some(&overlays),
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -373,9 +300,8 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
             }
         }
     }
-    let [panel] = chrome.chrome.modal.as_slice() else {
-        panic!("docked quads {:?}", chrome.chrome.modal);
-    };
+    let panel = chrome.chrome.modal[0];
+    assert!(panel.border.is_some(), "{panel:?}");
     let rect = panel.rect;
     let middle = rect.y + rect.h / 2.0;
     assert_eq!(at(2.0, 1.0), rgb(surfaces.surface1));
@@ -390,6 +316,11 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
     assert_eq!(at(W as f32 - 2.0, middle), rgb(theme.background));
     assert_eq!(at(rect.x + 20.0, H as f32 - 3.0), rgb(theme.background));
     assert_eq!(at(rect.x + 20.0, rect.y - 3.0), rgb(theme.background));
+    let row = chrome.overlay.as_ref().unwrap().rows[0].1;
+    assert_eq!(
+        at(row.x + row.w - 4.0, row.y + row.h / 2.0),
+        rgb(surfaces.surface3)
+    );
 }
 
 #[test]
@@ -412,6 +343,6 @@ fn refresh_moves_the_saved_marker_and_previews_the_selection_again() {
     let mut picker = ThemePicker::new(names(), "flair-dark");
     assert_eq!(picker.key(&named(NamedKey::Down)), preview("gruvbox-dark"));
     assert_eq!(picker.refresh("catppuccin-mocha"), preview("gruvbox-dark"));
-    assert_eq!(picker.entry("catppuccin-mocha", 0), "  catppuccin-mocha *");
-    assert_eq!(picker.entry("flair-dark", 1), "  flair-dark");
+    let labels: Vec<_> = picker.sheet().rows.iter().map(|row| row.label).collect();
+    assert_eq!(labels, [Some("saved"), None, None]);
 }

@@ -11,12 +11,14 @@ mod font;
 pub mod input;
 pub mod mirror;
 pub mod mouse;
+pub mod overlay_layout;
 pub mod overlays;
 pub mod picker;
 pub mod probe;
 pub mod prompt;
 pub mod renderer;
 pub mod status;
+mod theme_file;
 pub mod theme_picker;
 pub mod ui;
 

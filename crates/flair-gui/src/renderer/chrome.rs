@@ -1,7 +1,4 @@
-use flair_core::{
-    geom::CellRect,
-    theme::{Rgb, Rgba},
-};
+use flair_core::theme::{Rgb, Rgba};
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct PxRect {
@@ -51,7 +48,7 @@ pub struct Chrome {
     pub quads: Vec<Quad>,
     pub text: Vec<TextRun>,
     pub modal: Vec<Quad>,
-    pub lifted: Option<CellRect>,
+    pub modal_text: Vec<TextRun>,
 }
 
 impl Default for Chrome {
@@ -64,7 +61,7 @@ impl Default for Chrome {
             quads: Vec::new(),
             text: Vec::new(),
             modal: Vec::new(),
-            lifted: None,
+            modal_text: Vec::new(),
         }
     }
 }

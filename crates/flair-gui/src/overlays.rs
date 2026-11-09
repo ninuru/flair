@@ -1,19 +1,16 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use flair_core::{
-    command::Command,
+    command::{Command, WindowRef},
     config::{Config, theme_names},
     key::{Key, KeyAction, KeyInput, NamedKey},
     proto::{ClientMsg, ServerMsg},
     status::StatusLine,
-    theme::Theme,
 };
 
 use crate::{
-    CellMetrics,
-    cellgrid::CellGrid,
-    chrome_layout::{self, Modal},
     input::{self, LocalAction},
+    overlay_layout::{self, OverlayHit, OverlayHits, OverlayInput, OverlayScene, Sheet},
     picker::{self, Picker},
     prompt::{Outcome, Prompt},
     theme_picker::{ThemeOutcome, ThemePicker},
@@ -24,6 +21,8 @@ pub struct Overlays {
     picker: Option<Picker>,
     prompt: Option<Prompt>,
     theme_picker: Option<ThemePicker>,
+    home: Option<PathBuf>,
+    hits: Option<OverlayHits>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -35,6 +34,13 @@ pub enum OverlayEvent {
 }
 
 impl Overlays {
+    pub fn new(home: Option<PathBuf>) -> Overlays {
+        Overlays {
+            home,
+            ..Overlays::default()
+        }
+    }
+
     pub fn open(
         &mut self,
         message: &ServerMsg,
@@ -109,6 +115,15 @@ impl Overlays {
         key: &KeyInput,
         clipboard: impl FnOnce() -> Option<String>,
     ) -> Option<OverlayEvent> {
+        let direction = match key.key {
+            Key::Named(NamedKey::PageUp) => -1,
+            Key::Named(NamedKey::PageDown) => 1,
+            Key::Char(_) | Key::Named(_) => 0,
+        };
+        if direction != 0 && key.action == KeyAction::Press && self.panel_open() {
+            let page = self.hits.as_ref().map_or(1, OverlayHits::page) as i32;
+            return Some(self.wheel(direction * page));
+        }
         if let Some(picker) = &mut self.theme_picker {
             let outcome = picker.key(key);
             return Some(self.theme(outcome));
@@ -165,29 +180,51 @@ impl Overlays {
         Some(OverlayEvent::Redraw)
     }
 
-    pub fn draw(
+    pub fn layout(
         &self,
-        grid: &mut CellGrid,
-        metrics: CellMetrics,
-        scale: f32,
-        theme: &Theme,
-    ) -> Option<Modal> {
-        let area = chrome_layout::modal_area(grid.size, metrics, scale);
-        let mut lifted = None;
-        if let Some(picker) = &self.picker {
-            lifted = Some(Modal::Centered(picker.draw(grid, area, theme)));
+        input: &OverlayInput,
+        measure: &mut impl FnMut(&str, bool) -> f32,
+    ) -> Option<OverlayScene> {
+        let sheet = self.sheet()?;
+        Some(overlay_layout::layout(&sheet, input, measure))
+    }
+
+    pub fn place(&mut self, hits: Option<OverlayHits>) {
+        self.hits = hits;
+    }
+
+    pub fn hit_test(&self, pos: (f64, f64)) -> Option<OverlayHit> {
+        match self.panel_open() {
+            true => self.hits.as_ref().map(|hits| hits.hit_test(pos)),
+            false => None,
         }
-        if let Some(prompt) = &self.prompt {
-            lifted = prompt
-                .draw(grid, area, theme)
-                .map(Modal::Centered)
-                .or(lifted);
+    }
+
+    pub fn click(&mut self, hit: OverlayHit) -> OverlayEvent {
+        match hit {
+            OverlayHit::Panel => OverlayEvent::Ignored,
+            OverlayHit::Outside => self.dismiss(),
+            OverlayHit::Row(index) => self.choose(index),
         }
-        if let Some(picker) = &self.theme_picker {
-            let area = ThemePicker::area(grid.size, metrics, scale);
-            lifted = Some(Modal::Docked(picker.draw(grid, area, theme)));
+    }
+
+    pub fn wheel(&mut self, rows: i32) -> OverlayEvent {
+        let delta = rows as isize;
+        if let Some(picker) = &mut self.theme_picker {
+            let outcome = picker.step(delta);
+            return self.theme(outcome);
         }
-        lifted
+        if let Some(picker) = &mut self.picker {
+            picker.move_selection(rows);
+            return OverlayEvent::Redraw;
+        }
+        match &mut self.prompt {
+            Some(prompt @ Prompt::Choose { .. }) => {
+                prompt.move_selection(delta);
+                OverlayEvent::Redraw
+            }
+            Some(Prompt::Rename { .. } | Prompt::Search { .. }) | None => OverlayEvent::Ignored,
+        }
     }
 
     pub fn bar_text(&self) -> Option<String> {
@@ -199,6 +236,59 @@ impl Overlays {
         let text = prompt.bar_text()?;
         let cursor = prompt.field_prefix()?.chars().count() + prompt.cursor()?;
         Some((text, cursor))
+    }
+
+    fn sheet(&self) -> Option<Sheet> {
+        if let Some(picker) = &self.theme_picker {
+            return Some(picker.sheet());
+        }
+        if let Some(picker) = &self.picker {
+            return Some(picker.sheet(self.home.as_deref()));
+        }
+        self.prompt.as_ref().and_then(Prompt::sheet)
+    }
+
+    fn panel_open(&self) -> bool {
+        self.theme_picker.is_some()
+            || self.picker.is_some()
+            || matches!(self.prompt, Some(Prompt::Choose { .. }))
+    }
+
+    fn dismiss(&mut self) -> OverlayEvent {
+        if self.theme_picker.is_some() {
+            return self.theme(ThemeOutcome::Cancel);
+        }
+        if self.picker.take().is_none() {
+            self.prompt = None;
+        }
+        OverlayEvent::Redraw
+    }
+
+    fn choose(&mut self, index: usize) -> OverlayEvent {
+        if let Some(picker) = &mut self.theme_picker {
+            let outcome = picker.select(index);
+            return self.theme(outcome);
+        }
+        if let Some(picker) = self.picker.take() {
+            return match picker.target(index) {
+                Some(target) => OverlayEvent::Send(ClientMsg::Command(Command::Switch(target))),
+                None => {
+                    self.picker = Some(picker);
+                    OverlayEvent::Ignored
+                }
+            };
+        }
+        let window = match &self.prompt {
+            Some(Prompt::Choose { windows, .. }) => windows.get(index).map(|window| window.id),
+            Some(Prompt::Rename { .. } | Prompt::Search { .. }) | None => None,
+        };
+        match window {
+            Some(id) => {
+                self.prompt = None;
+                OverlayEvent::Send(ClientMsg::Command(Command::SelectWindow(WindowRef::Id(id))))
+            }
+            None => OverlayEvent::Ignored,
+        }
     }
 
     fn theme(&mut self, outcome: ThemeOutcome) -> OverlayEvent {

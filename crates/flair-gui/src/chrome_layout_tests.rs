@@ -1,5 +1,8 @@
 use super::*;
-use crate::status::{ChipParts, TabParts};
+use crate::{
+    renderer::Quad,
+    status::{ChipParts, TabParts},
+};
 use flair_core::{
     config::Config,
     geom::{Axis, CellPoint},
@@ -93,12 +96,7 @@ fn window(separators: &[Separator], panes: &[(u32, CellRect)], active: u32) -> W
     }
 }
 
-fn run_layout(
-    scale: f32,
-    width: u32,
-    window: Option<&WindowLayout>,
-    modal: Option<Modal>,
-) -> ChromeLayout {
+fn run_layout(scale: f32, width: u32, window: Option<&WindowLayout>) -> ChromeLayout {
     let theme = Config::default().theme();
     let status = parts();
     let input = ChromeInput {
@@ -112,7 +110,7 @@ fn run_layout(
         prompt: None,
         layout: window,
         hover: None,
-        modal,
+        overlays: None,
     };
     layout(&input, measure)
 }
@@ -146,11 +144,11 @@ fn grid_starts_below_bar_and_border() {
         grid_size((10, 20), (8.0, 4.0), 1.0, metrics(1.0)),
         GridSize { cols: 1, rows: 1 }
     );
-    let layout = run_layout(1.0, 800, None, None);
+    let layout = run_layout(1.0, 800, None);
     assert_eq!(layout.chrome.origin, (8.0, 52.0));
     assert_eq!(layout.chrome.clip, rect(8.0, 39.0, 784.0, 557.0));
     assert_eq!(layout.chrome.extend, rect(0.0, 35.0, 800.0, 565.0));
-    let layout = run_layout(2.0, 800, None, None);
+    let layout = run_layout(2.0, 800, None);
     assert_eq!(layout.chrome.origin, (16.0, 104.0));
     assert_eq!(layout.chrome.clip, rect(16.0, 78.0, 1568.0, 1114.0));
     assert_eq!(layout.chrome.extend, rect(0.0, 70.0, 1600.0, 1130.0));
@@ -176,7 +174,7 @@ fn grid_origin_centres_columns_and_puts_the_last_row_on_the_bottom_edge() {
             "top {} bottom {bottom}",
             origin.1
         );
-        let layout = run_layout(scale, width, None, None);
+        let layout = run_layout(scale, width, None);
         assert_eq!(layout.chrome.origin, origin);
     }
 }
@@ -210,7 +208,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
             prompt: None,
             layout: None,
             hover: None,
-            modal: None,
+            overlays: None,
         };
         let chrome = layout(&input, measure).chrome;
         let full = rect(0.0, top, px.0 as f32, px.1 as f32 - top);
@@ -223,7 +221,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
 #[test]
 fn mouse_mapping_uses_the_drawn_grid_origin() {
     for scale in [1.0, 2.0] {
-        let layout = run_layout(scale, 803, None, None);
+        let layout = run_layout(scale, 803, None);
         let origin = layout.chrome.origin;
         let cell = metrics(scale);
         let size = GridSize { cols: 98, rows: 34 };
@@ -247,22 +245,6 @@ fn mouse_mapping_uses_the_drawn_grid_origin() {
             CellPoint { col: 97, row: 33 }
         );
     }
-}
-
-#[test]
-fn modal_area_insets_the_grid_by_the_modal_margin() {
-    for scale in [1.0, 2.0] {
-        assert_eq!(
-            modal_area(GridSize { cols: 98, rows: 34 }, metrics(scale), scale),
-            CellRect {
-                origin: CellPoint { col: 3, row: 2 },
-                size: GridSize { cols: 92, rows: 30 },
-            }
-        );
-    }
-    let tiny = modal_area(GridSize { cols: 4, rows: 3 }, metrics(1.0), 1.0);
-    assert!(tiny.origin.col + tiny.size.cols <= 4);
-    assert!(tiny.origin.row + tiny.size.rows <= 3);
 }
 
 #[test]
@@ -297,7 +279,7 @@ fn separators_become_lines_centred_in_the_gap() {
         ),
     ] {
         let window = window(&separators, &[], 9);
-        let layout = run_layout(scale, 800, Some(&window), None);
+        let layout = run_layout(scale, 800, Some(&window));
         for expected in [vertical, horizontal] {
             assert_eq!(
                 quad_at(&layout, expected),
@@ -313,81 +295,8 @@ fn separators_become_lines_centred_in_the_gap() {
 }
 
 #[test]
-fn centred_modal_grows_the_lifted_rect_into_a_panel() {
-    let surfaces = Config::default().theme().surfaces();
-    let lifted = cells(10, 2, 20, 5);
-    for (scale, expected) in [
-        (1.0, rect(64.0, 64.0, 208.0, 120.0)),
-        (2.0, rect(128.0, 128.0, 416.0, 240.0)),
-    ] {
-        let layout = run_layout(scale, 800, None, Some(Modal::Centered(lifted)));
-        assert_eq!(layout.chrome.lifted, Some(lifted));
-        assert_eq!(
-            layout.chrome.modal[1],
-            Quad {
-                rect: expected,
-                color: opaque(surfaces.surface1),
-                radius: 10.0 * scale,
-                border: Some(Border {
-                    color: opaque(surfaces.outline),
-                    width: scale,
-                }),
-            }
-        );
-    }
-}
-
-#[test]
-fn backdrop_starts_below_the_bar_line() {
-    for scale in [1.0, 2.0] {
-        let layout = run_layout(scale, 800, None, Some(Modal::Centered(cells(10, 2, 20, 5))));
-        assert_eq!(
-            layout.chrome.modal[0],
-            Quad {
-                rect: rect(0.0, 35.0 * scale, 800.0 * scale, 565.0 * scale),
-                color: Rgba {
-                    r: 0,
-                    g: 0,
-                    b: 0,
-                    a: 102,
-                },
-                radius: 0.0,
-                border: None,
-            }
-        );
-        assert_eq!(layout.chrome.modal.len(), 2);
-    }
-}
-
-#[test]
-fn docked_modal_is_an_inset_panel_below_the_bar_without_backdrop() {
-    let surfaces = Config::default().theme().surfaces();
-    let lifted = cells(61, 2, 34, 30);
-    for (scale, panel) in [
-        (1.0, rect(472.0, 43.0, 320.0, 549.0)),
-        (2.0, rect(944.0, 86.0, 640.0, 1098.0)),
-    ] {
-        let layout = run_layout(scale, 800, None, Some(Modal::Docked(lifted)));
-        assert_eq!(layout.chrome.lifted, Some(lifted));
-        assert_eq!(
-            layout.chrome.modal,
-            [Quad {
-                rect: panel,
-                color: opaque(surfaces.surface1),
-                radius: 10.0 * scale,
-                border: Some(Border {
-                    color: opaque(surfaces.outline),
-                    width: scale,
-                }),
-            }],
-            "scale {scale}"
-        );
-    }
-}
-
-#[test]
 fn hit_test_finds_tabs_and_the_session_but_not_gaps_or_the_grid() {
-    let layout = run_layout(1.0, 800, None, None);
+    let layout = run_layout(1.0, 800, None);
     assert_eq!(
         hit_test(&layout.hits, (90.0, 10.0)),
         Some(HitTarget::Window(WindowId(1)))
@@ -426,7 +335,7 @@ fn separator_segments_next_to_the_active_pane_are_accent() {
     ];
     let lines = |active| {
         let window = window(&separators, &panes, active);
-        run_layout(1.0, 800, Some(&window), None)
+        run_layout(1.0, 800, Some(&window))
             .chrome
             .quads
             .into_iter()
@@ -472,7 +381,7 @@ fn zoomed_windows_draw_no_separators() {
         zoomed: true,
         ..window(&[], &[(1, cells(0, 0, 98, 34))], 1)
     };
-    let layout = run_layout(1.0, 800, Some(&window), None);
+    let layout = run_layout(1.0, 800, Some(&window));
     assert!(layout.chrome.quads.iter().all(|quad| quad.rect.y < 39.0));
 }
 
@@ -503,7 +412,7 @@ fn separators_are_clipped_to_the_grid_area() {
         },
     ];
     let window = window(&separators, &[], 9);
-    let layout = run_layout(1.0, 200, Some(&window), None);
+    let layout = run_layout(1.0, 200, Some(&window));
     let borders: Vec<PxRect> = layout
         .chrome
         .quads

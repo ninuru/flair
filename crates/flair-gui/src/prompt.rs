@@ -1,16 +1,13 @@
 use flair_core::{
     command::{Command, CopyCommand, WindowRef},
-    geom::CellRect,
     key::{Key, KeyAction, KeyInput, NamedKey},
-    proto::CellFlags,
     status::{StatusLine, StatusWindow},
-    theme::{Rgb, Theme},
 };
 
 use crate::{
-    cellgrid::{CellGrid, DrawCell},
     cursor::TextCursor,
-    picker::centred,
+    overlay_layout::{Mark, Placement, Row, Sheet},
+    ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
 
 const NAME_LIMIT: usize = 255;
@@ -119,54 +116,46 @@ impl Prompt {
         }
     }
 
-    pub fn draw(&self, grid: &mut CellGrid, area: CellRect, theme: &Theme) -> Option<CellRect> {
-        grid.cursor = None;
+    pub fn move_selection(&mut self, delta: isize) {
         match self {
             Prompt::Choose { windows, selected } => {
-                let width = usize::from(area.size.cols).min(60);
-                let height = usize::from(area.size.rows).min(windows.len() + 2);
-                let rect = centred(area, width, height);
-                let surfaces = theme.surfaces();
-                let left = usize::from(rect.origin.col);
-                let top = usize::from(rect.origin.row);
-                let write = |grid: &mut CellGrid, row, text: &str, fg, bg| {
-                    write_row(grid, (left, top + row, width), text, fg, bg);
-                };
-                for row in 0..height {
-                    write(grid, row, "", theme.foreground, surfaces.surface1);
-                }
-                if height == 0 {
-                    return Some(rect);
-                }
-                write(grid, 0, "Windows", theme.foreground, surfaces.surface1);
-                let capacity = height.saturating_sub(2);
-                let first = selected.saturating_sub(capacity.saturating_sub(1));
-                for (row, (index, window)) in windows
-                    .iter()
-                    .enumerate()
-                    .skip(first)
-                    .take(capacity)
-                    .enumerate()
-                {
-                    let text = format!(" {}: {}", window.index, window.name);
-                    let bg = if index == *selected {
-                        surfaces.surface3
-                    } else {
-                        surfaces.surface1
-                    };
-                    write(grid, row + 1, &text, theme.foreground, bg);
-                }
-                if height > 1 {
-                    write(
-                        grid,
-                        height - 1,
-                        "Enter select  Esc cancel",
-                        surfaces.muted,
-                        surfaces.surface1,
-                    );
-                }
-                Some(rect)
+                *selected = selected
+                    .saturating_add_signed(delta)
+                    .min(windows.len().saturating_sub(1));
             }
+            Prompt::Rename { .. } | Prompt::Search { .. } => {}
+        }
+    }
+
+    pub fn sheet(&self) -> Option<Sheet> {
+        match self {
+            Prompt::Choose { windows, selected } => Some(Sheet {
+                placement: Placement::Centred,
+                title: "Windows",
+                field: None,
+                rows: windows
+                    .iter()
+                    .map(|window| Row {
+                        mark: Mark::Index(window.index),
+                        name: window.name.chars().filter(|c| !c.is_control()).collect(),
+                        detail: None,
+                        label: if window.active {
+                            Some("active")
+                        } else if window.last {
+                            Some("last")
+                        } else {
+                            None
+                        },
+                    })
+                    .collect(),
+                selected: *selected,
+                keys: vec![
+                    (ENTER_KEY, "select".to_owned()),
+                    (MOVE_KEY, "move".to_owned()),
+                    ("1-9", "jump".to_owned()),
+                    (ESCAPE_KEY, "cancel".to_owned()),
+                ],
+            }),
             Prompt::Rename { .. } | Prompt::Search { .. } => None,
         }
     }
@@ -197,21 +186,6 @@ impl Prompt {
             Prompt::Choose { .. } => None,
             Prompt::Rename { field } | Prompt::Search { field, .. } => Some(field),
         }
-    }
-}
-
-fn write_row(grid: &mut CellGrid, rect: (usize, usize, usize), text: &str, fg: Rgb, bg: Rgb) {
-    let (left, row, width) = rect;
-    let start = row * usize::from(grid.size.cols) + left;
-    let mut chars = text.chars().filter(|c| !c.is_control());
-    for cell in &mut grid.cells[start..start + width] {
-        *cell = DrawCell {
-            c: chars.next().unwrap_or(' '),
-            extra: None,
-            fg,
-            bg,
-            flags: CellFlags::empty(),
-        };
     }
 }
 

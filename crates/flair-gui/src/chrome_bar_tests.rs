@@ -109,7 +109,7 @@ impl<'a> Case<'a> {
             }),
             layout: self.window,
             hover: self.hover,
-            modal: None,
+            overlays: None,
         };
         layout(&input, measure)
     }
@@ -164,7 +164,8 @@ fn bar_and_line_span_the_window_top() {
             )
         );
         assert!(layout.chrome.modal.is_empty());
-        assert_eq!(layout.chrome.lifted, None);
+        assert!(layout.chrome.modal_text.is_empty());
+        assert_eq!(layout.overlay, None);
     }
 }
 

@@ -280,7 +280,9 @@ impl Capture {
         };
         let scale = pixels.scale as f32;
         let metrics = pixels.fonts.metrics();
-        let modal = self.overlays.draw(&mut grid, metrics, scale, &theme);
+        if self.overlays.is_open() {
+            grid.cursor = None;
+        }
         let parts = status_parts(&self.status);
         let prompt = self.overlays.bar_field();
         let input = ChromeInput {
@@ -297,7 +299,7 @@ impl Capture {
             }),
             layout: self.layout.as_ref(),
             hover: None,
-            modal,
+            overlays: Some(&self.overlays),
         };
         let ChromeLayout { chrome, .. } =
             chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
@@ -451,7 +453,7 @@ pub fn run(
         preview: None,
         config,
         config_path,
-        overlays: Overlays::default(),
+        overlays: Overlays::new(std::env::var_os("HOME").map(PathBuf::from)),
         pixels,
     };
     let mut failed_step = None;

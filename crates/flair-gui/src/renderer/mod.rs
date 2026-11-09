@@ -152,12 +152,8 @@ impl Renderer {
             self.uploaded.clear();
             self.reset_atlas = false;
         }
-        let lifted = chrome.lifted;
         let margins = self.margins(grid, chrome.origin, chrome.extend);
-        let scale = chrome.scale;
-        let outside = self.cells(grid, chrome.origin, scale, fonts, |point| {
-            !lifted.is_some_and(|rect| rect.contains(point))
-        });
+        let cells = self.cells(grid, chrome.origin, chrome.scale, fonts);
         let mut quads = Vec::new();
         for q in &chrome.quads {
             quad(&mut quads, q);
@@ -167,12 +163,7 @@ impl Renderer {
         for q in &chrome.modal {
             quad(&mut modal, q);
         }
-        let inside = match lifted {
-            Some(rect) => self.cells(grid, chrome.origin, scale, fonts, |point| {
-                rect.contains(point)
-            }),
-            None => [Vec::new(), Vec::new(), Vec::new()],
-        };
+        let modal_text = self.text(&chrome.modal_text, fonts);
         unsafe {
             self.gl.viewport(0, 0, self.px.0 as i32, self.px.1 as i32);
             self.gl.disable(glow::SCISSOR_TEST);
@@ -187,21 +178,14 @@ impl Renderer {
         self.scissor(chrome.extend);
         self.pipeline.draw(&self.gl, self.px, &margins);
         self.scissor(chrome.clip);
-        for instances in &outside {
+        for instances in &cells {
             self.pipeline.draw(&self.gl, self.px, instances);
         }
         unsafe {
             self.gl.disable(glow::SCISSOR_TEST);
         }
-        for instances in [&quads, &text, &modal] {
+        for instances in [&quads, &text, &modal, &modal_text] {
             self.pipeline.draw(&self.gl, self.px, instances);
-        }
-        self.scissor(chrome.clip);
-        for instances in &inside {
-            self.pipeline.draw(&self.gl, self.px, instances);
-        }
-        unsafe {
-            self.gl.disable(glow::SCISSOR_TEST);
         }
         let error = unsafe { self.gl.get_error() };
         if error != glow::NO_ERROR {
@@ -331,7 +315,6 @@ impl Renderer {
         origin: (f32, f32),
         scale: f32,
         fonts: &mut Fonts,
-        keep: impl Fn(CellPoint) -> bool,
     ) -> [Vec<f32>; 3] {
         let thin = px(1.0, scale);
         let thick = px(2.0, scale);
@@ -345,9 +328,6 @@ impl Renderer {
                 col: (i % cols) as u16,
                 row: (i / cols) as u16,
             };
-            if !keep(point) {
-                continue;
-            }
             let x = origin.0 + (i % cols) as f32 * m.width;
             let y = origin.1 + (i / cols) as f32 * m.height;
             instance(
@@ -417,7 +397,7 @@ impl Renderer {
                 );
             }
         }
-        if let Some(cursor) = grid.cursor.filter(|cursor| keep(cursor.point)) {
+        if let Some(cursor) = grid.cursor {
             let x = origin.0 + f32::from(cursor.point.col) * m.width;
             let y = origin.1 + f32::from(cursor.point.row) * m.height;
             let color = opaque(cursor.color);
