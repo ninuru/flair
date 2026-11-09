@@ -1,8 +1,6 @@
 use super::*;
 use flair_core::{
-    config::Config,
     proto::SessionInfo,
-    theme::Theme,
     tree::{Session, Window},
 };
 
@@ -11,7 +9,6 @@ impl Server {
         &mut self,
         target: Target,
         size: GridSize,
-        palette: &Theme,
         env: &[(String, String)],
         out: &mut Vec<Effect>,
     ) -> Result<SessionId, String> {
@@ -86,7 +83,7 @@ impl Server {
         let window = WindowId(number);
         let pane_id = PaneId(number);
         let no_history = name == "H";
-        let spec = self.spawn_pane(pane_id, root.clone(), size, palette, env, no_history);
+        let spec = self.spawn_pane(pane_id, root.clone(), size, env, no_history);
         self.tree.sessions.push(Session {
             id: session,
             name,
@@ -171,14 +168,7 @@ impl Server {
                 self.stopping = true;
             }
             Control::Create { target, env } => {
-                let palette = Config::default().theme();
-                match self.resolve_target(
-                    target,
-                    GridSize { cols: 80, rows: 24 },
-                    &palette,
-                    &env,
-                    out,
-                ) {
+                match self.resolve_target(target, GridSize { cols: 80, rows: 24 }, &env, out) {
                     Ok(session) => {
                         let info = self
                             .session_infos()
@@ -201,15 +191,10 @@ impl Server {
                     })
                     .max_by_key(|(_, state)| (state.focused, state.activity))
                     .map(|(client, _)| *client);
-                let (size, palette) = chosen
-                    .map(|client| {
-                        let state = &self.clients[&client];
-                        (state.size, state.palette.clone())
-                    })
-                    .unwrap_or_else(|| {
-                        (GridSize { cols: 80, rows: 24 }, Config::default().theme())
-                    });
-                match self.resolve_target(target, size, &palette, &env, out) {
+                let size = chosen
+                    .map(|client| self.clients[&client].size)
+                    .unwrap_or(GridSize { cols: 80, rows: 24 });
+                match self.resolve_target(target, size, &env, out) {
                     Ok(session) => {
                         if let Some(client) = chosen {
                             self.switch_to(now, client, session, out);

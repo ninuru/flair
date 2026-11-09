@@ -30,6 +30,7 @@ pub enum Command {
     ToggleZoom,
     ReloadConfig,
     ChooseSession,
+    ChooseTheme,
     CopyMode,
     Copy(CopyCommand),
 }

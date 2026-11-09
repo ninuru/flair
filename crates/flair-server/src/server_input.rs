@@ -14,9 +14,8 @@ impl Server {
             Command::Switch(target) => {
                 let state = &self.clients[&id];
                 let size = state.size;
-                let palette = state.palette.clone();
                 let env = state.env.clone();
-                match self.resolve_target(target, size, &palette, &env, out) {
+                match self.resolve_target(target, size, &env, out) {
                     Ok(session) => self.switch_to(now, id, session, out),
                     Err(error) => out.push(Effect::Send(id, ServerMsg::Error(error))),
                 }
@@ -75,6 +74,7 @@ impl Server {
                 }
             }
             Command::ChooseWindow => out.push(Effect::Send(id, ServerMsg::ChooseWindow)),
+            Command::ChooseTheme => out.push(Effect::Send(id, ServerMsg::ChooseTheme)),
             Command::RenameWindow(name) => {
                 let window = self.clients[&id].view.window;
                 if let Some(name) = name {
@@ -146,6 +146,7 @@ impl Server {
                         | Command::LastSession
                         | Command::Sessionizer
                         | Command::ChooseSession
+                        | Command::ChooseTheme
                         | Command::CopySelection
                         | Command::Detach
                         | Command::NewWindow

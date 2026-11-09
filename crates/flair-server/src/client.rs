@@ -5,7 +5,6 @@ use flair_core::{
     prefix::PrefixMachine,
     proto::{ClientKind, PaneUpdate, WindowLayout},
     status::StatusLine,
-    theme::Theme,
     time::Millis,
     view::ClientView,
 };
@@ -25,7 +24,6 @@ pub(crate) struct ClientState {
     pub acknowledged: BTreeMap<PaneId, PaneUpdate>,
     pub layout: Option<WindowLayout>,
     pub env: Vec<(String, String)>,
-    pub palette: Theme,
     pub prefix: PrefixMachine,
     pub status: Option<StatusLine>,
     pub finished: BTreeSet<SessionId>,

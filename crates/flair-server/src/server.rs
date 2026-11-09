@@ -6,6 +6,7 @@ use flair_core::{
     ids::{ClientId, PaneId, SessionId, WindowId},
     prefix::PrefixMachine,
     proto::{ClientKind, ClientMsg, Control, ExitReason, PROTOCOL, ServerMsg, Target},
+    theme::Theme,
     time::Millis,
     tree::Tree,
     view::ClientView,
@@ -36,6 +37,7 @@ pub struct Server {
     tree: Tree,
     panes: BTreeMap<PaneId, Pane>,
     clients: BTreeMap<ClientId, ClientState>,
+    palette: Theme,
     next_id: u32,
     activity: u64,
     stopping: bool,
@@ -48,6 +50,7 @@ impl Server {
             tree: Tree { sessions: vec![] },
             panes: BTreeMap::new(),
             clients: BTreeMap::new(),
+            palette: Config::default().theme(),
             next_id: 1,
             activity: 0,
             stopping: false,
@@ -130,7 +133,8 @@ impl Server {
                     ));
                     return;
                 }
-                let session = match self.resolve_target(target, size, &palette, &env, out) {
+                self.set_palette(palette);
+                let session = match self.resolve_target(target, size, &env, out) {
                     Ok(session) => session,
                     Err(error) => {
                         out.push(Effect::Send(id, ServerMsg::Error(error)));
@@ -154,7 +158,6 @@ impl Server {
                         acknowledged: BTreeMap::new(),
                         layout: None,
                         env,
-                        palette,
                         prefix: PrefixMachine::default(),
                         status: None,
                         finished: BTreeSet::new(),
@@ -228,12 +231,20 @@ impl Server {
                 self.touch(now, id, out);
                 self.command(now, id, command, out);
             }
+            ClientMsg::Palette(palette) => self.set_palette(palette),
             ClientMsg::Detach => {
                 self.remove_client(id, out);
                 out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::Detached)));
             }
             ClientMsg::Hello { .. } | ClientMsg::Control(_) => unreachable!(),
         }
+    }
+
+    fn set_palette(&mut self, palette: Theme) {
+        for pane in self.panes.values_mut() {
+            pane.terminal.set_palette(&palette);
+        }
+        self.palette = palette;
     }
 
     fn touch(&mut self, now: Millis, id: ClientId, out: &mut Vec<Effect>) {

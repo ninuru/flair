@@ -1,14 +1,26 @@
-use std::{error::Error, fmt, sync::mpsc::Sender, time::Instant};
+use std::{
+    error::Error,
+    fmt,
+    fs::{self, OpenOptions},
+    io::{self, Write},
+    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    path::{Path, PathBuf},
+    process,
+    sync::mpsc::Sender,
+    time::Instant,
+};
 
 use flair_core::{
     command::{Command, WindowRef},
-    config::Config,
+    config::{Config, theme_names},
+    config_edit::set_theme,
     geom::{CellPoint, GridSize},
     ids::PaneId,
     key::{InputEvent, Key, KeyAction, KeyInput, MouseAction, MouseButton, MouseInput, NamedKey},
     link::ClientLink,
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
     status::StatusLine,
+    theme::Theme,
 };
 use winit::{
     application::ApplicationHandler,
@@ -34,6 +46,7 @@ use crate::{
     prompt::{Outcome, Prompt},
     renderer::{Renderer, WindowContext},
     status::status_parts,
+    theme_picker::{ThemeOutcome, ThemePicker},
 };
 
 #[derive(Debug)]
@@ -60,6 +73,10 @@ struct Surface {
 
 struct App {
     config: Config,
+    config_path: PathBuf,
+    theme: Theme,
+    preview: Option<Theme>,
+    theme_picker: Option<ThemePicker>,
     tx: Sender<ClientMsg>,
     surface: Option<Surface>,
     mirror: Mirror,
@@ -210,6 +227,44 @@ impl App {
         }
         self.request_redraw();
     }
+    fn theme_key(&mut self, key: &KeyInput, event_loop: &ActiveEventLoop) {
+        let Some(picker) = &mut self.theme_picker else {
+            return;
+        };
+        let outcome = picker.key(key);
+        self.theme_outcome(outcome, event_loop);
+    }
+    fn theme_outcome(&mut self, outcome: ThemeOutcome, event_loop: &ActiveEventLoop) {
+        match outcome {
+            ThemeOutcome::Pending => {}
+            ThemeOutcome::Preview(name) => {
+                let dir = Config::themes_dir(&self.config_path);
+                self.preview = Some(self.config.with_theme(&name).load_theme(&dir).0);
+            }
+            ThemeOutcome::Cancel => {
+                self.theme_picker = None;
+                self.preview = None;
+            }
+            ThemeOutcome::Save(name) => {
+                self.theme_picker = None;
+                self.preview = None;
+                match save_theme(&self.config_path, &name) {
+                    Ok(config) => {
+                        self.reload(config, event_loop);
+                        self.send(ClientMsg::Command(Command::ReloadConfig));
+                    }
+                    Err(error) => log::warn!(
+                        "could not save theme {name:?} to {}: {error}",
+                        self.config_path.display()
+                    ),
+                }
+            }
+        }
+        self.request_redraw();
+    }
+    fn overlay_open(&self) -> bool {
+        self.picker.is_some() || self.prompt.is_some() || self.theme_picker.is_some()
+    }
     fn set_ime(&mut self, active: bool) {
         if self.ime != active {
             self.ime = active;
@@ -231,6 +286,11 @@ impl App {
     fn reload(&mut self, config: Config, event_loop: &ActiveEventLoop) {
         let fonts_changed = config.font != self.config.font;
         self.config = config;
+        let theme = resolve_theme(&self.config, &self.config_path);
+        if theme != self.theme {
+            self.theme = theme;
+            self.send(ClientMsg::Palette(self.theme.clone()));
+        }
         if fonts_changed && let Some(surface) = &mut self.surface {
             match Fonts::load(&self.config.font, surface.window.scale_factor()) {
                 Ok(fonts) => {
@@ -247,7 +307,7 @@ impl App {
         self.request_redraw();
     }
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
-        let theme = self.config.theme();
+        let theme = self.preview.as_ref().unwrap_or(&self.theme).clone();
         let mut grid = match (&self.layout, self.pane) {
             (Some(layout), _) => compose_frame(&self.mirror, layout, self.size(), &theme, true),
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
@@ -264,10 +324,17 @@ impl App {
         let area = chrome_layout::modal_area(grid.size, metrics, scale as f32);
         let mut lifted = None;
         if let Some(picker) = &self.picker {
-            lifted = Some(picker.draw(&mut grid, area, &theme));
+            lifted = Some(Modal::Centered(picker.draw(&mut grid, area, &theme)));
         }
         if let Some(prompt) = &self.prompt {
-            lifted = prompt.draw(&mut grid, area, &theme).or(lifted);
+            lifted = prompt
+                .draw(&mut grid, area, &theme)
+                .map(Modal::Centered)
+                .or(lifted);
+        }
+        if let Some(picker) = &self.theme_picker {
+            let area = ThemePicker::area(grid.size, metrics, scale as f32);
+            lifted = Some(Modal::Docked(picker.draw(&mut grid, area, &theme)));
         }
         let parts = status_parts(&self.status);
         let prompt = self.prompt.as_ref().and_then(Prompt::bar_text);
@@ -285,7 +352,7 @@ impl App {
                 .layout
                 .as_ref()
                 .map_or(&[], |layout| layout.separators.as_slice()),
-            modal: lifted.map(Modal::Centered),
+            modal: lifted,
         };
         let ChromeLayout { chrome, hits } =
             chrome_layout::layout(&input, |text, bold| surface.fonts.ui_width(text, bold));
@@ -446,10 +513,24 @@ impl ApplicationHandler<UserEvent> for App {
                         self.send(ClientMsg::Input(InputEvent::Paste(text)));
                     }
                 }
-                ServerMsg::ReloadConfig { toml } => match Config::from_toml(&toml) {
-                    Ok(config) => self.reload(config, event_loop),
-                    Err(error) => log::warn!("ignoring reloaded config: {error}"),
-                },
+                ServerMsg::ReloadConfig { toml } => {
+                    let text = fs::read_to_string(&self.config_path).unwrap_or(toml);
+                    match Config::from_toml(&text) {
+                        Ok(config) => self.reload(config, event_loop),
+                        Err(error) => log::warn!("ignoring reloaded config: {error}"),
+                    }
+                    if let Some(picker) = &mut self.theme_picker {
+                        let outcome = picker.refresh(&self.config.theme);
+                        self.theme_outcome(outcome, event_loop);
+                    }
+                }
+                ServerMsg::ChooseTheme => {
+                    self.theme_picker = Some(ThemePicker::new(
+                        theme_names(&Config::themes_dir(&self.config_path)),
+                        &self.config.theme,
+                    ));
+                    self.request_redraw();
+                }
                 ServerMsg::Sessions(_) | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
                 ServerMsg::Exit(_) => {
@@ -498,7 +579,10 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::Ime(Ime::Preedit(text, _)) => self.set_ime(!text.is_empty()),
             WindowEvent::Ime(Ime::Commit(text)) => {
                 self.set_ime(false);
-                if let Some(picker) = &mut self.picker {
+                if let Some(picker) = &mut self.theme_picker {
+                    let outcome = picker.insert(&text);
+                    self.theme_outcome(outcome, event_loop);
+                } else if let Some(picker) = &mut self.picker {
                     picker.insert(&text);
                     self.request_redraw();
                 } else if let Some(prompt) = &mut self.prompt {
@@ -520,6 +604,10 @@ impl ApplicationHandler<UserEvent> for App {
                 let Some(key) = self.input.translate(&event, self.mods) else {
                     return;
                 };
+                if self.theme_picker.is_some() {
+                    self.theme_key(&key, event_loop);
+                    return;
+                }
                 if self.picker.is_some() {
                     if key.action == KeyAction::Release {
                         return;
@@ -544,13 +632,13 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer = position;
-                if self.picker.is_some() || self.prompt.is_some() {
+                if self.overlay_open() {
                     return;
                 }
                 self.mouse(self.button, MouseAction::Motion);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if self.picker.is_some() || self.prompt.is_some() {
+                if self.overlay_open() {
                     if state == ElementState::Released {
                         self.capture = Capture::Idle;
                         self.button = MouseButton::NoButton;
@@ -606,7 +694,7 @@ impl ApplicationHandler<UserEvent> for App {
                 );
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if self.picker.is_some() || self.prompt.is_some() {
+                if self.overlay_open() {
                     return;
                 }
                 let line_px = self
@@ -690,23 +778,84 @@ fn capture_after(
     }
 }
 
-pub fn run(config: Config, link: ClientLink, probe: Option<Instant>) -> Result<(), GuiError> {
-    run_target(config, link, probe, Target::Main, Vec::new())
+fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
+    let path = match fs::canonicalize(path) {
+        Ok(real) => real,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_owned(),
+        Err(error) => return Err(error),
+    };
+    let (text, permissions) = match fs::read_to_string(&path) {
+        Ok(text) => (text, Some(fs::metadata(&path)?.permissions())),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => (String::new(), None),
+        Err(error) => return Err(error),
+    };
+    let text = set_theme(&text, name);
+    let config = Config::from_toml(&text).map_err(io::Error::other)?;
+    if let Some(dir) = path.parent() {
+        fs::create_dir_all(dir)?;
+    }
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".{}.tmp", process::id()));
+    let tmp = PathBuf::from(tmp);
+    let replaced = replace_file(&tmp, &path, &text, permissions);
+    if replaced.is_err() {
+        let _ = fs::remove_file(&tmp);
+    }
+    replaced.map(|()| config)
+}
+
+fn replace_file(
+    tmp: &Path,
+    path: &Path,
+    text: &str,
+    permissions: Option<fs::Permissions>,
+) -> io::Result<()> {
+    let mode = permissions.as_ref().map_or(0o666, |p| p.mode() & 0o7777);
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(mode)
+        .open(tmp)?;
+    file.write_all(text.as_bytes())?;
+    if let Some(permissions) = permissions {
+        file.set_permissions(permissions)?;
+    }
+    drop(file);
+    fs::rename(tmp, path)
+}
+
+fn resolve_theme(config: &Config, path: &Path) -> Theme {
+    let (theme, error) = config.load_theme(&Config::themes_dir(path));
+    if let Some(error) = error {
+        log::warn!("{error}; using defaults");
+    }
+    theme
+}
+
+pub fn run(
+    config: Config,
+    config_path: PathBuf,
+    link: ClientLink,
+    probe: Option<Instant>,
+) -> Result<(), GuiError> {
+    run_target(config, config_path, link, probe, Target::Main, Vec::new())
 }
 
 pub fn run_target(
     config: Config,
+    config_path: PathBuf,
     link: ClientLink,
     probe: Option<Instant>,
     target: Target,
     env: Vec<(String, String)>,
 ) -> Result<(), GuiError> {
+    let theme = resolve_theme(&config, &config_path);
     link.tx
         .send(ClientMsg::Hello {
             protocol: PROTOCOL,
             kind: ClientKind::Gui,
             size: GridSize { cols: 80, rows: 24 },
-            palette: config.theme(),
+            palette: theme.clone(),
             env,
             target,
         })
@@ -725,6 +874,10 @@ pub fn run_target(
     });
     let mut app = App {
         config,
+        config_path,
+        theme,
+        preview: None,
+        theme_picker: None,
         tx: link.tx,
         surface: None,
         mirror: Mirror::default(),

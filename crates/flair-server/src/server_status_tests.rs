@@ -1,17 +1,22 @@
 use super::*;
 use flair_core::{
     command::Command,
-    geom::{CellPoint, GridSize},
+    geom::{Axis, CellPoint, GridSize},
     key::{Key, KeyAction, Locks, Mods, NamedKey},
     proto::ClientKind,
+    theme::Theme,
 };
 
 fn hello() -> ClientMsg {
+    hello_with(Config::default().theme())
+}
+
+fn hello_with(palette: Theme) -> ClientMsg {
     ClientMsg::Hello {
         protocol: PROTOCOL,
         kind: ClientKind::Gui,
         size: GridSize { cols: 20, rows: 5 },
-        palette: Config::default().theme(),
+        palette,
         env: Vec::new(),
         target: Target::Main,
     }
@@ -261,13 +266,110 @@ fn reload_reads_the_config_file_and_reaches_every_client() {
     server.handle(Millis(4), Event::ConfigRead(Ok(toml.clone())), &mut out);
     for id in [ClientId(1), ClientId(2)] {
         assert!(out.iter().any(|effect| matches!(effect, Effect::Send(client, ServerMsg::ReloadConfig { toml: sent }) if *client == id && *sent == toml)));
-        assert_eq!(
-            server.clients[&id].palette.background,
-            Config::from_toml(&toml).unwrap().theme().background
-        );
     }
+    assert_eq!(server.palette, Config::default().theme());
     let out = key(&mut server, 5, press(Key::Char('b'), true));
     assert_eq!(status(&out).unwrap().pending.as_deref(), Some("^B"));
+}
+
+#[test]
+fn choose_theme_asks_only_that_client_to_open_the_picker() {
+    let mut server = setup();
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
+    key(&mut server, 2, press(Key::Char('a'), true));
+    let out = key(&mut server, 3, press(Key::Char('t'), false));
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::ChooseTheme)))
+    );
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::Send(ClientId(2), ServerMsg::ChooseTheme)))
+    );
+    assert!(writes(&out).is_empty());
+}
+
+#[test]
+fn palette_answers_background_queries_in_every_pane() {
+    let mut server = setup();
+    send(&mut server, 1, ClientMsg::Command(Command::NewWindow));
+    let mut palette = Config::default().theme();
+    palette.background = Config::from_toml("[colors]\nbackground = \"#101010\"\n")
+        .unwrap()
+        .theme()
+        .background;
+    send(&mut server, 2, ClientMsg::Palette(palette.clone()));
+    assert_eq!(server.palette, palette);
+    let panes: Vec<PaneId> = server.panes.keys().copied().collect();
+    assert_eq!(panes.len(), 2);
+    for pane in panes {
+        let mut out = Vec::new();
+        server.handle(
+            Millis(3),
+            Event::PtyOutput(pane, b"\x1b]11;?\x07".to_vec()),
+            &mut out,
+        );
+        assert!(out.iter().any(|effect| matches!(effect, Effect::WritePty(target, bytes) if *target == pane && String::from_utf8_lossy(bytes).contains("1010/1010/1010"))));
+    }
+}
+
+fn dark_palette() -> Theme {
+    let mut palette = Config::default().theme();
+    palette.background = Config::from_toml("[colors]\nbackground = \"#101010\"\n")
+        .unwrap()
+        .theme()
+        .background;
+    palette
+}
+
+fn answers_dark_background(server: &mut Server, pane: PaneId) -> bool {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(9),
+        Event::PtyOutput(pane, b"\x1b]11;?\x07".to_vec()),
+        &mut out,
+    );
+    out.iter().any(|effect| matches!(effect, Effect::WritePty(target, bytes) if *target == pane && String::from_utf8_lossy(bytes).contains("1010/1010/1010")))
+}
+
+#[test]
+fn a_palette_from_one_client_colors_splits_made_by_another() {
+    let mut server = setup();
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
+    server.handle(
+        Millis(2),
+        Event::Client(ClientId(2), ClientMsg::Palette(dark_palette())),
+        &mut out,
+    );
+    let before: BTreeSet<PaneId> = server.panes.keys().copied().collect();
+    send(
+        &mut server,
+        3,
+        ClientMsg::Command(Command::Split(Axis::Horizontal)),
+    );
+    let split = server
+        .panes
+        .keys()
+        .copied()
+        .find(|pane| !before.contains(pane))
+        .unwrap();
+    assert!(answers_dark_background(&mut server, split));
+}
+
+#[test]
+fn a_later_hello_recolors_existing_panes() {
+    let mut server = setup();
+    let pane = *server.panes.keys().next().unwrap();
+    assert!(!answers_dark_background(&mut server, pane));
+    let mut out = Vec::new();
+    server.handle(
+        Millis(1),
+        Event::Client(ClientId(2), hello_with(dark_palette())),
+        &mut out,
+    );
+    assert!(answers_dark_background(&mut server, pane));
 }
 
 #[test]

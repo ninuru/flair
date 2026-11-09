@@ -26,7 +26,9 @@ fn main() -> ExitCode {
             return ExitCode::from(2);
         }
     };
-    let mut logger = env_logger::Builder::from_env(env_logger::Env::default());
+    let mut logger = env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("error,flair=warn"),
+    );
     if matches!(args, Args::Server { .. }) {
         match daemon::log_file() {
             Ok(file) => {
@@ -129,10 +131,12 @@ fn main() -> ExitCode {
             )?;
             if let Some(session) = sessions.first() {
                 drop(link);
-                let (config, _) = Config::load(&Config::default_path());
+                let config_path = Config::default_path();
+                let (config, _) = Config::load(&config_path);
                 let link = daemon::connect(None, true)?;
                 flair_gui::run_target(
                     config,
+                    config_path,
                     link,
                     None,
                     Target::Name(session.name.clone()),
@@ -147,7 +151,8 @@ fn main() -> ExitCode {
             target,
             standalone,
         } => {
-            let (config, error) = Config::load(&path.clone().unwrap_or_else(Config::default_path));
+            let config_path = path.clone().unwrap_or_else(Config::default_path);
+            let (config, error) = Config::load(&config_path);
             if let Some(error) = error {
                 log::warn!("{error}; using defaults");
             }
@@ -178,6 +183,7 @@ fn main() -> ExitCode {
             };
             let result = flair_gui::run_target(
                 config,
+                config_path,
                 client,
                 env::var_os("FLAIR_STARTUP_PROBE").map(|_| start),
                 target,

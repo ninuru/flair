@@ -363,3 +363,13 @@ fn copy_mode_command_names_follow_tmux() {
         Some(CopyCommand::Select(SelectionKind::Lines))
     );
 }
+
+#[test]
+fn prefix_t_chooses_a_theme() {
+    let config = KeysConfig::default();
+    assert_eq!(
+        config.binding(&plain(Key::Char('t')), true),
+        Some(Command::ChooseTheme)
+    );
+    assert_eq!(parse_command("choose-theme"), Some(Command::ChooseTheme));
+}

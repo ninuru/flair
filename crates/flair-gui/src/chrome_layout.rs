@@ -53,6 +53,7 @@ pub struct ChromeInput<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Modal {
     Centered(CellRect),
+    Docked(CellRect),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,6 +182,7 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     }
     let (modal, lifted) = match input.modal {
         Some(Modal::Centered(rect)) => (centered_modal(input, rect), Some(rect)),
+        Some(Modal::Docked(rect)) => (docked_modal(input, rect), Some(rect)),
         None => (Vec::new(), None),
     };
     ChromeLayout {
@@ -465,6 +467,26 @@ fn centered_modal(input: &ChromeInput, lifted: CellRect) -> Vec<Quad> {
         border: None,
     };
     vec![backdrop, frame]
+}
+
+fn docked_modal(input: &ChromeInput, lifted: CellRect) -> Vec<Quad> {
+    let surfaces = input.theme.surfaces();
+    let x = (cell_rect(input, lifted).x - px(MODAL_MARGIN, input.scale)).round();
+    let y = chrome_bottom(input.scale);
+    let h = (input.px.1 as f32 - y).max(0.0);
+    let panel = PxRect {
+        x,
+        y,
+        w: (input.px.0 as f32 - x).max(0.0),
+        h,
+    };
+    let line = PxRect {
+        x,
+        y,
+        w: px(LINE, input.scale),
+        h,
+    };
+    vec![fill(panel, surfaces.surface1), fill(line, surfaces.outline)]
 }
 
 fn cell_rect(input: &ChromeInput, rect: CellRect) -> PxRect {

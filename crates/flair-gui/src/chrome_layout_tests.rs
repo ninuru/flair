@@ -499,6 +499,49 @@ fn centred_modal_grows_the_lifted_rect_over_a_backdrop() {
 }
 
 #[test]
+fn docked_modal_fills_the_right_side_below_the_bar_without_backdrop() {
+    let surfaces = Config::default().theme().surfaces();
+    let lifted = CellRect {
+        origin: CellPoint { col: 61, row: 2 },
+        size: GridSize { cols: 34, rows: 30 },
+    };
+    for (scale, panel, line) in [
+        (
+            1.0,
+            rect(472.0, 35.0, 328.0, 565.0),
+            rect(472.0, 35.0, 1.0, 565.0),
+        ),
+        (
+            2.0,
+            rect(944.0, 70.0, 656.0, 1130.0),
+            rect(944.0, 70.0, 2.0, 1130.0),
+        ),
+    ] {
+        let layout = run_layout(scale, 800, &parts(), None, &[], Some(Modal::Docked(lifted)));
+        assert_eq!(layout.chrome.lifted, Some(lifted));
+        assert_eq!(
+            layout.chrome.modal,
+            [
+                Quad {
+                    rect: panel,
+                    color: opaque(surfaces.surface1),
+                    radius: 0.0,
+                    border: None,
+                },
+                Quad {
+                    rect: line,
+                    color: opaque(surfaces.outline),
+                    radius: 0.0,
+                    border: None,
+                },
+            ],
+            "scale {scale}"
+        );
+        assert!(layout.chrome.modal.iter().all(|quad| quad.color.a == 255));
+    }
+}
+
+#[test]
 fn hit_test_finds_tabs_and_chip_but_not_gaps_or_the_grid() {
     let layout = run_layout(1.0, 800, &parts(), None, &[], None);
     assert_eq!(

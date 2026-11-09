@@ -1,6 +1,7 @@
 pub mod codec;
 pub mod command;
 pub mod config;
+pub mod config_edit;
 pub mod geom;
 pub mod ids;
 pub mod key;

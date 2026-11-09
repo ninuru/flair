@@ -1,5 +1,5 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     env,
     error::Error,
     fmt, fs, io,
@@ -10,12 +10,16 @@ use serde::{Deserialize, Deserializer, de};
 
 use crate::{
     keys::KeysConfig,
-    theme::{Rgb, Rgba, Theme},
+    theme::{BUILTIN_THEMES, Rgb, Rgba, Theme},
 };
+
+const MAX_THEME_NAME: usize = 64;
+const SELECTION_ALPHA: u8 = 0x40;
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    pub theme: String,
     pub keys: KeysConfig,
     pub shell: ShellConfig,
     #[serde(deserialize_with = "env_over_defaults")]
@@ -79,31 +83,43 @@ pub struct BellConfig {
     pub audible: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ColorsConfig {
     #[serde(deserialize_with = "hex_rgb")]
-    pub background: Rgb,
+    pub background: Option<Rgb>,
     #[serde(deserialize_with = "hex_rgb")]
-    pub foreground: Rgb,
+    pub foreground: Option<Rgb>,
     #[serde(deserialize_with = "hex_rgb")]
-    pub cursor: Rgb,
+    pub cursor: Option<Rgb>,
     #[serde(deserialize_with = "hex_rgba")]
-    pub selection: Rgba,
+    pub selection: Option<Rgba>,
     #[serde(deserialize_with = "hex_rgb")]
-    pub accent: Rgb,
+    pub accent: Option<Rgb>,
     #[serde(deserialize_with = "hex_palette")]
-    pub normal: [Rgb; 8],
+    pub normal: Option<[Rgb; 8]>,
     #[serde(deserialize_with = "hex_palette")]
-    pub bright: [Rgb; 8],
+    pub bright: Option<[Rgb; 8]>,
 }
 
 #[derive(Debug)]
 pub enum ConfigError {
-    Read { path: PathBuf, error: io::Error },
+    Read {
+        path: PathBuf,
+        error: io::Error,
+    },
     Parse(toml::de::Error),
     Keys(String),
-    NotPositive { key: &'static str, value: f32 },
+    NotPositive {
+        key: &'static str,
+        value: f32,
+    },
+    ThemeName(String),
+    UnknownTheme(String),
+    Theme {
+        name: String,
+        error: toml::de::Error,
+    },
 }
 
 impl fmt::Display for ConfigError {
@@ -121,6 +137,12 @@ impl fmt::Display for ConfigError {
                     "invalid config: {key} must be a finite number greater than 0, got {value}"
                 )
             }
+            ConfigError::ThemeName(name) => write!(
+                f,
+                "invalid theme name {name:?}, expected up to {MAX_THEME_NAME} letters, digits, dots, underscores or dashes, not starting with a dot"
+            ),
+            ConfigError::UnknownTheme(name) => write!(f, "unknown theme {name:?}"),
+            ConfigError::Theme { name, error } => write!(f, "invalid theme {name:?}: {error}"),
         }
     }
 }
@@ -129,8 +151,11 @@ impl Error for ConfigError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             ConfigError::Read { error, .. } => Some(error),
-            ConfigError::Parse(error) => Some(error),
-            ConfigError::Keys(_) | ConfigError::NotPositive { .. } => None,
+            ConfigError::Parse(error) | ConfigError::Theme { error, .. } => Some(error),
+            ConfigError::Keys(_)
+            | ConfigError::NotPositive { .. }
+            | ConfigError::ThemeName(_)
+            | ConfigError::UnknownTheme(_) => None,
         }
     }
 }
@@ -176,23 +201,129 @@ impl Config {
         }
     }
 
+    pub fn themes_dir(path: &Path) -> PathBuf {
+        path.parent().unwrap_or(Path::new("")).join("themes")
+    }
+
     pub fn theme(&self) -> Theme {
-        let colors = &self.colors;
-        Theme {
-            background: colors.background,
-            foreground: colors.foreground,
-            cursor: colors.cursor,
-            selection: colors.selection,
-            accent: colors.accent,
-            normal: colors.normal,
-            bright: colors.bright,
+        let base = builtin_colors(&self.theme).unwrap_or_default();
+        self.colors.over(&base).to_theme()
+    }
+
+    pub fn load_theme(&self, dir: &Path) -> (Theme, Option<ConfigError>) {
+        let (base, error) = match self.theme_file(dir) {
+            Ok(colors) => (colors, None),
+            Err(error) => (ColorsConfig::default(), Some(error)),
+        };
+        (self.colors.over(&base).to_theme(), error)
+    }
+
+    pub fn with_theme(&self, name: &str) -> Config {
+        Config {
+            theme: name.to_owned(),
+            ..self.clone()
         }
     }
+
+    fn theme_file(&self, dir: &Path) -> Result<ColorsConfig, ConfigError> {
+        let name = &self.theme;
+        if !valid_theme_name(name) {
+            return Err(ConfigError::ThemeName(name.clone()));
+        }
+        let path = dir.join(format!("{name}.toml"));
+        match fs::read_to_string(&path) {
+            Ok(text) => toml::from_str(&text).map_err(|error| ConfigError::Theme {
+                name: name.clone(),
+                error,
+            }),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                builtin_colors(name).ok_or_else(|| ConfigError::UnknownTheme(name.clone()))
+            }
+            Err(error) => Err(ConfigError::Read { path, error }),
+        }
+    }
+}
+
+impl ColorsConfig {
+    pub fn from_toml(text: &str) -> Result<ColorsConfig, ConfigError> {
+        toml::from_str(text).map_err(ConfigError::Parse)
+    }
+
+    pub fn over(&self, base: &ColorsConfig) -> ColorsConfig {
+        ColorsConfig {
+            background: self.background.or(base.background),
+            foreground: self.foreground.or(base.foreground),
+            cursor: self.cursor.or(base.cursor),
+            selection: self.selection.or(base.selection),
+            accent: self.accent.or(base.accent),
+            normal: self.normal.or(base.normal),
+            bright: self.bright.or(base.bright),
+        }
+    }
+
+    pub fn to_theme(&self) -> Theme {
+        let foreground = self.foreground.unwrap_or(FLAIR_DARK.foreground);
+        let accent = self.accent.unwrap_or(FLAIR_DARK.accent);
+        Theme {
+            background: self.background.unwrap_or(FLAIR_DARK.background),
+            foreground,
+            cursor: self.cursor.unwrap_or(foreground),
+            selection: self.selection.unwrap_or(Rgba {
+                r: accent.r,
+                g: accent.g,
+                b: accent.b,
+                a: SELECTION_ALPHA,
+            }),
+            accent,
+            normal: self.normal.unwrap_or(FLAIR_DARK.normal),
+            bright: self.bright.unwrap_or(FLAIR_DARK.bright),
+        }
+    }
+}
+
+pub fn theme_names(dir: &Path) -> Vec<String> {
+    let files = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|entry| theme_file_name(&entry.path()));
+    BUILTIN_THEMES
+        .iter()
+        .map(|(name, _)| (*name).to_owned())
+        .chain(files)
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn theme_file_name(path: &Path) -> Option<String> {
+    if path.extension()? != "toml" {
+        return None;
+    }
+    let stem = path.file_stem()?.to_str()?;
+    valid_theme_name(stem).then(|| stem.to_owned())
+}
+
+fn valid_theme_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_THEME_NAME
+        && !name.starts_with('.')
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+fn builtin_colors(name: &str) -> Option<ColorsConfig> {
+    BUILTIN_THEMES
+        .iter()
+        .find(|(builtin, _)| *builtin == name)
+        .and_then(|(_, text)| ColorsConfig::from_toml(text).ok())
 }
 
 impl Default for Config {
     fn default() -> Config {
         Config {
+            theme: "flair-dark".to_owned(),
             keys: KeysConfig::default(),
             shell: ShellConfig::default(),
             env: default_env(),
@@ -251,42 +382,38 @@ impl Default for CursorConfig {
     }
 }
 
-impl Default for ColorsConfig {
-    fn default() -> ColorsConfig {
-        ColorsConfig {
-            background: rgb(0x03, 0x03, 0x03),
-            foreground: rgb(0xd4, 0xd4, 0xd4),
-            cursor: rgb(0xd4, 0xd4, 0xd4),
-            selection: Rgba {
-                r: 0x19,
-                g: 0xaa,
-                b: 0xd8,
-                a: 0x40,
-            },
-            accent: rgb(0x19, 0xaa, 0xd8),
-            normal: [
-                rgb(0x1e, 0x1e, 0x1e),
-                rgb(0xe0, 0x6c, 0x75),
-                rgb(0x98, 0xc3, 0x79),
-                rgb(0xe5, 0xc0, 0x7b),
-                rgb(0x61, 0xaf, 0xef),
-                rgb(0xc6, 0x78, 0xdd),
-                rgb(0x56, 0xb6, 0xc2),
-                rgb(0xd4, 0xd4, 0xd4),
-            ],
-            bright: [
-                rgb(0x5c, 0x63, 0x70),
-                rgb(0xff, 0x7a, 0x85),
-                rgb(0xb5, 0xe8, 0x90),
-                rgb(0xff, 0xd6, 0x8a),
-                rgb(0x7c, 0xc4, 0xff),
-                rgb(0xde, 0x8c, 0xff),
-                rgb(0x6f, 0xd6, 0xe2),
-                rgb(0xff, 0xff, 0xff),
-            ],
-        }
-    }
-}
+const FLAIR_DARK: Theme = Theme {
+    background: rgb(0x03, 0x03, 0x03),
+    foreground: rgb(0xd4, 0xd4, 0xd4),
+    cursor: rgb(0xd4, 0xd4, 0xd4),
+    selection: Rgba {
+        r: 0x19,
+        g: 0xaa,
+        b: 0xd8,
+        a: SELECTION_ALPHA,
+    },
+    accent: rgb(0x19, 0xaa, 0xd8),
+    normal: [
+        rgb(0x1e, 0x1e, 0x1e),
+        rgb(0xe0, 0x6c, 0x75),
+        rgb(0x98, 0xc3, 0x79),
+        rgb(0xe5, 0xc0, 0x7b),
+        rgb(0x61, 0xaf, 0xef),
+        rgb(0xc6, 0x78, 0xdd),
+        rgb(0x56, 0xb6, 0xc2),
+        rgb(0xd4, 0xd4, 0xd4),
+    ],
+    bright: [
+        rgb(0x5c, 0x63, 0x70),
+        rgb(0xff, 0x7a, 0x85),
+        rgb(0xb5, 0xe8, 0x90),
+        rgb(0xff, 0xd6, 0x8a),
+        rgb(0x7c, 0xc4, 0xff),
+        rgb(0xde, 0x8c, 0xff),
+        rgb(0x6f, 0xd6, 0xe2),
+        rgb(0xff, 0xff, 0xff),
+    ],
+};
 
 fn positive(key: &'static str, value: f32) -> Result<(), ConfigError> {
     if value.is_finite() && value > 0.0 {
@@ -314,23 +441,23 @@ fn env_over_defaults<'de, D: Deserializer<'de>>(
     Ok(default_env().into_iter().chain(overrides).collect())
 }
 
-fn hex_rgb<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Rgb, D::Error> {
+fn hex_rgb<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Rgb>, D::Error> {
     let value = String::deserialize(deserializer)?;
-    Rgb::from_hex(&value).map_err(de::Error::custom)
+    Rgb::from_hex(&value).map(Some).map_err(de::Error::custom)
 }
 
-fn hex_rgba<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Rgba, D::Error> {
+fn hex_rgba<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Rgba>, D::Error> {
     let value = String::deserialize(deserializer)?;
-    Rgba::from_hex(&value).map_err(de::Error::custom)
+    Rgba::from_hex(&value).map(Some).map_err(de::Error::custom)
 }
 
-fn hex_palette<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[Rgb; 8], D::Error> {
+fn hex_palette<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<[Rgb; 8]>, D::Error> {
     let values = <[String; 8]>::deserialize(deserializer)?;
     let mut palette = [Rgb::default(); 8];
     for (slot, value) in palette.iter_mut().zip(&values) {
         *slot = Rgb::from_hex(value).map_err(de::Error::custom)?;
     }
-    Ok(palette)
+    Ok(Some(palette))
 }
 
 #[cfg(test)]

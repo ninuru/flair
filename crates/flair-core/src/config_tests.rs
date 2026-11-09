@@ -57,8 +57,13 @@ fn missing_file_gives_defaults_without_error() {
 
 #[test]
 fn blueprint_example_equals_defaults() {
+    let config = Config::from_toml(BLUEPRINT_EXAMPLE).unwrap();
+    assert_eq!(config.theme(), Config::default().theme());
     assert_eq!(
-        Config::from_toml(BLUEPRINT_EXAMPLE).unwrap(),
+        Config {
+            colors: ColorsConfig::default(),
+            ..config
+        },
         Config::default()
     );
 }
@@ -70,8 +75,9 @@ fn partial_override_keeps_other_defaults() {
     assert_eq!(config.font.size, 15.0);
     assert_eq!(config.font.family, defaults.font.family);
     assert_eq!(config.font.line_height, defaults.font.line_height);
-    assert_eq!(config.colors.accent, Rgb { r: 255, g: 0, b: 0 });
-    assert_eq!(config.colors.background, defaults.colors.background);
+    assert_eq!(config.colors.accent, Some(Rgb { r: 255, g: 0, b: 0 }));
+    assert_eq!(config.colors.background, None);
+    assert_eq!(config.theme().background, defaults.theme().background);
     assert_eq!(config.shell, defaults.shell);
 }
 
@@ -109,11 +115,11 @@ fn broken_file_falls_back_to_defaults_with_error() {
 
 #[test]
 fn theme_copies_colors() {
-    let config = Config::default();
+    let config = Config::from_toml(BLUEPRINT_EXAMPLE).unwrap();
     let theme = config.theme();
     assert_eq!(theme.background, Rgb { r: 3, g: 3, b: 3 });
-    assert_eq!(theme.selection, config.colors.selection);
-    assert_eq!(theme.bright, config.colors.bright);
+    assert_eq!(Some(theme.selection), config.colors.selection);
+    assert_eq!(Some(theme.bright), config.colors.bright);
 }
 
 #[test]
@@ -211,4 +217,261 @@ fn invalid_key_configuration_names_the_binding() {
     ] {
         assert!(Config::from_toml(text).is_err(), "{text}");
     }
+}
+
+fn temp_dir(tag: &str) -> PathBuf {
+    let dir = env::temp_dir().join(format!("flair-{tag}-{}", process::id()));
+    if dir.exists() {
+        fs::remove_dir_all(&dir).unwrap();
+    }
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn hex(value: &str) -> Rgb {
+    Rgb::from_hex(value).unwrap()
+}
+
+fn flair_dark() -> Theme {
+    Config::default().theme()
+}
+
+#[test]
+fn theme_defaults_to_flair_dark_and_parses() {
+    assert_eq!(Config::default().theme, "flair-dark");
+    let config = Config::from_toml("theme = \"gruvbox-dark\"\n").unwrap();
+    assert_eq!(config.theme, "gruvbox-dark");
+    assert_eq!(config.theme().background, hex("#282828"));
+}
+
+#[test]
+fn with_theme_changes_only_the_name() {
+    let config = Config::from_toml("[font]\nsize = 15\n").unwrap();
+    let changed = config.with_theme("catppuccin-mocha");
+    assert_eq!(changed.theme, "catppuccin-mocha");
+    assert_eq!(changed.font, config.font);
+}
+
+#[test]
+fn themes_dir_sits_next_to_the_config_file() {
+    assert_eq!(
+        Config::themes_dir(Path::new("/home/u/.config/flair/flair.toml")),
+        PathBuf::from("/home/u/.config/flair/themes")
+    );
+    assert!(Config::themes_dir(&Config::default_path()).ends_with("flair/themes"));
+}
+
+#[test]
+fn load_theme_uses_builtin_without_file() {
+    let dir = temp_dir("themes-builtin");
+    let config = Config::default().with_theme("catppuccin-mocha");
+    let (theme, error) = config.load_theme(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(theme, config.theme());
+    assert_eq!(theme.cursor, hex("#f5e0dc"));
+}
+
+#[test]
+fn theme_file_with_builtin_name_wins() {
+    let dir = temp_dir("themes-wins");
+    fs::write(dir.join("gruvbox-dark.toml"), "background = \"#123456\"\n").unwrap();
+    let (theme, error) = Config::default()
+        .with_theme("gruvbox-dark")
+        .load_theme(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(theme.background, hex("#123456"));
+    assert_eq!(theme.foreground, flair_dark().foreground);
+}
+
+#[test]
+fn partial_theme_file_falls_back_to_flair_dark_and_derives() {
+    let dir = temp_dir("themes-partial");
+    fs::write(
+        dir.join("mine.toml"),
+        "foreground = \"#eeeeee\"\naccent = \"#ff0000\"\n",
+    )
+    .unwrap();
+    let (theme, error) = Config::default().with_theme("mine").load_theme(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let base = flair_dark();
+    assert_eq!(theme.background, base.background);
+    assert_eq!(theme.normal, base.normal);
+    assert_eq!(theme.bright, base.bright);
+    assert_eq!(theme.foreground, hex("#eeeeee"));
+    assert_eq!(theme.cursor, hex("#eeeeee"));
+    assert_eq!(
+        theme.selection,
+        Rgba {
+            r: 0xff,
+            g: 0,
+            b: 0,
+            a: 0x40
+        }
+    );
+}
+
+#[test]
+fn colors_accent_overrides_theme_and_rederives_selection() {
+    let config =
+        Config::from_toml("theme = \"gruvbox-dark\"\n[colors]\naccent = \"#00ff00\"\n").unwrap();
+    let theme = config.theme();
+    assert_eq!(theme.background, hex("#282828"));
+    assert_eq!(theme.accent, hex("#00ff00"));
+    assert_eq!(
+        theme.selection,
+        Rgba {
+            r: 0,
+            g: 0xff,
+            b: 0,
+            a: 0x40
+        }
+    );
+    let dir = temp_dir("themes-colors");
+    let (loaded, error) = config.load_theme(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert_eq!(loaded, theme);
+}
+
+#[test]
+fn colors_selection_is_kept_when_set() {
+    let config = Config::from_toml(
+        "theme = \"gruvbox-dark\"\n[colors]\naccent = \"#00ff00\"\nselection = \"#01020304\"\n",
+    )
+    .unwrap();
+    assert_eq!(
+        config.theme().selection,
+        Rgba {
+            r: 1,
+            g: 2,
+            b: 3,
+            a: 4
+        }
+    );
+}
+
+#[test]
+fn unknown_theme_falls_back_to_flair_dark_with_error() {
+    let dir = temp_dir("themes-unknown");
+    let (theme, error) = Config::default().with_theme("nope").load_theme(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(theme, flair_dark());
+    assert!(
+        matches!(&error, Some(ConfigError::UnknownTheme(name)) if name == "nope"),
+        "{error:?}"
+    );
+    assert!(error.unwrap().to_string().contains("nope"));
+}
+
+#[test]
+fn invalid_theme_names_fall_back_to_flair_dark_with_error() {
+    let dir = temp_dir("themes-invalid");
+    let inner = dir.join("inner");
+    fs::create_dir_all(&inner).unwrap();
+    fs::write(dir.join("outside.toml"), "background = \"#123456\"\n").unwrap();
+    fs::write(inner.join(".hidden.toml"), "background = \"#123456\"\n").unwrap();
+    let long = "a".repeat(65);
+    for name in [
+        "",
+        ".hidden",
+        "../outside",
+        "a/b",
+        "sp ace",
+        "ü",
+        long.as_str(),
+    ] {
+        let (theme, error) = Config::default().with_theme(name).load_theme(&inner);
+        assert_eq!(theme, flair_dark(), "{name}");
+        assert!(
+            matches!(&error, Some(ConfigError::ThemeName(bad)) if bad == name),
+            "{name}: {error:?}"
+        );
+    }
+    let (_, error) = Config::default()
+        .with_theme(&"a".repeat(64))
+        .load_theme(&inner);
+    fs::remove_dir_all(&dir).unwrap();
+    assert!(
+        matches!(error, Some(ConfigError::UnknownTheme(_))),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn broken_theme_file_falls_back_to_flair_dark_with_error() {
+    let dir = temp_dir("themes-broken");
+    fs::write(dir.join("bad.toml"), "background = \"#12\"\n").unwrap();
+    fs::write(dir.join("typo.toml"), "backgrund = \"#123456\"\n").unwrap();
+    for name in ["bad", "typo"] {
+        let (theme, error) = Config::default().with_theme(name).load_theme(&dir);
+        assert_eq!(theme, flair_dark(), "{name}");
+        let error = error.unwrap();
+        assert!(
+            matches!(&error, ConfigError::Theme { name: bad, .. } if bad == name),
+            "{error:?}"
+        );
+        assert!(error.to_string().contains(name), "{error}");
+    }
+    let (_, error) = Config::default().with_theme("bad").load_theme(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    let message = error.unwrap().to_string();
+    assert!(message.contains("background"), "{message}");
+}
+
+#[test]
+fn colors_config_from_toml_reads_top_level_keys() {
+    let colors = ColorsConfig::from_toml("accent = \"#010203\"\n").unwrap();
+    assert_eq!(colors.accent, Some(Rgb { r: 1, g: 2, b: 3 }));
+    assert_eq!(colors.background, None);
+    assert!(ColorsConfig::from_toml("[colors]\naccent = \"#010203\"\n").is_err());
+}
+
+#[test]
+fn colors_over_prefers_self() {
+    let top = ColorsConfig::from_toml("accent = \"#010203\"\n").unwrap();
+    let base = ColorsConfig::from_toml("accent = \"#040506\"\nbackground = \"#070809\"\n").unwrap();
+    let merged = top.over(&base);
+    assert_eq!(merged.accent, top.accent);
+    assert_eq!(merged.background, base.background);
+    assert_eq!(merged.foreground, None);
+}
+
+#[test]
+fn theme_names_lists_builtins_and_valid_files() {
+    let dir = temp_dir("themes-names");
+    for file in [
+        "mine.toml",
+        "gruvbox-dark.toml",
+        "a.b_c-1.toml",
+        ".hidden.toml",
+        "sp ace.toml",
+        "notes.txt",
+        "README",
+    ] {
+        fs::write(dir.join(file), "").unwrap();
+    }
+    let names = theme_names(&dir);
+    fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        names,
+        [
+            "a.b_c-1",
+            "catppuccin-mocha",
+            "flair-dark",
+            "gruvbox-dark",
+            "mine"
+        ]
+    );
+}
+
+#[test]
+fn theme_names_without_dir_lists_builtins() {
+    let dir = env::temp_dir().join(format!("flair-themes-missing-{}", process::id()));
+    assert_eq!(
+        theme_names(&dir),
+        ["catppuccin-mocha", "flair-dark", "gruvbox-dark"]
+    );
 }
