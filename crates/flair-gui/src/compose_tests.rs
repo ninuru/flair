@@ -307,6 +307,9 @@ fn gpu_draws_status_split_panes_and_active_cursor() {
     };
     let status = StatusLine {
         session: "main".into(),
+        hidden: 0,
+        running: false,
+        finished: false,
         pending: Some("^A".into()),
         copy: false,
         windows: vec![

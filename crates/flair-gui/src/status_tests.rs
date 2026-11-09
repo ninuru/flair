@@ -141,6 +141,9 @@ fn gpu_renders_status_with_real_font_and_black_surface() {
 fn fixture() -> StatusLine {
     StatusLine {
         session: "main".into(),
+        hidden: 0,
+        running: false,
+        finished: false,
         windows: vec![
             StatusWindow {
                 id: WindowId(1),

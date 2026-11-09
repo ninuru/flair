@@ -108,3 +108,48 @@ fn resolve_truecolor() {
         Rgb { r: 1, g: 2, b: 3 }
     );
 }
+
+#[test]
+fn blend_hits_both_endpoints_and_rounds_half_up() {
+    let under = Rgb {
+        r: 0,
+        g: 10,
+        b: 255,
+    };
+    let over = Rgb {
+        r: 255,
+        g: 20,
+        b: 0,
+    };
+    assert_eq!(blend(under, over, 0), under);
+    assert_eq!(blend(under, over, 100), over);
+    assert_eq!(
+        blend(under, over, 50),
+        Rgb {
+            r: 128,
+            g: 15,
+            b: 128
+        }
+    );
+    assert_eq!(
+        blend(Rgb { r: 0, g: 0, b: 0 }, Rgb { r: 1, g: 3, b: 9 }, 50),
+        Rgb { r: 1, g: 2, b: 5 }
+    );
+}
+
+#[test]
+fn flair_dark_surfaces_are_exact() {
+    let theme = theme();
+    let surfaces = theme.surfaces();
+    let gray = |v| Rgb { r: v, g: v, b: v };
+    assert_eq!(surfaces.surface1, gray(0x0d));
+    assert_eq!(surfaces.surface2, gray(0x18));
+    assert_eq!(surfaces.surface3, gray(0x22));
+    assert_eq!(surfaces.outline, gray(0x18));
+    assert_eq!(surfaces.pane_border, gray(0x22));
+    assert_eq!(surfaces.muted, gray(0x80));
+    assert_eq!(
+        surfaces.accent_soft,
+        blend(theme.background, theme.accent, 25)
+    );
+}

@@ -33,6 +33,16 @@ impl Server {
             .collect();
         Some(StatusLine {
             session: session.name.clone(),
+            hidden: u16::try_from(self.tree.sessions.len() - 1).unwrap_or(u16::MAX),
+            running: self
+                .tree
+                .sessions
+                .iter()
+                .any(|other| other.id != session.id && self.session_running(other.id)),
+            finished: client
+                .finished
+                .iter()
+                .any(|other| *other != session.id && self.tree.session(*other).is_some()),
             windows,
             pending: client
                 .prefix
@@ -55,9 +65,50 @@ impl Server {
             .to_owned()
     }
 
+    fn session_running(&self, session: SessionId) -> bool {
+        self.tree.session(session).is_some_and(|session| {
+            session
+                .windows
+                .iter()
+                .flat_map(|window| &window.panes)
+                .any(|pane| self.panes.get(pane).is_some_and(|pane| pane.running))
+        })
+    }
+
+    pub(super) fn set_running(&mut self, pane: PaneId, running: bool) {
+        let session = self
+            .tree
+            .sessions
+            .iter()
+            .find(|session| {
+                session
+                    .windows
+                    .iter()
+                    .any(|window| window.panes.contains(&pane))
+            })
+            .map(|session| session.id);
+        let before = session.is_some_and(|session| self.session_running(session));
+        if let Some(state) = self.panes.get_mut(&pane) {
+            state.running = running;
+        }
+        if let Some(session) = session
+            && before
+            && !self.session_running(session)
+        {
+            for client in self.clients.values_mut() {
+                if client.view.session != session {
+                    client.finished.insert(session);
+                }
+            }
+        }
+    }
+
     pub(super) fn flush_status(&mut self, out: &mut Vec<Effect>) {
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
         for id in ids {
+            let client = self.clients.get_mut(&id).unwrap();
+            let current = client.view.session;
+            client.finished.remove(&current);
             let Some(line) = self.status_line(id) else {
                 continue;
             };

@@ -24,6 +24,9 @@ fn key(key: Key, text: Option<&str>) -> KeyInput {
 fn status() -> StatusLine {
     StatusLine {
         session: "main".to_owned(),
+        hidden: 0,
+        running: false,
+        finished: false,
         windows: (1..=3)
             .map(|index| StatusWindow {
                 id: WindowId(u32::from(index) + 10),

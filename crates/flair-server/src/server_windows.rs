@@ -33,6 +33,7 @@ impl Server {
                 dirty: true,
                 cached: None,
                 exited: false,
+                running: false,
                 wheel_copy: false,
             },
         );

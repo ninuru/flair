@@ -105,6 +105,45 @@ impl Theme {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Surfaces {
+    pub surface1: Rgb,
+    pub surface2: Rgb,
+    pub surface3: Rgb,
+    pub outline: Rgb,
+    pub pane_border: Rgb,
+    pub muted: Rgb,
+    pub accent_soft: Rgb,
+}
+
+impl Theme {
+    pub fn surfaces(&self) -> Surfaces {
+        let tint = |percent| blend(self.background, self.foreground, percent);
+        Surfaces {
+            surface1: tint(5),
+            surface2: tint(10),
+            surface3: tint(15),
+            outline: tint(10),
+            pane_border: tint(15),
+            muted: tint(60),
+            accent_soft: blend(self.background, self.accent, 25),
+        }
+    }
+}
+
+pub fn blend(under: Rgb, over: Rgb, percent: u8) -> Rgb {
+    let p = u16::from(percent.min(100));
+    let mix = |under: u8, over: u8| {
+        u8::try_from((u16::from(under) * (100 - p) + u16::from(over) * p + 50) / 100)
+            .unwrap_or(u8::MAX)
+    };
+    Rgb {
+        r: mix(under.r, over.r),
+        g: mix(under.g, over.g),
+        b: mix(under.b, over.b),
+    }
+}
+
 fn cube_level(level: u8) -> u8 {
     if level == 0 { 0 } else { 55 + 40 * level }
 }

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use flair_core::{
     config::Config,
@@ -10,7 +10,7 @@ use flair_core::{
     tree::Tree,
     view::ClientView,
 };
-use flair_term::{TermEvent, encode::encode_focus};
+use flair_term::{MarkKind, TermEvent, encode::encode_focus};
 
 use crate::{client::ClientState, config::ServerConfig, effect::Effect, event::Event, pane::Pane};
 
@@ -87,11 +87,13 @@ impl Server {
                     pane.dirty = false;
                     pane.cached = None;
                 }
+                self.set_running(id, false);
             }
             Event::PtyExited(id) => {
                 if let Some(pane) = self.panes.get_mut(&id) {
                     pane.exited = true;
                 }
+                self.set_running(id, false);
             }
             Event::Timer(timer) => self.prefix_timer(now, timer, out),
             Event::ConfigRead(result) => self.config_read(result, out),
@@ -155,6 +157,7 @@ impl Server {
                         palette,
                         prefix: PrefixMachine::default(),
                         status: None,
+                        finished: BTreeSet::new(),
                         last_click: None,
                         selecting: false,
                         mouse: None,
@@ -290,7 +293,11 @@ impl Server {
                         out.push(Effect::Send(id, ServerMsg::Bell));
                     }
                 }
-                TermEvent::Cwd(_) | TermEvent::Mark(_, _) => {}
+                TermEvent::Mark(MarkKind::CommandStart, _) => self.set_running(pane, true),
+                TermEvent::Mark(MarkKind::CommandEnd | MarkKind::PromptStart, _) => {
+                    self.set_running(pane, false);
+                }
+                TermEvent::Cwd(_) | TermEvent::Mark(MarkKind::PromptEnd, _) => {}
             }
         }
     }
