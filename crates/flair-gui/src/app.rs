@@ -416,6 +416,10 @@ impl ApplicationHandler<UserEvent> for App {
                     self.prompt = Some(Prompt::rename(current));
                     self.request_redraw();
                 }
+                ServerMsg::PromptSearch { forward } => {
+                    self.prompt = Some(Prompt::search(forward));
+                    self.request_redraw();
+                }
                 ServerMsg::PasteClipboard => {
                     if let Some(text) = self.surface.as_ref().and_then(|s| s.clipboard.load()) {
                         self.send(ClientMsg::Input(InputEvent::Paste(text)));

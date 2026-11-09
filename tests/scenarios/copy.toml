@@ -11,6 +11,14 @@ action = "wait"
 text = "ready> "
 
 [[steps]]
+action = "text"
+text = "echo top-marker; seq 100 130\r"
+
+[[steps]]
+action = "wait"
+text = "129"
+
+[[steps]]
 action = "key"
 key = "a"
 ctrl = true
@@ -22,6 +30,19 @@ key = "["
 [[steps]]
 action = "wait"
 text = "COPY"
+
+[[steps]]
+action = "key"
+key = "g"
+
+[[steps]]
+action = "wait"
+text = "top-marker"
+
+[[steps]]
+action = "key"
+key = "G"
+shift = true
 
 [[steps]]
 action = "key"

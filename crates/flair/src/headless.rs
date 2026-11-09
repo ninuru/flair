@@ -90,6 +90,7 @@ impl Capture {
             | ServerMsg::ChooseWindow
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
+            | ServerMsg::PromptSearch { .. }
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Done => {}
             ServerMsg::Layout(layout) => {

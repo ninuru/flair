@@ -4,7 +4,7 @@ use alacritty_terminal::{
     grid::{Dimensions, Scroll},
     index::{Column, Line, Point, Side},
     selection::{Selection, SelectionType},
-    term::{Config as TermConfig, TermMode},
+    term::{Config as TermConfig, TermMode, search::RegexSearch},
     vte::ansi::Processor,
 };
 use flair_core::{
@@ -23,6 +23,8 @@ pub struct Terminal {
     processor: Processor,
     osc: OscSniffer,
     clear: u8,
+    pub(crate) copy_anchor: Option<Point>,
+    pub(crate) search: Option<(RegexSearch, bool)>,
     events: Rc<RefCell<Vec<TermEvent>>>,
     palette: Rc<RefCell<Theme>>,
     title: Option<String>,
@@ -92,6 +94,8 @@ impl Terminal {
             processor: Processor::new(),
             osc: OscSniffer::default(),
             clear: 0,
+            copy_anchor: None,
+            search: None,
             events,
             palette,
             title: None,
@@ -125,12 +129,14 @@ impl Terminal {
     pub fn enter_copy_mode(&mut self) {
         if !self.copy_mode() {
             self.term.toggle_vi_mode();
+            self.copy_anchor = None;
             self.force_full = true;
         }
     }
     pub fn exit_copy_mode(&mut self) {
         if self.copy_mode() {
             self.term.toggle_vi_mode();
+            self.copy_anchor = None;
             self.clear_selection();
             self.term.scroll_display(Scroll::Bottom);
             self.force_full = true;

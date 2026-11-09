@@ -6,7 +6,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    command::{Command, CopyCommand, PaneRef, WindowRef},
+    command::{Command, CopyCommand, CopyMotion, PaneRef, SelectionKind, WindowRef},
     geom::{Axis, Direction},
     key::{Key, KeyInput, Mods, NamedKey},
 };
@@ -106,10 +106,38 @@ pub fn parse_command(command: &str) -> Option<Command> {
 }
 
 pub fn parse_copy_command(command: &str) -> Option<CopyCommand> {
-    match command {
-        "cancel" => Some(CopyCommand::Cancel),
-        _ => None,
-    }
+    Some(match command {
+        "cancel" => CopyCommand::Cancel,
+        "cursor-left" => CopyCommand::Move(CopyMotion::Left),
+        "cursor-down" => CopyCommand::Move(CopyMotion::Down),
+        "cursor-up" => CopyCommand::Move(CopyMotion::Up),
+        "cursor-right" => CopyCommand::Move(CopyMotion::Right),
+        "next-word" => CopyCommand::Move(CopyMotion::NextWord),
+        "previous-word" => CopyCommand::Move(CopyMotion::PreviousWord),
+        "next-word-end" => CopyCommand::Move(CopyMotion::NextWordEnd),
+        "next-space" => CopyCommand::Move(CopyMotion::NextSpace),
+        "previous-space" => CopyCommand::Move(CopyMotion::PreviousSpace),
+        "next-space-end" => CopyCommand::Move(CopyMotion::NextSpaceEnd),
+        "start-of-line" => CopyCommand::Move(CopyMotion::StartOfLine),
+        "back-to-indentation" => CopyCommand::Move(CopyMotion::BackToIndentation),
+        "end-of-line" => CopyCommand::Move(CopyMotion::EndOfLine),
+        "history-top" => CopyCommand::Move(CopyMotion::HistoryTop),
+        "history-bottom" => CopyCommand::Move(CopyMotion::HistoryBottom),
+        "halfpage-up" => CopyCommand::Move(CopyMotion::HalfPageUp),
+        "halfpage-down" => CopyCommand::Move(CopyMotion::HalfPageDown),
+        "top-line" => CopyCommand::Move(CopyMotion::TopLine),
+        "middle-line" => CopyCommand::Move(CopyMotion::MiddleLine),
+        "bottom-line" => CopyCommand::Move(CopyMotion::BottomLine),
+        "begin-selection" => CopyCommand::Select(SelectionKind::Simple),
+        "select-line" => CopyCommand::Select(SelectionKind::Lines),
+        "rectangle-toggle" => CopyCommand::Select(SelectionKind::Block),
+        "other-end" => CopyCommand::OtherEnd,
+        "search-forward" => CopyCommand::SearchPrompt { forward: true },
+        "search-backward" => CopyCommand::SearchPrompt { forward: false },
+        "search-again" => CopyCommand::SearchAgain,
+        "search-reverse" => CopyCommand::SearchReverse,
+        _ => return None,
+    })
 }
 
 impl KeysConfig {
@@ -181,7 +209,42 @@ const PREFIX_DEFAULTS: &[(&str, &str)] = &[
     ("9", "select-window-9"),
 ];
 
-const COPY_DEFAULTS: &[(&str, &str)] = &[("q", "cancel"), ("Escape", "cancel")];
+const COPY_DEFAULTS: &[(&str, &str)] = &[
+    ("q", "cancel"),
+    ("Escape", "cancel"),
+    ("h", "cursor-left"),
+    ("j", "cursor-down"),
+    ("k", "cursor-up"),
+    ("l", "cursor-right"),
+    ("Left", "cursor-left"),
+    ("Down", "cursor-down"),
+    ("Up", "cursor-up"),
+    ("Right", "cursor-right"),
+    ("w", "next-word"),
+    ("b", "previous-word"),
+    ("e", "next-word-end"),
+    ("W", "next-space"),
+    ("B", "previous-space"),
+    ("E", "next-space-end"),
+    ("0", "start-of-line"),
+    ("^", "back-to-indentation"),
+    ("$", "end-of-line"),
+    ("g", "history-top"),
+    ("G", "history-bottom"),
+    ("C-u", "halfpage-up"),
+    ("C-d", "halfpage-down"),
+    ("H", "top-line"),
+    ("M", "middle-line"),
+    ("L", "bottom-line"),
+    ("v", "begin-selection"),
+    ("V", "select-line"),
+    ("C-v", "rectangle-toggle"),
+    ("o", "other-end"),
+    ("/", "search-forward"),
+    ("?", "search-backward"),
+    ("n", "search-again"),
+    ("N", "search-reverse"),
+];
 
 const ROOT_DEFAULTS: &[(&str, &str)] = &[
     ("C-S-c", "copy-selection"),

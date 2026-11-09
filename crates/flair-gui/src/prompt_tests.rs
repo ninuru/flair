@@ -134,3 +134,38 @@ fn rename_stops_at_the_servers_name_limit() {
     };
     assert_eq!(name.len(), 254);
 }
+
+#[test]
+fn search_edits_text_and_submits_a_copy_search() {
+    let mut prompt = Prompt::search(false);
+    prompt.insert("fo");
+    prompt.key(&key(Key::Char('x'), Some("x")));
+    prompt.key(&key(Key::Named(NamedKey::Backspace), None));
+    prompt.key(&key(Key::Char('o'), Some("o")));
+    assert_eq!(
+        prompt.key(&key(Key::Named(NamedKey::Enter), None)),
+        Outcome::Run(Command::Copy(CopyCommand::Search {
+            pattern: "foo".to_owned(),
+            forward: false,
+        }))
+    );
+    assert_eq!(
+        Prompt::search(true).key(&key(Key::Named(NamedKey::Escape), None)),
+        Outcome::Close
+    );
+}
+
+#[test]
+fn search_draws_its_direction_on_the_status_row() {
+    let mut cells = grid(12, 2);
+    let mut prompt = Prompt::search(true);
+    prompt.insert("err");
+    prompt.draw(&mut cells, &Config::default().theme());
+    assert_eq!(cells.to_lines()[0], "/err");
+    let mut cells = grid(12, 2);
+    let mut prompt = Prompt::search(false);
+    prompt.insert("x");
+    prompt.draw(&mut cells, &Config::default().theme());
+    assert_eq!(cells.to_lines()[0], "?x");
+    assert_eq!(cells.to_lines()[1], "............");
+}

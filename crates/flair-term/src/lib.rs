@@ -1,3 +1,4 @@
+mod copy;
 pub mod encode;
 mod listener;
 mod osc;
