@@ -62,7 +62,7 @@ impl Server {
             .geometry(self.band())
             .panes
             .into_iter()
-            .find(|placement| placement.rect.contains(mouse.point))
+            .find(|placement| placement.outer().contains(mouse.point))
         else {
             return;
         };
@@ -72,6 +72,9 @@ impl Server {
             && window.active_pane != pane
         {
             self.select_pane(id, PaneRef::Id(pane), out);
+        }
+        if !placement.rect.contains(mouse.point) {
+            return;
         }
         mouse.point = local_point(mouse.point, placement);
         let copy = self.panes[&pane].terminal.copy_mode();

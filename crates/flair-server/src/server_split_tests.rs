@@ -347,6 +347,8 @@ fn no_history_windows_and_splits_preserve_environment_policy() {
                 | Effect::Send(_, _)
                 | Effect::SetTimer(_, _)
                 | Effect::ReadConfig(_)
+                | Effect::ReadGit { .. }
+                | Effect::ReadContexts
                 | Effect::Shutdown => None,
             })
             .unwrap();
@@ -482,6 +484,8 @@ fn exited_pane_reaps_after_staggered_clients_acknowledge_its_final_snapshot() {
                 | Effect::Send(_, _)
                 | Effect::SetTimer(_, _)
                 | Effect::ReadConfig(_)
+                | Effect::ReadGit { .. }
+                | Effect::ReadContexts
                 | Effect::Shutdown => None,
             })
             .unwrap()

@@ -56,7 +56,7 @@ impl Server {
             .iter()
             .find(|session| window.is_some_and(|(id, _)| session.last_window == id))
             .map(|session| session.id);
-        self.set_running(pane, false);
+        self.set_started(pane, None);
         if self.panes.remove(&pane).is_none() {
             return;
         }

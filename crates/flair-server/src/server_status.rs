@@ -71,11 +71,15 @@ impl Server {
                 .windows
                 .iter()
                 .flat_map(|window| &window.panes)
-                .any(|pane| self.panes.get(pane).is_some_and(|pane| pane.running))
+                .any(|pane| {
+                    self.panes
+                        .get(pane)
+                        .is_some_and(|pane| pane.started.is_some())
+                })
         })
     }
 
-    pub(super) fn set_running(&mut self, pane: PaneId, running: bool) {
+    pub(super) fn set_started(&mut self, pane: PaneId, started: Option<Millis>) {
         let session = self
             .tree
             .sessions
@@ -89,7 +93,7 @@ impl Server {
             .map(|session| session.id);
         let before = session.is_some_and(|session| self.session_running(session));
         if let Some(state) = self.panes.get_mut(&pane) {
-            state.running = running;
+            state.started = started;
         }
         if let Some(session) = session
             && before
@@ -173,22 +177,30 @@ impl Server {
             return;
         }
         if let Some((generation, until)) = after {
-            out.push(Effect::SetTimer(timer_token(id, generation), until));
+            out.push(Effect::SetTimer(
+                Timer::Prefix {
+                    client: id,
+                    generation,
+                },
+                until,
+            ));
         }
         if before.is_some() != after.is_some() {
             self.send_title(id, out);
         }
     }
 
-    pub(super) fn prefix_timer(&mut self, now: Millis, token: u64, out: &mut Vec<Effect>) {
-        let id = ClientId((token >> 32) as u32);
+    pub(super) fn prefix_timer(
+        &mut self,
+        now: Millis,
+        id: ClientId,
+        generation: u64,
+        out: &mut Vec<Effect>,
+    ) {
         let Some(client) = self.clients.get_mut(&id) else {
             return;
         };
-        let Some((generation, _)) = client.prefix.deadline() else {
-            return;
-        };
-        if timer_token(id, generation) == token && client.prefix.expire(generation, now) {
+        if client.prefix.expire(generation, now) {
             self.send_title(id, out);
         }
     }
@@ -205,10 +217,22 @@ impl Server {
                 return;
             }
         };
+        let band = self.band();
         match Config::from_toml(&text) {
             Ok(config) => self.config = self.config.reloaded(&config),
             Err(error) => {
                 log::warn!("config reload failed, keeping the current config: {error}");
+            }
+        }
+        if self.band() != band {
+            let windows: Vec<WindowId> = self
+                .tree
+                .sessions
+                .iter()
+                .flat_map(|session| session.windows.iter().map(|window| window.id))
+                .collect();
+            for window in windows {
+                self.resize_window(window, out);
             }
         }
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
@@ -249,10 +273,6 @@ fn window_label(title: &str) -> Option<&str> {
             .unwrap_or_default(),
     };
     (!label.is_empty()).then_some(label)
-}
-
-fn timer_token(id: ClientId, generation: u64) -> u64 {
-    (u64::from(id.0) << 32) | (generation & u64::from(u32::MAX))
 }
 
 #[cfg(test)]
