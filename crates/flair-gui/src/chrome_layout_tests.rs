@@ -879,7 +879,7 @@ fn band_chips(layout: &ChromeLayout) -> Vec<Quad> {
         .chrome
         .quads
         .iter()
-        .filter(|quad| quad.rect.y >= 52.0 && quad.border.is_some())
+        .filter(|quad| quad.rect.y >= chrome_bottom(1.0) && quad.border.is_some())
         .copied()
         .collect()
 }
@@ -889,7 +889,7 @@ fn band_text(layout: &ChromeLayout) -> Vec<(f32, f32, &str, TextFace)> {
         .chrome
         .text
         .iter()
-        .filter(|run| run.baseline >= 52.0)
+        .filter(|run| run.baseline >= chrome_bottom(1.0))
         .map(|run| (run.x, run.baseline, run.text.as_str(), run.face))
         .collect()
 }
@@ -920,7 +920,7 @@ fn every_banded_pane_draws_its_chips_inside_its_band_row() {
     ]);
     let layout = band_layout(&window, &info, &plain_config());
     let chip = |x, w| Quad {
-        rect: rect(x, 53.0, w, 14.0),
+        rect: rect(x, 45.0, w, 14.0),
         color: opaque(surfaces.surface2),
         radius: 4.0,
         border: Some(Border {
@@ -943,22 +943,22 @@ fn every_banded_pane_draws_its_chips_inside_its_band_row() {
         .chrome
         .quads
         .iter()
-        .filter(|quad| quad.rect.y >= 52.0 && quad.rect.w == 6.0)
+        .filter(|quad| quad.rect.y >= chrome_bottom(1.0) && quad.rect.w == 6.0)
         .copied()
         .collect();
     assert_eq!(dots.len(), 2);
-    assert_eq!(dots[0].rect, rect(96.0, 57.0, 6.0, 6.0));
+    assert_eq!(dots[0].rect, rect(96.0, 49.0, 6.0, 6.0));
     assert_eq!(dots[0].color, opaque(surfaces.attention));
     assert_eq!(dots[0].radius, 3.0);
     assert_eq!(
         band_text(&layout),
         [
-            (18.0, 62.0, "/srv/one", TextFace::Small),
-            (64.0, 62.0, "main", TextFace::Small),
-            (108.0, 62.0, "1", TextFace::Small),
-            (418.0, 62.0, "/srv/two", TextFace::Small),
-            (464.0, 62.0, "main", TextFace::Small),
-            (508.0, 62.0, "1", TextFace::Small),
+            (18.0, 54.0, "/srv/one", TextFace::Small),
+            (64.0, 54.0, "main", TextFace::Small),
+            (108.0, 54.0, "1", TextFace::Small),
+            (418.0, 54.0, "/srv/two", TextFace::Small),
+            (464.0, 54.0, "main", TextFace::Small),
+            (508.0, 54.0, "1", TextFace::Small),
         ]
     );
     assert!(
@@ -966,7 +966,7 @@ fn every_banded_pane_draws_its_chips_inside_its_band_row() {
             .chrome
             .text
             .iter()
-            .filter(|run| run.baseline >= 52.0)
+            .filter(|run| run.baseline >= chrome_bottom(1.0))
             .all(|run| run.color == surfaces.muted)
     );
 }
@@ -994,10 +994,10 @@ fn a_successful_exit_dot_is_running_green() {
         .chrome
         .quads
         .iter()
-        .find(|quad| quad.rect.y >= 52.0 && quad.rect.w == 6.0)
+        .find(|quad| quad.rect.y >= chrome_bottom(1.0) && quad.rect.w == 6.0)
         .expect("exit dot");
     assert_eq!(dot.color, opaque(theme.surfaces().running));
-    assert_eq!(band_text(&layout), [(30.0, 62.0, "0.42s", TextFace::Small)]);
+    assert_eq!(band_text(&layout), [(30.0, 54.0, "0.42s", TextFace::Small)]);
 }
 
 #[test]
@@ -1013,11 +1013,11 @@ fn icons_draw_in_the_terminal_face_before_the_label() {
     assert_eq!(
         band_text(&layout),
         [
-            (18.0, 64.0, "\u{f114}", TextFace::Mono),
-            (30.0, 62.0, "/srv/one", TextFace::Small),
-            (76.0, 64.0, "\u{e725}", TextFace::Mono),
-            (88.0, 62.0, "main", TextFace::Small),
-            (132.0, 62.0, "1", TextFace::Small),
+            (18.0, 56.0, "\u{f114}", TextFace::Mono),
+            (30.0, 54.0, "/srv/one", TextFace::Small),
+            (76.0, 56.0, "\u{e725}", TextFace::Mono),
+            (88.0, 54.0, "main", TextFace::Small),
+            (132.0, 54.0, "1", TextFace::Small),
         ]
     );
 }
@@ -1053,6 +1053,34 @@ fn a_narrow_pane_shortens_the_cwd_before_dropping_chips() {
             );
         }
     }
+}
+
+#[test]
+fn a_top_band_centres_its_chips_between_the_bar_rule_and_the_first_content_row() {
+    let info = BTreeMap::from([
+        (PaneId(1), prompt("/srv/one")),
+        (PaneId(2), prompt("/srv/two")),
+    ]);
+    let window = banded(
+        &[],
+        &[(1, cells(0, 0, 98, 16)), (2, cells(0, 17, 98, 17))],
+        1,
+    );
+    let layout = band_layout(&window, &info, &plain_config());
+    let (_, top) = grid_origin((800, 600), (8.0, 4.0), 1.0, metrics(1.0));
+    let content = top + 16.0;
+    let chips = band_chips(&layout);
+    assert_eq!(chips.len(), 6);
+    let upper = chips[0].rect;
+    let middle = upper.y + upper.h / 2.0;
+    let centre = (chrome_bottom(1.0) + content) / 2.0;
+    assert!((middle - centre).abs() <= 0.5, "{upper:?} centre {centre}");
+    assert!(chips[..3].iter().all(|chip| chip.rect.y == upper.y));
+    let lower = chips[3].rect;
+    assert_eq!(lower.h, upper.h);
+    let row = top + 17.0 * 16.0;
+    assert_eq!(lower.y, row + 1.0);
+    assert_eq!(lower.y + lower.h / 2.0, row + 8.0);
 }
 
 #[test]

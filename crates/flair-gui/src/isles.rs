@@ -11,7 +11,7 @@ use unicode_width::UnicodeWidthChar;
 
 use crate::{
     chrome_bar::{Scene, opaque, rounded, small_text, tail},
-    chrome_layout::{ChromeInput, cell_rect},
+    chrome_layout::{ChromeInput, cell_rect, chrome_bottom},
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
     ui::{CAP_HEIGHT, CAP_PAD, CAP_RADIUS, DOT, ITEM_GAP, LINE, px},
 };
@@ -268,8 +268,20 @@ pub(crate) fn band(
                 },
             },
         );
+        let height = px(CAP_HEIGHT, input.scale).min(row.h - px(LINE, input.scale) * 2.0);
+        let row = match outer.origin.row {
+            0 => {
+                let top = chrome_bottom(input.scale);
+                PxRect {
+                    y: top,
+                    h: row.y + row.h - top,
+                    ..row
+                }
+            }
+            _ => row,
+        };
         let labels = labels(info, isles.config, isles.clock, isles.home);
-        chips(input, &labels, row, scene, measure);
+        chips(input, &labels, row, height, scene, measure);
     }
 }
 
@@ -277,11 +289,11 @@ fn chips(
     input: &ChromeInput,
     labels: &[Label],
     row: PxRect,
+    height: f32,
     scene: &mut Scene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
     let scale = input.scale;
-    let height = px(CAP_HEIGHT, scale).min(row.h - px(LINE, scale) * 2.0);
     if height <= 0.0 || labels.is_empty() {
         return;
     }
@@ -338,19 +350,12 @@ fn chips(
             w: width,
             h: height,
         };
-        draw(input, label, text, rect, row, scene);
+        draw(input, label, text, rect, scene);
         x += width + gap;
     }
 }
 
-fn draw(
-    input: &ChromeInput,
-    label: &Label,
-    text: String,
-    rect: PxRect,
-    row: PxRect,
-    scene: &mut Scene,
-) {
+fn draw(input: &ChromeInput, label: &Label, text: String, rect: PxRect, scene: &mut Scene) {
     let scale = input.scale;
     let surfaces = input.theme.surfaces();
     scene.quads.push(Quad {
@@ -379,7 +384,8 @@ fn draw(
         }
         (None, Some(icon)) => scene.text.push(TextRun {
             x: x.round(),
-            baseline: (row.y + input.metrics.baseline).round(),
+            baseline: (rect.y + rect.h / 2.0 + input.metrics.baseline - input.metrics.height / 2.0)
+                .round(),
             text: icon.to_string(),
             color: surfaces.muted,
             bold: false,
