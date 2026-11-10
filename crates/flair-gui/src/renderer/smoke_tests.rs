@@ -424,6 +424,72 @@ fn chrome_draws_bar_border_box_backdrop_text_and_modal_text() {
 }
 
 #[test]
+fn the_icon_face_draws_terminal_glyphs_at_the_small_size() {
+    const W: usize = 64;
+    const H: usize = 48;
+    let Some((ctx, gl)) = headless_or_skip((W as u32, H as u32), "icon") else {
+        return;
+    };
+    let config = Config::default();
+    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
+    let metrics = fonts.metrics();
+    let icon = fonts.ui_metrics().icon;
+    assert!(
+        icon.height > 0.0 && icon.height < metrics.height && icon.width <= metrics.width,
+        "{icon:?} {metrics:?}"
+    );
+    let black = Rgb { r: 0, g: 0, b: 0 };
+    let white = Rgb {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+    let size = GridSize {
+        cols: (W as f32 / metrics.width) as u16 + 1,
+        rows: (H as f32 / metrics.height) as u16 + 1,
+    };
+    let baseline = 30.0;
+    let chrome = Chrome {
+        clip: PxRect {
+            x: 0.0,
+            y: 0.0,
+            w: W as f32,
+            h: H as f32,
+        },
+        text: vec![TextRun {
+            x: 10.0,
+            baseline,
+            text: "\u{f114}".to_owned(),
+            color: white,
+            bold: false,
+            face: TextFace::Icon,
+        }],
+        ..Chrome::default()
+    };
+    let mut renderer = Renderer::new(gl, metrics).unwrap();
+    renderer.resize((W as u32, H as u32));
+    renderer
+        .draw_frame(&filled_grid(size, black), &chrome, &mut fonts, black)
+        .unwrap();
+    let pixels = renderer.read_pixels();
+    let lit: Vec<(usize, usize)> = (0..H)
+        .flat_map(|y| (0..W).map(move |x| (x, y)))
+        .filter(|(x, y)| pixels[((H - 1 - y) * W + x) * 4] > 0)
+        .collect();
+    assert!(!lit.is_empty(), "the icon face left no pixels");
+    let top = baseline - icon.baseline;
+    for (x, y) in lit {
+        assert!(
+            (top.floor() as usize..(top + icon.height).ceil() as usize).contains(&y)
+                && (10..10 + 2 * icon.width.ceil() as usize).contains(&x),
+            "pixel {x},{y} outside the icon cell {icon:?}"
+        );
+    }
+    drop(renderer);
+    drop(ctx);
+}
+
+#[test]
 fn scissor_rounds_fractional_clips_outward() {
     let clip = PxRect {
         x: 17.6,

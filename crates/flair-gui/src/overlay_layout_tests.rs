@@ -1,5 +1,5 @@
 use super::*;
-use crate::{renderer::TextFace, ui::ELLIPSIS};
+use crate::{CellMetrics, renderer::TextFace, ui::ELLIPSIS};
 use flair_core::config::Config;
 
 fn measure(text: &str, _: bool) -> f32 {
@@ -18,6 +18,12 @@ fn input(theme: &Theme, px: (u32, u32), scale: f32, hover: Option<(f32, f32)>) -
             height: 14.0 * scale,
             ascent: 11.0 * scale,
             small: 0.5,
+            cap: 8.0 * scale,
+            icon: CellMetrics {
+                width: 7.0 * scale,
+                height: 12.0 * scale,
+                baseline: 9.0 * scale,
+            },
         },
         theme,
         hover,

@@ -10,10 +10,10 @@ use flair_core::{
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
-    chrome_bar::{Scene, opaque, rounded, small_text, tail},
+    chrome_bar::{Scene, opaque, rounded, small_text},
     chrome_layout::{ChromeInput, cell_rect, chrome_bottom},
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
-    ui::{CAP_HEIGHT, CAP_PAD, CAP_RADIUS, DOT, ITEM_GAP, LINE, px},
+    ui::{CAP_HEIGHT, CAP_PAD, CAP_RADIUS, DOT, ELLIPSIS, ITEM_GAP, LINE, px},
 };
 
 const EDGE: f32 = 4.0;
@@ -161,24 +161,43 @@ fn text(
 }
 
 fn shortest(text: &str) -> String {
-    let last = text.rsplit('/').next().unwrap_or(text);
-    let short = format!("…{last}");
+    let short = format!("{ELLIPSIS}/{}", text.rsplit('/').next().unwrap_or(text));
     match short.chars().count() < text.chars().count() {
         true => short,
         false => text.to_owned(),
     }
 }
 
+fn cut(text: &str, mut fits: impl FnMut(&str) -> bool) -> String {
+    let folders: Vec<&str> = text.split('/').collect();
+    let last: Vec<char> = folders
+        .last()
+        .copied()
+        .unwrap_or_default()
+        .chars()
+        .collect();
+    std::iter::once(text.to_owned())
+        .chain((1..folders.len()).map(|start| format!("{ELLIPSIS}/{}", folders[start..].join("/"))))
+        .chain((0..last.len()).map(|skip| {
+            ELLIPSIS
+                .chars()
+                .chain(last[skip..].iter().copied())
+                .collect()
+        }))
+        .find(|candidate| fits(candidate))
+        .unwrap_or_default()
+}
+
 fn icon(chip: Chip) -> Option<char> {
     match chip {
-        Chip::User => Some('\u{f2c0}'),
-        Chip::Host => Some('\u{f109}'),
+        Chip::User => Some('\u{f415}'),
+        Chip::Host => Some('\u{ea7a}'),
         Chip::Cwd => Some('\u{f114}'),
-        Chip::GitBranch => Some('\u{e725}'),
-        Chip::GitChanges => Some('\u{f0f6}'),
-        Chip::Venv => Some('\u{e73c}'),
-        Chip::Docker => Some('\u{e7b0}'),
-        Chip::Kube => Some('\u{f10fe}'),
+        Chip::GitBranch => Some('\u{f418}'),
+        Chip::GitChanges => Some('\u{f440}'),
+        Chip::Venv => Some('\u{f487}'),
+        Chip::Docker => Some('\u{f4b7}'),
+        Chip::Kube => Some('\u{eb51}'),
         Chip::Time => Some('\u{f017}'),
         Chip::GitAheadBehind | Chip::Exit => None,
     }
@@ -335,8 +354,10 @@ fn chips(
     for label in labels.iter().filter(|label| kept.contains(&label.chip)) {
         let text = if label.chip == Chip::Cwd {
             let free = room - others - width(input, label, "", measure);
-            let text = tail(&label.text, free / input.ui.small, false, measure);
-            if text != label.text && text.chars().count() < 2 {
+            let text = cut(&label.text, |text| {
+                measure(text, false) * input.ui.small <= free
+            });
+            if text.is_empty() {
                 continue;
             }
             text
@@ -387,15 +408,18 @@ fn draw(input: &ChromeInput, label: &Label, text: String, rect: PxRect, scene: &
             };
             scene.quads.push(rounded(spot, color, DOT / 2.0, scale));
         }
-        (None, Some(icon)) => scene.text.push(TextRun {
-            x: x.round(),
-            baseline: (rect.y + rect.h / 2.0 + input.metrics.baseline - input.metrics.height / 2.0)
-                .round(),
-            text: icon.to_string(),
-            color: surfaces.muted,
-            bold: false,
-            face: TextFace::Mono,
-        }),
+        (None, Some(icon)) => {
+            let ui = input.ui;
+            let label = small_text(x, rect, String::new(), surfaces.muted, ui);
+            scene.text.push(TextRun {
+                x: x.round(),
+                baseline: (label.baseline - ui.cap / 2.0 - ui.icon.height / 2.0 + ui.icon.baseline)
+                    .round(),
+                text: icon.to_string(),
+                face: TextFace::Icon,
+                ..label
+            });
+        }
         (None, None) => {}
     }
     scene.text.push(small_text(
@@ -427,7 +451,11 @@ fn lead(input: &ChromeInput, label: &Label) -> f32 {
 }
 
 fn icon_width(input: &ChromeInput, icon: char) -> f32 {
-    (icon.width().unwrap_or(1).max(1) as f32 * input.metrics.width).round()
+    (icon_cells(icon) as f32 * input.ui.icon.width).round()
+}
+
+fn icon_cells(icon: char) -> usize {
+    icon.width().unwrap_or(1).max(1)
 }
 
 #[cfg(test)]

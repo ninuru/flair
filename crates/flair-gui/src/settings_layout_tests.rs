@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    UiMetrics,
+    CellMetrics, UiMetrics,
     chrome_bar::opaque,
     overlay_layout::OverlayHit,
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
@@ -33,6 +33,12 @@ fn run(
             height: 14.0 * scale,
             ascent: 11.0 * scale,
             small: 0.5,
+            cap: 8.0 * scale,
+            icon: CellMetrics {
+                width: 7.0 * scale,
+                height: 12.0 * scale,
+                baseline: 9.0 * scale,
+            },
         },
         theme: &theme,
         hover,

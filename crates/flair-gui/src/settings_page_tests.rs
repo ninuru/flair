@@ -808,14 +808,14 @@ fn the_prompt_section_lists_the_style_icons_chips_then_the_duration() {
             "Host",
             "Directory",
             "Git branch",
-            "Ahead and behind",
+            "Git ahead and behind",
             "Git changes",
             "Python environment",
             "Docker context",
             "Kubernetes context",
             "Exit status",
             "Time",
-            "Duration above (ms)",
+            "Minimum duration",
         ]
     );
     assert_eq!(control(&page), Control::Choice("chips".to_owned()));

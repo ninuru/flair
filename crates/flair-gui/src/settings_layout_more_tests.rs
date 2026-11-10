@@ -1,4 +1,5 @@
 use super::*;
+use crate::CellMetrics;
 use flair_core::settings::{Kind, SETTINGS, Section};
 
 #[test]
@@ -261,7 +262,7 @@ fn wide(text: &str, _: bool) -> f32 {
 }
 
 #[test]
-fn the_prompt_page_fits_at_960x600_and_ellipsizes_descriptions() {
+fn the_prompt_page_fits_at_960x600_with_whole_descriptions_beside_the_source() {
     let theme = theme();
     let input = OverlayInput {
         px: (960, 600),
@@ -270,6 +271,12 @@ fn the_prompt_page_fits_at_960x600_and_ellipsizes_descriptions() {
             height: 14.0,
             ascent: 11.0,
             small: 0.5,
+            cap: 8.0,
+            icon: CellMetrics {
+                width: 7.0,
+                height: 12.0,
+                baseline: 9.0,
+            },
         },
         theme: &theme,
         hover: None,
@@ -287,18 +294,18 @@ fn the_prompt_page_fits_at_960x600_and_ellipsizes_descriptions() {
         control(&scene, SettingsHit::Toggle(1)),
         rect(876.0, 235.0, 28.0, 16.0)
     );
-    let description = scene
-        .text
-        .iter()
-        .find(|run| run.text.starts_with("Chips draw"))
-        .unwrap();
-    assert!(description.text.ends_with(ELLIPSIS), "{description:?}");
     let label = scene
         .text
         .iter()
         .find(|run| run.text == "default" && run.baseline > 159.0 && run.baseline < 215.0)
         .unwrap();
-    let end = description.x + wide(&description.text, false) * 0.5;
-    assert!(end <= label.x - 12.0, "{end} {}", label.x);
+    for description in [
+        "Shows a chip row above each pane.",
+        "Shows an icon in each chip. Needs a Nerd Font.",
+    ] {
+        let run = text(&scene, description).unwrap();
+        let end = run.x + wide(&run.text, false) * 0.5;
+        assert!(end <= label.x - 12.0, "{end} {}", label.x);
+    }
     assert!(text(&scene, "+8 more").is_some());
 }
