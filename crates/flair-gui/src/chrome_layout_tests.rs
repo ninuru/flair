@@ -1,21 +1,26 @@
-use std::path::Path;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use super::*;
 use crate::{
     chrome_bar::fit_letters,
     notice::Notice,
     overlay_layout::OverlayHit,
-    renderer::TextRun,
+    renderer::{Border, Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, ChipParts, TabParts, status_parts},
     ui::{ELLIPSIS, SMALL_TEXT},
 };
 use flair_core::{
-    config::Config,
+    config::{Config, PromptConfig, PromptStyle},
     geom::{Axis, CellPoint},
     ids::PaneId,
+    isles::{GitInfo, Head, LastCommand, PromptInfo},
     proto::{PanePlacement, ServerMsg, SessionInfo},
     status::{StatusLine, StatusWindow},
     theme::{Rgb, Rgba},
+    time::Millis,
 };
 
 fn measure(text: &str, _: bool) -> f32 {
@@ -800,4 +805,322 @@ fn a_monogram_that_does_not_fit_its_square_keeps_only_its_first_letter() {
     assert_eq!(fit_letters("WW", 18.0, 1.0, &mut wide), "W");
     assert_eq!(fit_letters("MA", 18.0, 0.8, &mut wide), "MA");
     assert_eq!(fit_letters("Ü", 18.0, 1.0, &mut wide), "Ü");
+}
+
+fn banded(separators: &[Separator], panes: &[(u32, CellRect)], active: u32) -> WindowLayout {
+    let layout = window(separators, panes, active);
+    WindowLayout {
+        panes: layout
+            .panes
+            .iter()
+            .map(|placement| PanePlacement {
+                rect: cells(
+                    placement.rect.origin.col,
+                    placement.rect.origin.row + 1,
+                    placement.rect.size.cols,
+                    placement.rect.size.rows - 1,
+                ),
+                band: 1,
+                ..*placement
+            })
+            .collect(),
+        ..layout
+    }
+}
+
+fn prompt(cwd: &str) -> PromptInfo {
+    PromptInfo {
+        cwd: Some(PathBuf::from(cwd)),
+        git: Some(GitInfo {
+            head: Head::Branch("main".into()),
+            upstream: None,
+            changes: None,
+        }),
+        last: Some(LastCommand {
+            exit: Some(1),
+            duration: Millis(0),
+        }),
+        ..PromptInfo::default()
+    }
+}
+
+fn band_layout(
+    window: &WindowLayout,
+    info: &BTreeMap<PaneId, PromptInfo>,
+    config: &PromptConfig,
+) -> ChromeLayout {
+    let theme = Config::default().theme();
+    let status = parts();
+    let input = ChromeInput {
+        px: (800, 600),
+        scale: 1.0,
+        padding: (8.0, 4.0),
+        metrics: metrics(1.0),
+        ui: ui(1.0),
+        theme: &theme,
+        status: &status,
+        prompt: None,
+        layout: Some(window),
+        hover: None,
+        overlays: None,
+        notice: None,
+        isles: Some(Isles {
+            info,
+            config,
+            clock: None,
+            home: None,
+        }),
+    };
+    layout(&input, measure)
+}
+
+fn band_chips(layout: &ChromeLayout) -> Vec<Quad> {
+    layout
+        .chrome
+        .quads
+        .iter()
+        .filter(|quad| quad.rect.y >= 52.0 && quad.border.is_some())
+        .copied()
+        .collect()
+}
+
+fn band_text(layout: &ChromeLayout) -> Vec<(f32, f32, &str, TextFace)> {
+    layout
+        .chrome
+        .text
+        .iter()
+        .filter(|run| run.baseline >= 52.0)
+        .map(|run| (run.x, run.baseline, run.text.as_str(), run.face))
+        .collect()
+}
+
+fn plain_config() -> PromptConfig {
+    PromptConfig {
+        icons: false,
+        ..PromptConfig::default()
+    }
+}
+
+#[test]
+fn every_banded_pane_draws_its_chips_inside_its_band_row() {
+    let theme = Config::default().theme();
+    let surfaces = theme.surfaces();
+    let separators = [Separator {
+        axis: Axis::Horizontal,
+        rect: cells(49, 0, 1, 34),
+    }];
+    let window = banded(
+        &separators,
+        &[(1, cells(0, 0, 49, 34)), (2, cells(50, 0, 48, 34))],
+        2,
+    );
+    let info = BTreeMap::from([
+        (PaneId(1), prompt("/srv/one")),
+        (PaneId(2), prompt("/srv/two")),
+    ]);
+    let layout = band_layout(&window, &info, &plain_config());
+    let chip = |x, w| Quad {
+        rect: rect(x, 53.0, w, 14.0),
+        color: opaque(surfaces.surface2),
+        radius: 4.0,
+        border: Some(Border {
+            color: opaque(surfaces.outline),
+            width: 1.0,
+        }),
+    };
+    assert_eq!(
+        band_chips(&layout),
+        [
+            chip(12.0, 40.0),
+            chip(58.0, 26.0),
+            chip(90.0, 28.0),
+            chip(412.0, 40.0),
+            chip(458.0, 26.0),
+            chip(490.0, 28.0),
+        ]
+    );
+    let dots: Vec<Quad> = layout
+        .chrome
+        .quads
+        .iter()
+        .filter(|quad| quad.rect.y >= 52.0 && quad.rect.w == 6.0)
+        .copied()
+        .collect();
+    assert_eq!(dots.len(), 2);
+    assert_eq!(dots[0].rect, rect(96.0, 57.0, 6.0, 6.0));
+    assert_eq!(dots[0].color, opaque(surfaces.attention));
+    assert_eq!(dots[0].radius, 3.0);
+    assert_eq!(
+        band_text(&layout),
+        [
+            (18.0, 62.0, "/srv/one", TextFace::Small),
+            (64.0, 62.0, "main", TextFace::Small),
+            (108.0, 62.0, "1", TextFace::Small),
+            (418.0, 62.0, "/srv/two", TextFace::Small),
+            (464.0, 62.0, "main", TextFace::Small),
+            (508.0, 62.0, "1", TextFace::Small),
+        ]
+    );
+    assert!(
+        layout
+            .chrome
+            .text
+            .iter()
+            .filter(|run| run.baseline >= 52.0)
+            .all(|run| run.color == surfaces.muted)
+    );
+}
+
+#[test]
+fn a_successful_exit_dot_is_running_green() {
+    let theme = Config::default().theme();
+    let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
+    let info = BTreeMap::from([(
+        PaneId(1),
+        PromptInfo {
+            last: Some(LastCommand {
+                exit: Some(0),
+                duration: Millis(420),
+            }),
+            ..PromptInfo::default()
+        },
+    )]);
+    let config = PromptConfig {
+        duration_ms: 0,
+        ..plain_config()
+    };
+    let layout = band_layout(&window, &info, &config);
+    let dot = layout
+        .chrome
+        .quads
+        .iter()
+        .find(|quad| quad.rect.y >= 52.0 && quad.rect.w == 6.0)
+        .expect("exit dot");
+    assert_eq!(dot.color, opaque(theme.surfaces().running));
+    assert_eq!(band_text(&layout), [(30.0, 62.0, "0.42s", TextFace::Small)]);
+}
+
+#[test]
+fn icons_draw_in_the_terminal_face_before_the_label() {
+    let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
+    let info = BTreeMap::from([(PaneId(1), prompt("/srv/one"))]);
+    let layout = band_layout(&window, &info, &PromptConfig::default());
+    let widths: Vec<(f32, f32)> = band_chips(&layout)
+        .iter()
+        .map(|quad| (quad.rect.x, quad.rect.w))
+        .collect();
+    assert_eq!(widths, [(12.0, 52.0), (70.0, 38.0), (114.0, 28.0)]);
+    assert_eq!(
+        band_text(&layout),
+        [
+            (18.0, 64.0, "\u{f114}", TextFace::Mono),
+            (30.0, 62.0, "/srv/one", TextFace::Small),
+            (76.0, 64.0, "\u{e725}", TextFace::Mono),
+            (88.0, 62.0, "main", TextFace::Small),
+            (132.0, 62.0, "1", TextFace::Small),
+        ]
+    );
+}
+
+#[test]
+fn a_narrow_pane_drops_chips_then_truncates_the_cwd_from_the_head() {
+    let info = BTreeMap::from([(PaneId(1), prompt("/srv/projects/flair"))]);
+    let texts = |cols| {
+        let window = banded(&[], &[(1, cells(0, 0, cols, 34))], 1);
+        band_text(&band_layout(&window, &info, &plain_config()))
+            .into_iter()
+            .map(|(_, _, text, _)| text.to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(texts(98), ["/srv/projects/flair", "main", "1"]);
+    assert_eq!(texts(18), ["/srv/projects/flair", "main"]);
+    assert_eq!(texts(14), ["/srv/projects/flair"]);
+    assert_eq!(texts(10), ["…v/projects/flair"]);
+    assert_eq!(texts(4), ["…ir"]);
+    assert!(texts(3).is_empty());
+    let window = banded(&[], &[(1, cells(0, 0, 10, 34))], 1);
+    let layout = band_layout(&window, &info, &plain_config());
+    let chip = band_chips(&layout)[0].rect;
+    assert!(chip.x + chip.w <= 8.0 + 80.0 - 4.0, "{chip:?}");
+}
+
+#[test]
+fn no_chips_without_a_band_without_info_or_with_ps1() {
+    let info = BTreeMap::from([(PaneId(1), prompt("/srv/one"))]);
+    let panes = [(1, cells(0, 0, 98, 34))];
+    assert!(
+        band_chips(&band_layout(
+            &window(&[], &panes, 1),
+            &info,
+            &plain_config()
+        ))
+        .is_empty()
+    );
+    let empty = BTreeMap::new();
+    assert!(
+        band_chips(&band_layout(
+            &banded(&[], &panes, 1),
+            &empty,
+            &plain_config()
+        ))
+        .is_empty()
+    );
+    let ps1 = PromptConfig {
+        style: PromptStyle::Ps1,
+        ..plain_config()
+    };
+    assert!(band_chips(&band_layout(&banded(&[], &panes, 1), &info, &ps1)).is_empty());
+    assert_eq!(
+        band_chips(&band_layout(
+            &banded(&[], &panes, 1),
+            &info,
+            &plain_config()
+        ))
+        .len(),
+        3
+    );
+}
+
+#[test]
+fn the_active_accent_covers_the_band_row_of_a_banded_pane() {
+    let theme = Config::default().theme();
+    let outline = opaque(theme.surfaces().outline);
+    let accent = opaque(theme.accent);
+    let separators = [
+        Separator {
+            axis: Axis::Horizontal,
+            rect: cells(49, 0, 1, 34),
+        },
+        Separator {
+            axis: Axis::Vertical,
+            rect: cells(50, 16, 48, 1),
+        },
+    ];
+    let panes = [
+        (1, cells(0, 0, 49, 34)),
+        (2, cells(50, 0, 48, 16)),
+        (3, cells(50, 17, 48, 17)),
+    ];
+    let vertical = rect(404.0, 35.0, 1.0, 565.0);
+    let horizontal = rect(404.0, 316.0, 396.0, 1.0);
+    let lower = rect(404.0, 316.0, 1.0, 284.0);
+    assert_eq!(
+        lines(run_layout(1.0, 800, Some(&banded(&separators, &panes, 3)))),
+        [
+            (vertical, outline),
+            (horizontal, outline),
+            (lower, accent),
+            (horizontal, accent),
+        ]
+    );
+    let upper = rect(404.0, 35.0, 1.0, 282.0);
+    assert_eq!(
+        lines(run_layout(1.0, 800, Some(&banded(&separators, &panes, 2)))),
+        [
+            (vertical, outline),
+            (horizontal, outline),
+            (upper, accent),
+            (horizontal, accent),
+        ]
+    );
 }

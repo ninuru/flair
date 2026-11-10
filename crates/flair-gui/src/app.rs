@@ -1,9 +1,19 @@
-use std::{env, error::Error, fmt, fs, path::PathBuf, sync::mpsc::Sender, thread, time::Instant};
+use std::{
+    collections::BTreeMap,
+    env,
+    error::Error,
+    fmt, fs,
+    path::PathBuf,
+    sync::mpsc::Sender,
+    thread,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 use flair_core::{
     config::Config,
     geom::{CellPoint, GridSize},
     ids::PaneId,
+    isles::PromptInfo,
     key::{InputEvent, KeyInput, MouseAction, MouseButton, MouseInput},
     link::ClientLink,
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
@@ -13,8 +23,8 @@ use flair_core::{
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
-    event::{ElementState, Ime, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event::{ElementState, Ime, StartCause, WindowEvent},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::ModifiersState,
     platform::wayland::WindowAttributesExtWayland,
     raw_window_handle::HasDisplayHandle,
@@ -28,6 +38,7 @@ use crate::{
     compose::{compose, compose_frame},
     drive::Drive,
     input::InputState,
+    isles::{Isles, local_clock, next_minute},
     mirror::Mirror,
     mouse::{self, WheelAccumulator},
     mouse_route::{Capture, MouseRoute, bar_command, capture_after, route_mouse},
@@ -89,6 +100,8 @@ struct App {
     status: StatusLine,
     hits: Vec<Hit>,
     drive: Option<(Vec<Drive>, EventLoopProxy<UserEvent>)>,
+    prompts: BTreeMap<PaneId, PromptInfo>,
+    home: Option<PathBuf>,
 }
 
 impl App {
@@ -254,6 +267,8 @@ impl App {
             return;
         };
         let padding = self.padding(scale);
+        let prompt = self.effective().prompt;
+        let clock = prompt.time.then(local_clock).flatten();
         let Some(surface) = &mut self.surface else {
             return;
         };
@@ -276,7 +291,12 @@ impl App {
             hover: Some((self.pointer.x as f32, self.pointer.y as f32)),
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
-            isles: None,
+            isles: Some(Isles {
+                info: &self.prompts,
+                config: &prompt,
+                clock,
+                home: self.home.as_deref(),
+            }),
         };
         let ChromeLayout {
             chrome,
@@ -435,7 +455,14 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 ServerMsg::Layout(layout) => {
                     self.mirror.retain_layout(&layout);
+                    self.prompts.retain(|pane, _| {
+                        layout.panes.iter().any(|placement| placement.pane == *pane)
+                    });
                     self.layout = Some(layout);
+                    self.request_redraw();
+                }
+                ServerMsg::PromptInfo { pane, info } => {
+                    self.prompts.insert(pane, info);
                     self.request_redraw();
                 }
                 ServerMsg::Status(status) => {
@@ -473,7 +500,6 @@ impl ApplicationHandler<UserEvent> for App {
                 | ServerMsg::ChooseTheme
                 | ServerMsg::Settings
                 | ServerMsg::Sessions(_)
-                | ServerMsg::PromptInfo { .. }
                 | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
                 ServerMsg::Exit(_) => {
@@ -493,6 +519,23 @@ impl ApplicationHandler<UserEvent> for App {
             }
             UserEvent::Drive(Drive::Sleep(duration)) => thread::sleep(duration),
         }
+    }
+
+    fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
+        if let StartCause::ResumeTimeReached { .. } = cause {
+            self.request_redraw();
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let prompt = self.effective().prompt;
+        let since_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        event_loop.set_control_flow(match prompt.time && prompt.band() > 0 {
+            true => ControlFlow::WaitUntil(Instant::now() + next_minute(since_epoch)),
+            false => ControlFlow::Wait,
+        });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
@@ -730,6 +773,8 @@ pub fn run_target(
         status: StatusLine::default(),
         hits: Vec::new(),
         drive,
+        prompts: BTreeMap::new(),
+        home: env::var_os("HOME").map(PathBuf::from),
     };
     if let Some(notice) = notice {
         app.overlays.set_notice(notice);

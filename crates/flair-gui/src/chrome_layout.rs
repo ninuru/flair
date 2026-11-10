@@ -8,7 +8,7 @@ use flair_core::{
 use crate::{
     CellMetrics, UiMetrics,
     chrome_bar::{self, Scene, fill},
-    isles::Isles,
+    isles::{self, Isles},
     notice::Notice,
     overlay_layout::{OverlayHits, OverlayInput},
     overlays::Overlays,
@@ -132,6 +132,7 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     };
     if let Some(window) = input.layout {
         separators(input, window, extend, &mut scene);
+        isles::band(input, window, &mut scene, &mut measure);
     }
     let overlay = input.overlays.and_then(|overlays| {
         overlays.layout(
@@ -171,7 +172,7 @@ fn separators(input: &ChromeInput, window: &WindowLayout, bounds: PxRect, scene:
         .panes
         .iter()
         .find(|placement| placement.pane == window.active)
-        .map(|placement| placement.rect);
+        .map(|placement| placement.outer());
     for separator in &window.separators {
         if let Some(rect) = intersect(
             separator_rect(input, separator.axis, separator.rect, bounds),
@@ -298,7 +299,7 @@ fn separator_rect(input: &ChromeInput, axis: Axis, rect: CellRect, bounds: PxRec
     }
 }
 
-fn cell_rect(input: &ChromeInput, rect: CellRect) -> PxRect {
+pub(crate) fn cell_rect(input: &ChromeInput, rect: CellRect) -> PxRect {
     let origin = grid_origin(input.px, input.padding, input.scale, input.metrics);
     let metrics = input.metrics;
     PxRect {
