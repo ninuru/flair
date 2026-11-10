@@ -3,7 +3,7 @@ use flair_core::{
     config_edit::apply,
     key::{Key, KeyAction, KeyInput, NamedKey},
     keys::Binding,
-    settings::{Kind, SETTINGS, Section, Source, Value, position, sources},
+    settings::{Choices, Kind, SETTINGS, Section, Source, Value, position, sources},
     theme::Theme,
 };
 
@@ -173,7 +173,7 @@ impl SettingsPage {
             return self.preview();
         }
         match &self.pending {
-            Some((index, value)) => self.preview_value(SETTINGS[*index].key, Some(value)),
+            Some((index, value)) => self.preview_step(*index, value),
             None => SettingsOutcome::Pending,
         }
     }
@@ -397,7 +397,7 @@ impl SettingsPage {
             self.pending = None;
             return SettingsOutcome::Revert;
         }
-        let outcome = self.preview_value(setting.key, Some(&next));
+        let outcome = self.preview_step(index, &next);
         self.pending = Some((index, next));
         outcome
     }
@@ -501,6 +501,21 @@ impl SettingsPage {
         match setting.parse(editor.text.text()) {
             Ok(value) => self.preview_value(setting.key, value.as_ref()),
             Err(_) => SettingsOutcome::Pending,
+        }
+    }
+
+    fn preview_step(&self, index: usize, value: &Value) -> SettingsOutcome {
+        let setting = &SETTINGS[index];
+        match setting.kind {
+            Kind::Choice(Choices::Of(_)) => SettingsOutcome::Pending,
+            Kind::Choice(Choices::Themes)
+            | Kind::Toggle
+            | Kind::Integer { .. }
+            | Kind::Float { .. }
+            | Kind::Text
+            | Kind::Font
+            | Kind::Words
+            | Kind::Color { .. } => self.preview_value(setting.key, Some(value)),
         }
     }
 

@@ -1,4 +1,5 @@
 use super::*;
+use flair_core::settings::{Kind, SETTINGS, Section};
 
 #[test]
 fn long_text_values_ellipsize_inside_the_chip() {
@@ -217,4 +218,87 @@ fn a_disabled_binding_list_mutes_commands_and_marks_the_heading_off() {
 
     let scene = run(&keys(2), (1920, 1200), 1.0, None);
     assert!(text(&scene, " off").is_none());
+}
+
+fn prompt() -> SettingsSheet {
+    let entries = SETTINGS
+        .iter()
+        .filter(|setting| setting.section == Section::Prompt)
+        .map(|setting| Entry::Setting {
+            title: setting.title,
+            description: setting.description,
+            source: "default",
+            control: match setting.kind {
+                Kind::Toggle => Control::Toggle(true),
+                Kind::Integer { .. } | Kind::Float { .. } => Control::Number("2000".into()),
+                Kind::Choice(_) => Control::Choice("chips".into()),
+                Kind::Text | Kind::Font | Kind::Words => Control::Text("x".into()),
+                Kind::Color { .. } => Control::Color("#000000".into()),
+            },
+            error: None,
+            pending: false,
+        })
+        .collect();
+    let mut sheet = sheet(
+        4,
+        "Prompt",
+        vec![Group {
+            heading: None,
+            disabled: false,
+            entries,
+        }],
+    );
+    sheet.keys = vec![
+        ("←→", "step".into()),
+        ("esc", "close".into()),
+        ("/", "search".into()),
+    ];
+    sheet
+}
+
+fn wide(text: &str, _: bool) -> f32 {
+    text.chars().count() as f32 * 12.0
+}
+
+#[test]
+fn the_prompt_page_fits_at_960x600_and_ellipsizes_descriptions() {
+    let theme = theme();
+    let input = OverlayInput {
+        px: (960, 600),
+        scale: 1.0,
+        ui: UiMetrics {
+            height: 14.0,
+            ascent: 11.0,
+            small: 0.5,
+        },
+        theme: &theme,
+        hover: None,
+    };
+    let sheet = prompt();
+    assert_eq!(sheet.groups[0].entries.len(), 14);
+    let scene = layout(&sheet, &input, &mut wide);
+    assert_inside(&scene, (960, 600));
+    assert_eq!(scene.hits.rows.len(), 6);
+    assert_eq!(
+        control(&scene, SettingsHit::Cycle(0)),
+        rect(624.0, 175.0, 280.0, 24.0)
+    );
+    assert_eq!(
+        control(&scene, SettingsHit::Toggle(1)),
+        rect(876.0, 235.0, 28.0, 16.0)
+    );
+    let description = scene
+        .text
+        .iter()
+        .find(|run| run.text.starts_with("Chips draw"))
+        .unwrap();
+    assert!(description.text.ends_with(ELLIPSIS), "{description:?}");
+    let label = scene
+        .text
+        .iter()
+        .find(|run| run.text == "default" && run.baseline > 159.0 && run.baseline < 215.0)
+        .unwrap();
+    let end = description.x + wide(&description.text, false) * 0.5;
+    assert!(end <= label.x - 12.0, "{end} {}", label.x);
+    assert!(text(&scene, "+8 more").is_some());
 }

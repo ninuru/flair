@@ -1,4 +1,5 @@
 use super::*;
+use flair_core::config::PromptStyle;
 
 fn reload(page: &mut SettingsPage, text: &str) -> SettingsOutcome {
     let config = Config::from_toml(text).unwrap();
@@ -215,4 +216,47 @@ fn the_sheet_marks_pending_entries_and_disabled_bindings() {
         })
         .count();
     assert_eq!(colours, 5);
+}
+
+#[test]
+fn a_saved_prompt_style_writes_the_prompt_table() {
+    let mut page = page("theme = \"gruvbox-dark\"\n");
+    focus_key(&mut page, "prompt.style");
+    press(&mut page, NamedKey::Right);
+    let SettingsOutcome::Save { key, value } = press(&mut page, NamedKey::Enter) else {
+        panic!("not saved");
+    };
+    assert_eq!(key, "prompt.style");
+    let (text, config) = apply("theme = \"gruvbox-dark\"\n", key, value.as_ref()).unwrap();
+    assert_eq!(
+        text,
+        "theme = \"gruvbox-dark\"\n\n[prompt]\nstyle = \"ps1\"\n"
+    );
+    assert_eq!(config.prompt.style, PromptStyle::Ps1);
+    assert_eq!(config.theme, "gruvbox-dark");
+    assert_eq!(reload(&mut page, &text), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(source(&page), "flair.toml");
+    assert_eq!(page.sheet().keys, step_reset_keys());
+}
+
+#[test]
+fn the_theme_choice_still_previews_every_step() {
+    let mut page = page("");
+    let gruvbox = Value::Text("gruvbox-dark".to_owned());
+    let mocha = Value::Text("catppuccin-mocha".to_owned());
+    assert_eq!(
+        press(&mut page, NamedKey::Right),
+        preview_of("", "theme", Some(&gruvbox))
+    );
+    assert_eq!(
+        reload(&mut page, ""),
+        preview_of("", "theme", Some(&gruvbox))
+    );
+    assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Revert);
+    assert_eq!(
+        press(&mut page, NamedKey::Left),
+        preview_of("", "theme", Some(&mocha))
+    );
+    assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Revert);
 }
