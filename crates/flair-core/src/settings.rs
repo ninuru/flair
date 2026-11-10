@@ -361,7 +361,7 @@ pub const SETTINGS: &[Setting] = &[
         title: "Style",
         section: Section::Prompt,
         kind: Kind::Choice(Choices::Of(&PromptStyle::NAMES)),
-        description: "Chips draw a band above each pane; new shells get a minimal prompt.",
+        description: "Shows a chip row above each pane.",
         read: |config, _| Value::Text(config.prompt.style.name().to_owned()),
     },
     Setting {
@@ -369,7 +369,7 @@ pub const SETTINGS: &[Setting] = &[
         title: "Icons",
         section: Section::Prompt,
         kind: Kind::Toggle,
-        description: "Shows a Nerd Font icon before each chip.",
+        description: "Shows an icon in each chip. Needs a Nerd Font.",
         read: |config, _| Value::Bool(config.prompt.icons),
     },
     Setting {
@@ -406,7 +406,7 @@ pub const SETTINGS: &[Setting] = &[
     },
     Setting {
         key: "prompt.git_ahead_behind",
-        title: "Ahead and behind",
+        title: "Git ahead and behind",
         section: Section::Prompt,
         kind: Kind::Toggle,
         description: "Shows commits ahead of and behind the upstream.",
@@ -462,14 +462,14 @@ pub const SETTINGS: &[Setting] = &[
     },
     Setting {
         key: "prompt.duration_ms",
-        title: "Duration above (ms)",
+        title: "Minimum duration",
         section: Section::Prompt,
         kind: Kind::Integer {
             step: 500,
             min: 0,
             max: 600_000,
         },
-        description: "Hides shorter command durations.",
+        description: "Hides commands shorter than this, in ms.",
         read: |config, _| {
             Value::Integer(i64::try_from(config.prompt.duration_ms).unwrap_or(i64::MAX))
         },

@@ -29,6 +29,8 @@ pub struct UiMetrics {
     pub height: f32,
     pub ascent: f32,
     pub small: f32,
+    pub cap: f32,
+    pub icon: CellMetrics,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -96,14 +98,7 @@ impl Fonts {
         let raw = rasterizer
             .metrics(faces[0], size)
             .map_err(|e| FontError(e.to_string()))?;
-        let height = (raw.line_height as f32 * config.line_height)
-            .ceil()
-            .max(1.0);
-        let metrics = CellMetrics {
-            width: (raw.average_advance as f32).ceil().max(1.0),
-            height,
-            baseline: height + raw.descent - (height - raw.line_height as f32) / 2.0,
-        };
+        let metrics = cell_metrics(&raw, config.line_height);
         let ui_size = crossfont::Size::new(config.ui_size * scale as f32);
         let mut ui_faces = Vec::new();
         for weight in [Weight::Normal, Weight::Bold] {
@@ -134,10 +129,30 @@ impl Fonts {
             .metrics(ui_faces[0], ui_size)
             .map_err(|e| FontError(e.to_string()))?;
         let small_size = crossfont::Size::from_px(SMALL_TEXT * scale as f32);
+        let cap = rasterizer
+            .get_glyph(crossfont::GlyphKey {
+                character: 'H',
+                font_key: ui_faces[0],
+                size: small_size,
+            })
+            .map_err(|e| FontError(e.to_string()))?
+            .top as f32;
+        rasterizer
+            .get_glyph(crossfont::GlyphKey {
+                character: 'm',
+                font_key: faces[0],
+                size: small_size,
+            })
+            .map_err(|e| FontError(e.to_string()))?;
+        let icon = rasterizer
+            .metrics(faces[0], small_size)
+            .map_err(|e| FontError(e.to_string()))?;
         let ui_metrics = UiMetrics {
             height: (raw.line_height as f32).ceil().max(1.0),
             ascent: raw.line_height as f32 + raw.descent,
             small: small_size.as_px() / ui_size.as_px(),
+            cap,
+            icon: cell_metrics(&icon, 1.0),
         };
         Ok(Fonts {
             rasterizer,
@@ -169,6 +184,14 @@ impl Fonts {
             size: self.size,
         };
         self.raster(key)
+    }
+
+    pub fn rasterize_icon(&mut self, c: char) -> Option<RasterGlyph> {
+        self.raster(crossfont::GlyphKey {
+            character: c,
+            font_key: self.faces[0],
+            size: self.small_size,
+        })
     }
 
     pub fn ui_metrics(&self) -> UiMetrics {
@@ -261,5 +284,14 @@ impl Fonts {
             colored,
             pixels,
         })
+    }
+}
+
+fn cell_metrics(raw: &crossfont::Metrics, line_height: f32) -> CellMetrics {
+    let height = (raw.line_height as f32 * line_height).ceil().max(1.0);
+    CellMetrics {
+        width: (raw.average_advance as f32).ceil().max(1.0),
+        height,
+        baseline: height + raw.descent - (height - raw.line_height as f32) / 2.0,
     }
 }

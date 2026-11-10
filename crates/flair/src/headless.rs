@@ -628,6 +628,12 @@ pub fn run(
         ("ZDOTDIR".into(), home.0.to_string_lossy().into_owned()),
     ]);
     server_config.env.extend(scenario.env.clone());
+    let shell_home = server_config
+        .env
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "HOME")
+        .map(|(_, value)| PathBuf::from(value));
     let mut isolated_args = vec![
         "-i".to_owned(),
         "PATH=/usr/bin:/bin".to_owned(),
@@ -658,7 +664,7 @@ pub fn run(
         config_path,
         overlays,
         pixels,
-        home: std::env::var_os("HOME").map(PathBuf::from),
+        home: shell_home,
     };
     let mut failed_step = None;
     let mut worker = None;

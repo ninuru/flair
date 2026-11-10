@@ -53,6 +53,12 @@ fn ui(scale: f32) -> UiMetrics {
         height: 14.0 * scale,
         ascent: 11.0 * scale,
         small: 0.5,
+        cap: 8.0 * scale,
+        icon: CellMetrics {
+            width: 7.0 * scale,
+            height: 12.0 * scale,
+            baseline: 9.0 * scale,
+        },
     }
 }
 
@@ -1001,7 +1007,7 @@ fn a_successful_exit_dot_is_running_green() {
 }
 
 #[test]
-fn icons_draw_in_the_terminal_face_before_the_label() {
+fn icons_draw_in_the_small_terminal_face_before_the_label() {
     let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
     let info = BTreeMap::from([(PaneId(1), prompt("/srv/one"))]);
     let layout = band_layout(&window, &info, &PromptConfig::default());
@@ -1009,15 +1015,15 @@ fn icons_draw_in_the_terminal_face_before_the_label() {
         .iter()
         .map(|quad| (quad.rect.x, quad.rect.w))
         .collect();
-    assert_eq!(widths, [(12.0, 52.0), (70.0, 38.0), (114.0, 28.0)]);
+    assert_eq!(widths, [(12.0, 51.0), (69.0, 37.0), (112.0, 28.0)]);
     assert_eq!(
         band_text(&layout),
         [
-            (18.0, 56.0, "\u{f114}", TextFace::Mono),
-            (30.0, 54.0, "/srv/one", TextFace::Small),
-            (76.0, 56.0, "\u{e725}", TextFace::Mono),
-            (88.0, 54.0, "main", TextFace::Small),
-            (132.0, 54.0, "1", TextFace::Small),
+            (18.0, 53.0, "\u{f114}", TextFace::Icon),
+            (29.0, 54.0, "/srv/one", TextFace::Small),
+            (75.0, 53.0, "\u{f418}", TextFace::Icon),
+            (86.0, 54.0, "main", TextFace::Small),
+            (130.0, 54.0, "1", TextFace::Small),
         ]
     );
 }
@@ -1034,12 +1040,15 @@ fn a_narrow_pane_shortens_the_cwd_before_dropping_chips() {
     };
     assert_eq!(texts(98), ["/srv/projects/flair", "main", "1"]);
     assert_eq!(texts(20), ["/srv/projects/flair", "main", "1"]);
-    assert_eq!(texts(19), ["…rv/projects/flair", "main", "1"]);
-    assert_eq!(texts(16), ["…jects/flair", "main", "1"]);
+    assert_eq!(texts(19), ["…/projects/flair", "main", "1"]);
+    assert_eq!(texts(18), ["…/projects/flair", "main", "1"]);
+    assert_eq!(texts(17), ["…/flair", "main", "1"]);
     assert_eq!(texts(14), ["…/flair", "main", "1"]);
-    assert_eq!(texts(13), ["…rojects/flair", "main"]);
-    assert_eq!(texts(10), ["…s/flair", "main"]);
-    assert_eq!(texts(9), ["…rojects/flair"]);
+    assert_eq!(texts(13), ["…/flair", "main"]);
+    assert_eq!(texts(10), ["…/flair", "main"]);
+    assert_eq!(texts(9), ["…/flair"]);
+    assert_eq!(texts(6), ["…/flair"]);
+    assert_eq!(texts(5), ["…lair"]);
     assert_eq!(texts(4), ["…ir"]);
     assert!(texts(3).is_empty());
     for cols in 3..=98 {

@@ -712,10 +712,9 @@ name = "changes"
         "{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    let cwd = repo.display().to_string();
+    let cwd = "~/repo";
     let band = fs::read_to_string(output.0.join("band.txt")).unwrap();
-    assert_eq!(band_labels(&band), [cwd.as_str(), "main", "1"], "{band}");
-    assert!(!band.lines().nth(1).unwrap().contains('~'));
+    assert_eq!(band_labels(&band), [cwd, "main", "1"], "{band}");
     let content: Vec<&str> = band.lines().skip(2).map(str::trim_end).collect();
     assert_eq!(
         content[..4],
@@ -723,9 +722,5 @@ name = "changes"
         "{band}"
     );
     let changes = fs::read_to_string(output.0.join("changes.txt")).unwrap();
-    assert_eq!(
-        band_labels(&changes),
-        [cwd.as_str(), "main", "2"],
-        "{changes}"
-    );
+    assert_eq!(band_labels(&changes), [cwd, "main", "2"], "{changes}");
 }

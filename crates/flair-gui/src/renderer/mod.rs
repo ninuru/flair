@@ -205,6 +205,7 @@ impl Renderer {
             Face::Cell => fonts.rasterize(key.c, key.style),
             Face::Ui => fonts.rasterize_ui(key.c, key.style),
             Face::Small => fonts.rasterize_small(key.c, key.style),
+            Face::Icon => fonts.rasterize_icon(key.c),
         }) {
             Ok(glyph) => glyph?,
             Err(AtlasFull) => {
@@ -244,6 +245,7 @@ impl Renderer {
                 TextFace::Ui => Face::Ui,
                 TextFace::Small => Face::Small,
                 TextFace::Mono => Face::Cell,
+                TextFace::Icon => Face::Icon,
             };
             let mut x = run.x;
             for c in run.text.chars() {
@@ -260,6 +262,7 @@ impl Renderer {
                     TextFace::Ui => fonts.ui_advance(c, style),
                     TextFace::Small => fonts.small_advance(c, style),
                     TextFace::Mono => self.metrics.width,
+                    TextFace::Icon => fonts.ui_metrics().icon.width,
                 };
             }
         }

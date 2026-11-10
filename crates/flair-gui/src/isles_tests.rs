@@ -1,12 +1,21 @@
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     time::Duration,
 };
 
 use super::*;
+use crate::{
+    chrome_layout::layout,
+    font::{CellMetrics, UiMetrics},
+    status::{ChipParts, StatusParts},
+};
 use flair_core::{
-    config::PromptConfig,
+    config::{Config, PromptConfig},
+    geom::CellPoint,
+    ids::WindowId,
     isles::{AheadBehind, Changes, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
+    proto::PanePlacement,
     time::Millis,
 };
 
@@ -168,15 +177,15 @@ fn icons_on_put_a_terminal_glyph_before_every_chip_but_ahead_behind_and_exit() {
     assert_eq!(
         icons,
         [
-            (Chip::User, Some('\u{f2c0}')),
-            (Chip::Host, Some('\u{f109}')),
+            (Chip::User, Some('\u{f415}')),
+            (Chip::Host, Some('\u{ea7a}')),
             (Chip::Cwd, Some('\u{f114}')),
-            (Chip::GitBranch, Some('\u{e725}')),
+            (Chip::GitBranch, Some('\u{f418}')),
             (Chip::GitAheadBehind, None),
-            (Chip::GitChanges, Some('\u{f0f6}')),
-            (Chip::Venv, Some('\u{e73c}')),
-            (Chip::Docker, Some('\u{e7b0}')),
-            (Chip::Kube, Some('\u{f10fe}')),
+            (Chip::GitChanges, Some('\u{f440}')),
+            (Chip::Venv, Some('\u{f487}')),
+            (Chip::Docker, Some('\u{f4b7}')),
+            (Chip::Kube, Some('\u{eb51}')),
             (Chip::Exit, None),
             (Chip::Time, Some('\u{f017}')),
         ]
@@ -455,15 +464,83 @@ fn fit_never_drops_the_cwd() {
 }
 
 #[test]
-fn the_shortest_cwd_keeps_an_ellipsis_and_the_last_component() {
-    assert_eq!(shortest("/srv/projects/flair"), "…flair");
-    assert_eq!(shortest("~/src/flair"), "…flair");
-    assert_eq!(shortest("~/a"), "…a");
+fn the_shortest_cwd_keeps_an_ellipsis_and_the_last_folder() {
+    assert_eq!(shortest("/srv/projects/flair"), "…/flair");
+    assert_eq!(shortest("~/src/flair"), "…/flair");
+    assert_eq!(shortest("~/a"), "~/a");
+    assert_eq!(shortest("~/ab"), "~/ab");
+    assert_eq!(shortest("~/abc/d"), "…/d");
     assert_eq!(shortest("~"), "~");
     assert_eq!(shortest("/"), "/");
     assert_eq!(shortest("/a"), "/a");
-    assert_eq!(shortest("/srv/日本"), "…日本");
+    assert_eq!(shortest("/srv/日本"), "…/日本");
     assert_eq!(shortest(""), "");
+}
+
+fn cut_at(path: &str, chars: usize) -> String {
+    let width = chars as f32 * 7.0;
+    cut(path, |text| text.chars().count() as f32 * 7.0 <= width)
+}
+
+#[test]
+fn the_cwd_drops_whole_leading_folders_before_cutting_characters() {
+    let path = "/tmp/fm7-tFkw/repo";
+    for (chars, expected) in [
+        (40, "/tmp/fm7-tFkw/repo"),
+        (18, "/tmp/fm7-tFkw/repo"),
+        (17, "…/fm7-tFkw/repo"),
+        (15, "…/fm7-tFkw/repo"),
+        (14, "…/repo"),
+        (6, "…/repo"),
+        (5, "…repo"),
+        (4, "…epo"),
+        (3, "…po"),
+        (2, "…o"),
+        (1, ""),
+        (0, ""),
+    ] {
+        assert_eq!(cut_at(path, chars), expected, "{chars}");
+    }
+}
+
+#[test]
+fn the_cwd_keeps_the_home_prefix_until_it_has_to_go() {
+    let path = "~/src/flair/crates";
+    for (chars, expected) in [
+        (18, "~/src/flair/crates"),
+        (17, "…/flair/crates"),
+        (14, "…/flair/crates"),
+        (13, "…/crates"),
+        (8, "…/crates"),
+        (7, "…crates"),
+        (3, "…es"),
+    ] {
+        assert_eq!(cut_at(path, chars), expected, "{chars}");
+    }
+    assert_eq!(cut_at("~", 1), "~");
+    assert_eq!(cut_at("~/a", 3), "~/a");
+    assert_eq!(cut_at("~/abc", 4), "…abc");
+    assert_eq!(cut_at("/srv/日本", 4), "…/日本");
+    assert_eq!(cut_at("/srv/日本", 3), "…日本");
+}
+
+#[test]
+fn the_cwd_cut_is_stable_while_the_width_stays_between_folder_boundaries() {
+    let path = "/home/ada/IdeaProjects/flair/.claude/worktrees/repo";
+    let cuts: Vec<String> = (16..=60).map(|chars| cut_at(path, chars)).collect();
+    let mut distinct = cuts.clone();
+    distinct.dedup();
+    assert_eq!(
+        distinct,
+        [
+            "…/worktrees/repo",
+            "…/.claude/worktrees/repo",
+            "…/flair/.claude/worktrees/repo",
+            "…/IdeaProjects/flair/.claude/worktrees/repo",
+            "…/ada/IdeaProjects/flair/.claude/worktrees/repo",
+            "/home/ada/IdeaProjects/flair/.claude/worktrees/repo",
+        ]
+    );
 }
 
 #[test]
@@ -499,4 +576,127 @@ fn control_characters_never_reach_a_chip() {
     let config = all_on(false);
     assert_eq!(text_of(&info, &config, Chip::User).as_deref(), Some("ada"));
     assert_eq!(text_of(&info, &config, Chip::Host).as_deref(), Some("box"));
+}
+
+fn icon_ui() -> UiMetrics {
+    UiMetrics {
+        height: 14.0,
+        ascent: 11.0,
+        small: 0.5,
+        cap: 8.0,
+        icon: CellMetrics {
+            width: 7.0,
+            height: 12.0,
+            baseline: 9.0,
+        },
+    }
+}
+
+fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
+    let theme = Config::default().theme();
+    let status = StatusParts {
+        chip: ChipParts {
+            session: "main".into(),
+            hidden: 0,
+            running: false,
+            finished: false,
+        },
+        tabs: Vec::new(),
+        badges: Vec::new(),
+    };
+    let window = WindowLayout {
+        window: WindowId(1),
+        area: CellRect {
+            origin: CellPoint { col: 0, row: 0 },
+            size: GridSize { cols, rows: 34 },
+        },
+        panes: vec![PanePlacement {
+            pane: PaneId(1),
+            rect: CellRect {
+                origin: CellPoint { col: 0, row: 1 },
+                size: GridSize { cols, rows: 33 },
+            },
+            band: 1,
+        }],
+        separators: Vec::new(),
+        active: PaneId(1),
+        zoomed: false,
+    };
+    let info = BTreeMap::from([(PaneId(1), info)]);
+    let config = PromptConfig::default();
+    let input = ChromeInput {
+        px: (800, 600),
+        scale: 1.0,
+        padding: (8.0, 4.0),
+        metrics: CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
+        ui: icon_ui(),
+        theme: &theme,
+        status: &status,
+        prompt: None,
+        layout: Some(&window),
+        hover: None,
+        overlays: None,
+        notice: None,
+        isles: Some(Isles {
+            info: &info,
+            config: &config,
+            clock: None,
+            home: None,
+        }),
+    };
+    layout(&input, |text, _| text.chars().count() as f32 * 7.0)
+        .chrome
+        .text
+        .into_iter()
+        .filter(|run| run.baseline >= 40.0)
+        .map(|run| (run.x, run.baseline, run.text, run.face))
+        .collect()
+}
+
+#[test]
+fn icons_use_the_small_terminal_face_and_its_cell_advance() {
+    let info = PromptInfo {
+        cwd: Some(PathBuf::from("/srv/one")),
+        git: Some(GitInfo {
+            head: Head::Branch("main".into()),
+            upstream: None,
+            changes: None,
+        }),
+        ..PromptInfo::default()
+    };
+    assert_eq!(
+        icon_runs(info, 98),
+        [
+            (18.0, 53.0, "\u{f114}".to_owned(), TextFace::Icon),
+            (29.0, 54.0, "/srv/one".to_owned(), TextFace::Small),
+            (75.0, 53.0, "\u{f418}".to_owned(), TextFace::Icon),
+            (86.0, 54.0, "main".to_owned(), TextFace::Small),
+        ]
+    );
+}
+
+#[test]
+fn icon_baselines_centre_the_icon_line_on_the_label_caps() {
+    let info = PromptInfo {
+        cwd: Some(PathBuf::from("/srv/one")),
+        ..PromptInfo::default()
+    };
+    let runs = icon_runs(info, 98);
+    let (_, label, _, _) = runs[1];
+    let (_, icon, _, _) = runs[0];
+    let ui = icon_ui();
+    let caps = label - ui.cap / 2.0;
+    let line = icon - ui.icon.baseline + ui.icon.height / 2.0;
+    assert!((line - caps).abs() <= 0.5, "icon line {line} caps {caps}");
+}
+
+#[test]
+fn a_wide_icon_takes_two_small_cells() {
+    let input_ui = icon_ui();
+    assert_eq!(icon_cells('\u{f114}') as f32 * input_ui.icon.width, 7.0);
+    assert_eq!(icon_cells('\u{1f40d}') as f32 * input_ui.icon.width, 14.0);
 }
