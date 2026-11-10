@@ -6,7 +6,7 @@ use flair_core::{
     isles::{AheadBehind, Changes, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
     proto::ClientKind,
 };
-use std::path::PathBuf;
+use std::{ffi::OsString, os::unix::ffi::OsStringExt, path::PathBuf};
 
 fn hello() -> ClientMsg {
     ClientMsg::Hello {
@@ -71,7 +71,25 @@ fn infos(out: &[Effect]) -> Vec<(ClientId, PaneId, PromptInfo)> {
 fn git_jobs(out: &[Effect]) -> Vec<(PathBuf, bool)> {
     out.iter()
         .filter_map(|effect| match effect {
-            Effect::ReadGit { cwd, changes } => Some((cwd.clone(), *changes)),
+            Effect::ReadGit { cwd, changes, .. } => Some((cwd.clone(), *changes)),
+            Effect::Send(_, _)
+            | Effect::Spawn(_, _)
+            | Effect::SpawnSplit(_, _, _)
+            | Effect::WritePty(_, _)
+            | Effect::ResizePty(_, _)
+            | Effect::KillPty(_)
+            | Effect::SetTimer(_, _)
+            | Effect::ReadConfig(_)
+            | Effect::ReadContexts
+            | Effect::Shutdown => None,
+        })
+        .collect()
+}
+
+fn git_panes(out: &[Effect]) -> Vec<Vec<PaneId>> {
+    out.iter()
+        .filter_map(|effect| match effect {
+            Effect::ReadGit { panes, .. } => Some(panes.clone()),
             Effect::Send(_, _)
             | Effect::Spawn(_, _)
             | Effect::SpawnSplit(_, _, _)
@@ -290,14 +308,65 @@ fn shell_facts_are_sent_only_when_their_chips_are_on() {
         host: "box".into(),
         venv: Some("env".into()),
     };
+    let osc = b"\x1b]6973;flair;u=ada;h=box;v=env\x07";
     let (mut server, _) = chips(|prompt| prompt.user = true);
-    server.panes.get_mut(&PaneId(1)).unwrap().shell = Some(facts.clone());
-    let out = output(&mut server, 1, b"x");
+    let out = output(&mut server, 1, osc);
     assert_eq!(infos(&out)[0].2.shell, Some(facts.clone()));
     let (mut server, _) = chips(|_| {});
-    server.panes.get_mut(&PaneId(1)).unwrap().shell = Some(facts);
-    let out = output(&mut server, 1, b"x");
+    let out = output(&mut server, 1, osc);
     assert!(infos(&out).is_empty());
+    assert_eq!(server.panes[&PaneId(1)].shell, Some(facts));
+}
+
+#[test]
+fn a_cwd_that_is_not_utf8_is_not_published() {
+    let (mut server, _) = chips(|_| {});
+    let raw = PathBuf::from(OsString::from_vec(b"/tmp/flair-\xff".to_vec()));
+    server.panes.get_mut(&PaneId(1)).unwrap().cwd = raw.clone();
+    let out = handle(&mut server, 1, Event::Timer(Timer::Prompt));
+    let sent = infos(&out);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].2.cwd, None);
+    assert_eq!(git_jobs(&out), vec![(raw, true)]);
+}
+
+#[test]
+fn git_requests_name_every_pane_whose_shell_claims_the_directory() {
+    let (mut server, initial) = chips(|_| {});
+    assert_eq!(git_panes(&initial), vec![vec![PaneId(1)]]);
+    let cwd = root(&server);
+    handle(&mut server, 1, Event::GitRead(cwd.clone(), None));
+    command(&mut server, 2, Command::NewWindow);
+    output(&mut server, 3, &osc7("/tmp/flair-elsewhere"));
+    let out = handle(&mut server, 5000, Event::Timer(Timer::Prompt));
+    assert_eq!(git_jobs(&out), vec![(cwd, true)]);
+    assert_eq!(git_panes(&out), vec![vec![PaneId(2)]]);
+}
+
+#[test]
+fn a_failed_read_returns_the_directory_to_idle() {
+    let (mut server, initial) = chips(|_| {});
+    let cwd = root(&server);
+    assert_eq!(git_jobs(&initial), vec![(cwd.clone(), true)]);
+    assert!(git_jobs(&output(&mut server, 1, b"\x1b]133;A\x07")).is_empty());
+    let failed = handle(&mut server, 2, Event::GitRead(cwd.clone(), None));
+    assert_eq!(git_jobs(&failed), vec![(cwd.clone(), true)]);
+    handle(&mut server, 3, Event::GitRead(cwd.clone(), None));
+    let again = output(&mut server, 4, b"\x1b]133;A\x07");
+    assert_eq!(git_jobs(&again), vec![(cwd, true)]);
+}
+
+#[test]
+fn output_without_prompt_events_sends_no_prompt_info() {
+    let (mut server, _) = chips(|_| {});
+    let last = Some(LastCommand {
+        exit: Some(3),
+        duration: Millis(1),
+    });
+    server.panes.get_mut(&PaneId(1)).unwrap().last = last;
+    assert!(infos(&output(&mut server, 1, b"plain text")).is_empty());
+    let marked = output(&mut server, 2, b"\x1b]133;B\x07");
+    assert_eq!(infos(&marked)[0].2.last, last);
 }
 
 #[test]

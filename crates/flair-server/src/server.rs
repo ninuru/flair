@@ -54,6 +54,7 @@ pub struct Server {
     git: BTreeMap<PathBuf, prompt::GitEntry>,
     contexts: (Contexts, prompt::Pending),
     refresh_armed: bool,
+    prompts_dirty: bool,
 }
 
 impl Server {
@@ -70,6 +71,7 @@ impl Server {
             git: BTreeMap::new(),
             contexts: (Contexts::default(), prompt::Pending::Idle),
             refresh_armed: false,
+            prompts_dirty: true,
         }
     }
 
@@ -77,6 +79,7 @@ impl Server {
         if self.stopping {
             return;
         }
+        self.prompts_dirty |= !matches!(event, Event::PtyOutput(_, _));
         match event {
             Event::ClientConnected(_) => {}
             Event::Client(id, message) => self.client_message(now, id, message, out),
@@ -338,19 +341,22 @@ impl Server {
                 }
                 TermEvent::Mark(kind, code) => {
                     refresh |= kind == MarkKind::PromptStart;
+                    self.prompts_dirty = true;
                     self.prompt_marks(now, pane, kind, code);
                 }
                 TermEvent::Facts(facts) => {
+                    self.prompts_dirty = true;
                     if let Some(state) = self.panes.get_mut(&pane) {
                         state.shell = Some(facts);
                     }
                 }
-                TermEvent::Cwd(_) => {}
+                TermEvent::Cwd(_) => self.prompts_dirty = true,
             }
         }
         if let Some(cwd) = self.pane_cwd(pane)
             && (refresh || before.as_ref() != Some(&cwd))
         {
+            self.prompts_dirty = true;
             self.want_git(cwd, out);
             self.want_contexts(out);
         }

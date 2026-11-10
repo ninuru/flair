@@ -21,14 +21,14 @@ _flair_encode() {
 _flair_precmd() {
     local exit_status=$?
     local REPLY user host
-    _flair_encode $PWD
-    printf '\e]133;D;%d\a\e]133;A\a\e]7;file://%s%s\a' "$exit_status" "$HOST" "$REPLY"
-    [[ $FLAIR_PROMPT == chips ]] || return 0
-    _flair_encode $USERNAME
-    user=$REPLY
-    _flair_encode $HOST
+    _flair_encode "$HOST"
     host=$REPLY
-    _flair_encode ${${VIRTUAL_ENV:t}:-$CONDA_DEFAULT_ENV}
+    _flair_encode "$PWD"
+    printf '\e]133;D;%d\a\e]133;A\a\e]7;file://%s%s\a' "$exit_status" "$host" "$REPLY"
+    [[ $FLAIR_PROMPT == chips ]] || return 0
+    _flair_encode "$USERNAME"
+    user=$REPLY
+    _flair_encode "${${VIRTUAL_ENV:t}:-$CONDA_DEFAULT_ENV}"
     printf '\e]6973;flair;u=%s;h=%s;v=%s\a' "$user" "$host" "$REPLY"
     PS1=$'❯ %{\e]133;B\a%}'
 }

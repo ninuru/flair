@@ -1,6 +1,8 @@
-use super::spawn_in_process;
+use super::{request, spawn_in_process};
 use crate::{
     ServerConfig,
+    event::Event,
+    facts::{Contexts, Job},
     git::tests::{commit, git_available, temp},
 };
 use flair_core::{
@@ -13,8 +15,8 @@ use flair_core::{
 };
 use std::{
     fs,
-    path::Path,
-    sync::mpsc::RecvTimeoutError,
+    path::{Path, PathBuf},
+    sync::mpsc::{self, RecvTimeoutError},
     time::{Duration, Instant},
 };
 
@@ -253,7 +255,7 @@ fn a_prompt_in_a_repository_reports_its_branch() {
     config.cwd = dir.clone();
     config.args = vec![
         "-c".into(),
-        "printf '\\033]7;file://%s\\007' \"$1\"; exec sleep 10".into(),
+        "cd \"$1\" && printf '\\033]7;file://%s\\007' \"$1\"; exec sleep 10".into(),
         "sh".into(),
         repo.display().to_string(),
     ];
@@ -309,4 +311,28 @@ fn a_prompt_in_a_repository_reports_its_branch() {
     drop(client);
     handle.join().unwrap();
     fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_gone_facts_worker_answers_requests_with_nothing() {
+    let (jobs, queue) = mpsc::channel();
+    let cwd = PathBuf::from("/tmp/flair-gone-worker");
+    let git = || Job::Git {
+        cwd: cwd.clone(),
+        changes: true,
+        shells: vec![1],
+    };
+    assert!(request(&jobs, git()).is_none());
+    assert!(request(&jobs, Job::Contexts).is_none());
+    drop(queue);
+    let answer = request(&jobs, git());
+    assert!(
+        matches!(&answer, Some(Event::GitRead(path, None)) if *path == cwd),
+        "{answer:?}"
+    );
+    let answer = request(&jobs, Job::Contexts);
+    assert!(
+        matches!(&answer, Some(Event::ContextsRead(contexts)) if *contexts == Contexts::default()),
+        "{answer:?}"
+    );
 }

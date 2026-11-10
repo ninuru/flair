@@ -1,4 +1,4 @@
-use flair_core::isles::{AheadBehind, Changes, GitInfo, Head};
+use flair_core::isles::{AheadBehind, Changes, GitInfo, Head, label};
 use gix::{
     ObjectId, Repository, Tree,
     bstr::{BStr, BString},
@@ -14,42 +14,119 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc,
+        mpsc::{self, Receiver, RecvTimeoutError},
     },
-    thread,
-    time::Duration,
+    thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
 const WALK_CAP: usize = 1000;
 const LARGE_FILE: u64 = 1 << 20;
 const BINARY_PROBE: usize = 8000;
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Read {
+    Done(GitInfo),
+    Slow(Option<GitInfo>),
+    Failed(Option<GitInfo>),
+}
+
 pub(crate) fn open(cwd: &Path) -> Option<(PathBuf, Repository)> {
-    let repo = gix::discover(cwd).ok()?;
+    let mut repo = gix::discover(cwd).ok()?;
     let root = repo.workdir()?.to_path_buf();
+    let mut config = repo.config_snapshot_mut();
+    let filters: Vec<_> = config
+        .sections_and_ids_by_name("filter")
+        .into_iter()
+        .flatten()
+        .map(|(_, id)| id)
+        .collect();
+    for id in filters {
+        config.remove_section_by_id(id);
+    }
+    config.commit().ok()?;
     Some((root, repo))
 }
 
-pub(crate) fn read(repo: &Repository, changes: bool, deadline: Duration) -> GitInfo {
+pub(crate) fn quick(repo: &Repository) -> GitInfo {
     GitInfo {
         head: head(repo),
         upstream: upstream(repo),
-        changes: if changes {
-            within(repo, deadline)
-        } else {
-            None
-        },
+        changes: None,
     }
 }
 
+pub(crate) fn read(
+    root: PathBuf,
+    changes: bool,
+    deadline: Duration,
+) -> (Read, Option<JoinHandle<()>>) {
+    let interrupt = Arc::new(AtomicBool::new(false));
+    let (sender, stages) = mpsc::channel();
+    let flag = interrupt.clone();
+    let spawned = thread::Builder::new()
+        .name("flair-git".into())
+        .spawn(move || {
+            let Some((_, repo)) = open(&root) else {
+                return;
+            };
+            let mut info = GitInfo {
+                head: head(&repo),
+                upstream: None,
+                changes: None,
+            };
+            if sender.send(info.clone()).is_err() {
+                return;
+            }
+            info.upstream = upstream(&repo);
+            if sender.send(info.clone()).is_err() || !changes {
+                return;
+            }
+            info.changes = self::changes(&repo, &flag);
+            let _ = sender.send(info);
+        });
+    let handle = match spawned {
+        Ok(handle) => handle,
+        Err(error) => {
+            log::warn!("could not start a git reader: {error}");
+            return (Read::Failed(None), None);
+        }
+    };
+    let read = collect(&stages, if changes { 3 } else { 2 }, deadline);
+    interrupt.store(true, Ordering::Release);
+    match read {
+        Read::Slow(_) => (read, Some(handle)),
+        Read::Done(_) | Read::Failed(_) => {
+            let _ = handle.join();
+            (read, None)
+        }
+    }
+}
+
+fn collect(stages: &Receiver<GitInfo>, count: usize, deadline: Duration) -> Read {
+    let end = Instant::now() + deadline;
+    let mut last = None;
+    for _ in 0..count {
+        match stages.recv_timeout(end.saturating_duration_since(Instant::now())) {
+            Ok(info) => last = Some(info),
+            Err(RecvTimeoutError::Timeout) => return Read::Slow(last),
+            Err(RecvTimeoutError::Disconnected) => return Read::Failed(last),
+        }
+    }
+    last.map_or(Read::Failed(None), Read::Done)
+}
+
 fn head(repo: &Repository) -> Head {
-    match repo.head_name() {
-        Ok(Some(name)) => Head::Branch(name.shorten().to_string()),
-        Ok(None) | Err(_) => Head::Detached(
+    let detached = || {
+        Head::Detached(
             repo.head_id()
                 .map(|id| id.to_hex_with_len(7).to_string())
                 .unwrap_or_default(),
-        ),
+        )
+    };
+    match repo.head_name() {
+        Ok(Some(name)) => label(&name.shorten().to_string()).map_or_else(detached, Head::Branch),
+        Ok(None) | Err(_) => detached(),
     }
 }
 
@@ -81,34 +158,11 @@ fn walk(repo: &Repository, tip: ObjectId, hidden: ObjectId) -> u32 {
         })
 }
 
-fn within(repo: &Repository, deadline: Duration) -> Option<Changes> {
-    let interrupt = Arc::new(AtomicBool::new(false));
-    let (done, result) = mpsc::channel();
-    thread::scope(|scope| {
-        let root = repo.workdir()?.to_path_buf();
-        let flag = interrupt.clone();
-        let spawned = thread::Builder::new()
-            .name("flair-git-status".into())
-            .spawn_scoped(scope, move || {
-                let found = gix::discover(&root)
-                    .ok()
-                    .and_then(|repo| changes(&repo, &flag));
-                let _ = done.send(found);
-            });
-        if spawned.is_err() {
-            return None;
-        }
-        let changes = result.recv_timeout(deadline).ok().flatten();
-        interrupt.store(true, Ordering::Release);
-        changes
-    })
-}
-
 fn changes(repo: &Repository, interrupt: &Arc<AtomicBool>) -> Option<Changes> {
     let status = repo
         .status(gix::progress::Discard)
         .ok()?
-        .untracked_files(UntrackedFiles::Files)
+        .untracked_files(UntrackedFiles::Collapsed)
         .index_worktree_rewrites(None)
         .should_interrupt_owned(interrupt.clone())
         .into_iter(None::<BString>)
@@ -151,7 +205,10 @@ fn changes(repo: &Repository, interrupt: &Arc<AtomicBool>) -> Option<Changes> {
 }
 
 fn lines(repo: &Repository, tree: Option<&Tree<'_>>, path: &BStr) -> (u32, u32) {
-    let (Some(before), Some(after)) = (committed(tree, path), on_disk(repo, path)) else {
+    let Some(after) = on_disk(repo, path) else {
+        return (0, 0);
+    };
+    let Some(before) = committed(repo, tree, path) else {
         return (0, 0);
     };
     if !text(&before) || !text(&after) {
@@ -162,7 +219,7 @@ fn lines(repo: &Repository, tree: Option<&Tree<'_>>, path: &BStr) -> (u32, u32) 
     (diff.count_additions(), diff.count_removals())
 }
 
-fn committed(tree: Option<&Tree<'_>>, path: &BStr) -> Option<Vec<u8>> {
+fn committed(repo: &Repository, tree: Option<&Tree<'_>>, path: &BStr) -> Option<Vec<u8>> {
     let Some(entry) = tree.and_then(|tree| {
         tree.lookup_entry_by_path(gix::path::from_bstr(path).ok()?)
             .ok()
@@ -170,7 +227,7 @@ fn committed(tree: Option<&Tree<'_>>, path: &BStr) -> Option<Vec<u8>> {
     }) else {
         return Some(Vec::new());
     };
-    if !entry.mode().is_blob() {
+    if !entry.mode().is_blob() || repo.find_header(entry.oid()).ok()?.size() > LARGE_FILE {
         return None;
     }
     entry.object().ok().map(|object| object.detach().data)

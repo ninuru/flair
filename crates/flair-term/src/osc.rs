@@ -1,5 +1,5 @@
 use crate::terminal::{MarkKind, TermEvent};
-use flair_core::isles::ShellFacts;
+use flair_core::isles::{ShellFacts, label, plain};
 use std::path::PathBuf;
 
 #[derive(Default)]
@@ -7,6 +7,7 @@ pub(crate) struct OscSniffer {
     state: u8,
     bytes: Vec<u8>,
     events: Vec<TermEvent>,
+    hostname: Option<String>,
 }
 impl OscSniffer {
     pub fn advance(&mut self, bytes: &[u8]) {
@@ -54,13 +55,13 @@ impl OscSniffer {
             let Some((host, path)) = uri.split_once('/') else {
                 return;
             };
-            let local = std::env::var("HOSTNAME")
-                .or_else(|_| std::fs::read_to_string("/etc/hostname"))
-                .unwrap_or_default();
-            if !host.is_empty() && host != "localhost" && host != local.trim() {
+            let Some(host) = percent_decode(host) else {
+                return;
+            };
+            if !host.is_empty() && host != "localhost" && host != hostname(&mut self.hostname) {
                 return;
             }
-            if let Some(path) = percent_decode(&format!("/{path}")) {
+            if let Some(path) = percent_decode(&format!("/{path}")).filter(|path| plain(path)) {
                 self.events.push(TermEvent::Cwd(PathBuf::from(path)));
             }
         } else if let Some(facts) = text.strip_prefix("6973;flair") {
@@ -86,6 +87,16 @@ impl OscSniffer {
     }
 }
 
+fn hostname(cache: &mut Option<String>) -> &str {
+    cache.get_or_insert_with(|| {
+        std::env::var("HOSTNAME")
+            .or_else(|_| std::fs::read_to_string("/etc/hostname"))
+            .unwrap_or_default()
+            .trim()
+            .to_owned()
+    })
+}
+
 fn shell_facts(text: &str) -> Option<ShellFacts> {
     let mut facts = ShellFacts {
         user: String::new(),
@@ -97,7 +108,7 @@ fn shell_facts(text: &str) -> Option<ShellFacts> {
     }
     for part in text.strip_prefix(';')?.split(';') {
         let (key, value) = part.split_once('=').unwrap_or((part, ""));
-        let value = percent_decode(value)?;
+        let value = label(&percent_decode(value)?)?;
         match key {
             "u" => facts.user = value,
             "h" => facts.host = value,

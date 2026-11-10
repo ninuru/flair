@@ -116,6 +116,10 @@ impl Pty {
     pub fn pid(&self) -> u32 {
         self.pid
     }
+    pub fn foreground(&self) -> Option<u32> {
+        let pgid = unsafe { libc::tcgetpgrp(self.file().ok()?.as_raw_fd()) };
+        u32::try_from(pgid).ok().filter(|pgid| *pgid > 0)
+    }
     pub fn cwd(&self) -> io::Result<PathBuf> {
         let pgid = unsafe { libc::tcgetpgrp(self.file()?.as_raw_fd()) };
         if pgid > 0 {

@@ -183,3 +183,24 @@ fn foreground_job_cwd_takes_precedence_over_shell_cwd() {
     );
     pty.kill();
 }
+
+#[test]
+fn the_foreground_process_group_leader_is_the_running_job() {
+    if !std::path::Path::new("/bin/sh").exists() {
+        eprintln!("skipping foreground PTY test: /bin/sh unavailable");
+        return;
+    }
+    let mut pty = Pty::spawn(&spec("printf ready; read x")).unwrap();
+    assert!(read_until(&mut pty.reader().unwrap(), "ready").contains("ready"));
+    assert_eq!(pty.foreground(), Some(pty.pid()));
+    pty.kill();
+    let mut pty = Pty::spawn(&spec("set -m; (cd /; printf child-ready; read x)")).unwrap();
+    assert!(read_until(&mut pty.reader().unwrap(), "child-ready").contains("child-ready"));
+    let job = pty.foreground().unwrap();
+    assert_ne!(job, pty.pid());
+    assert_eq!(
+        std::fs::read_link(format!("/proc/{job}/cwd")).unwrap(),
+        PathBuf::from("/")
+    );
+    pty.kill();
+}

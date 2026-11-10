@@ -126,3 +126,59 @@ fn oversized_shell_facts_are_dropped() {
     osc.advance(b"\x1b]6973;flair;u=ada;h=box\x07");
     assert_eq!(osc.take(), vec![facts("ada", "box", None)]);
 }
+
+#[test]
+fn shell_facts_with_control_or_invisible_format_characters_are_dropped() {
+    let mut osc = OscSniffer::default();
+    for sequence in [
+        "\x1b]6973;flair;u=a%1Bb;h=box\x07",
+        "\x1b]6973;flair;u=ada;h=b%0Aox\x07",
+        "\x1b]6973;flair;u=ada;h=box;v=%C2%85\x07",
+        "\x1b]6973;flair;u=%E2%80%AEada;h=box\x07",
+        "\x1b]6973;flair;u=ada;h=%E2%81%A6box\x07",
+        "\x1b]6973;flair;u=ada;h=box;v=e%E2%80%8Bnv\x07",
+        "\x1b]6973;flair;u=%EF%BB%BFada;h=box\x07",
+    ] {
+        osc.advance(sequence.as_bytes());
+        assert!(osc.take().is_empty(), "{sequence:?}");
+    }
+}
+
+#[test]
+fn shell_facts_are_capped_at_64_characters() {
+    let mut osc = OscSniffer::default();
+    let long = "%C3%B6".repeat(100);
+    osc.advance(format!("\x1b]6973;flair;u={long};h={long};v={long}\x07").as_bytes());
+    let capped = "ö".repeat(64);
+    assert_eq!(
+        osc.take(),
+        vec![facts(&capped, &capped, Some(capped.as_str()))]
+    );
+}
+
+#[test]
+fn a_cwd_with_control_or_invisible_format_characters_is_dropped() {
+    let mut osc = OscSniffer::default();
+    for sequence in [
+        "\x1b]7;file:///tmp/a%1Bb\x07",
+        "\x1b]7;file:///tmp/a%0Ab\x07",
+        "\x1b]7;file:///tmp/%E2%80%AEevil\x07",
+    ] {
+        osc.advance(sequence.as_bytes());
+        assert!(osc.take().is_empty(), "{sequence:?}");
+    }
+}
+
+#[test]
+fn the_local_hostname_is_read_once_and_may_be_percent_encoded() {
+    let mut osc = OscSniffer {
+        hostname: Some("my host".into()),
+        ..OscSniffer::default()
+    };
+    osc.advance(b"\x1b]7;file://my%20host/tmp/here\x07");
+    osc.advance(b"\x1b]7;file://other/tmp/there\x07");
+    assert_eq!(osc.take(), vec![TermEvent::Cwd(PathBuf::from("/tmp/here"))]);
+    let mut fresh = OscSniffer::default();
+    fresh.advance(b"\x1b]7;file://foreign.invalid/tmp\x07");
+    assert!(fresh.hostname.is_some());
+}

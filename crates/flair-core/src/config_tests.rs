@@ -179,6 +179,7 @@ fn prompt_rejects_unknown_keys_and_styles() {
 fn prompt_style_names() {
     assert_eq!(PromptStyle::Chips.name(), "chips");
     assert_eq!(PromptStyle::Ps1.name(), "ps1");
+    assert_eq!(PromptStyle::NAMES, ["chips", "ps1"]);
 }
 
 #[test]
