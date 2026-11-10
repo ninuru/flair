@@ -200,6 +200,60 @@ fn fail_shows_the_message_on_that_entry_only() {
     assert_eq!(error(&page), None);
 }
 
+#[test]
+fn a_cycle_click_steps_the_prompt_style_and_another_control_saves_it_first() {
+    let mut page = page("");
+    section(&mut page, 4);
+    assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Revert);
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+    page.click(SettingsHit::Cycle(0));
+    assert_eq!(
+        page.click(SettingsHit::Toggle(12)),
+        save("prompt.style", Some(Value::Text("ps1".to_owned())))
+    );
+    assert_eq!(page.sheet().focus, Some(12));
+    let text = "[prompt]\nstyle = \"ps1\"\n";
+    let config = Config::from_toml(text).unwrap();
+    assert_eq!(
+        page.refresh(&config, config.theme(), text.to_owned()),
+        save("prompt.time", Some(Value::Bool(true)))
+    );
+    page.focus(0);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(source(&page), "flair.toml");
+}
+
+#[test]
+fn refresh_keeps_a_pending_prompt_style_without_a_preview() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.style");
+    press(&mut page, NamedKey::Right);
+    let config = Config::default();
+    assert_eq!(
+        page.refresh(&config, config.theme(), String::new()),
+        SettingsOutcome::Pending
+    );
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(page.sheet().keys, pending_keys());
+}
+
+#[test]
+fn a_toggle_click_on_a_prompt_chip_saves_at_once() {
+    let mut page = page("");
+    section(&mut page, 4);
+    assert_eq!(
+        page.click(SettingsHit::Toggle(4)),
+        save("prompt.cwd", Some(Value::Bool(false)))
+    );
+    assert_eq!(page.sheet().focus, Some(4));
+    assert_eq!(
+        page.click(SettingsHit::Increase(13)),
+        preview_of("", "prompt.duration_ms", Some(&Value::Integer(2500)))
+    );
+}
+
 fn rgb(color: Rgb) -> [u8; 3] {
     [color.r, color.g, color.b]
 }

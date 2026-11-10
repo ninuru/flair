@@ -791,6 +791,150 @@ fn insert_goes_to_the_query_or_the_editor() {
     );
 }
 
+#[test]
+fn the_prompt_section_lists_the_style_icons_chips_then_the_duration() {
+    let mut page = page("");
+    section(&mut page, 4);
+    let sheet = page.sheet();
+    assert_eq!(sheet.crumb, "Prompt");
+    assert_eq!(sheet.groups.len(), 1);
+    assert_eq!(sheet.groups[0].heading, None);
+    assert_eq!(
+        titles(&sheet),
+        [
+            "Prompt",
+            "Icons",
+            "User",
+            "Host",
+            "Directory",
+            "Git branch",
+            "Ahead and behind",
+            "Git changes",
+            "Python environment",
+            "Docker context",
+            "Kubernetes context",
+            "Exit status",
+            "Time",
+            "Duration above (ms)",
+        ]
+    );
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+    assert_eq!(source(&page), "default");
+    assert_eq!(page.sheet().keys, step_keys());
+    page.focus(1);
+    assert_eq!(control(&page), Control::Toggle(true));
+    page.focus(10);
+    assert_eq!(control(&page), Control::Toggle(false));
+    page.focus(13);
+    assert_eq!(control(&page), Control::Number("2000".to_owned()));
+}
+
+#[test]
+fn the_prompt_style_steps_both_ways_as_pending_without_a_preview() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.style");
+    assert_eq!(press(&mut page, NamedKey::Right), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(page.sheet().keys, pending_keys());
+    assert_eq!(press(&mut page, NamedKey::Right), SettingsOutcome::Revert);
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+    assert_eq!(page.sheet().keys, step_keys());
+    assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(
+        press(&mut page, NamedKey::Enter),
+        save("prompt.style", Some(Value::Text("ps1".to_owned())))
+    );
+}
+
+#[test]
+fn the_prompt_style_steps_back_from_ps1_and_saves_on_leave() {
+    let mut page = page("[prompt]\nstyle = \"ps1\"\n");
+    focus_key(&mut page, "prompt.style");
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(source(&page), "flair.toml");
+    assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+    assert_eq!(
+        press(&mut page, NamedKey::Down),
+        save("prompt.style", Some(Value::Text("chips".to_owned())))
+    );
+    assert_eq!(page.sheet().focus, Some(1));
+}
+
+#[test]
+fn escape_reverts_a_pending_prompt_style() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.style");
+    press(&mut page, NamedKey::Enter);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(press(&mut page, NamedKey::Escape), SettingsOutcome::Revert);
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+}
+
+#[test]
+fn space_flips_a_prompt_chip_and_saves_at_once() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.kube");
+    assert_eq!(page.sheet().keys, toggle_keys());
+    assert_eq!(
+        page.key(&typed(' ')),
+        save("prompt.kube", Some(Value::Bool(true)))
+    );
+    focus_key(&mut page, "prompt.icons");
+    assert_eq!(
+        press(&mut page, NamedKey::Enter),
+        save("prompt.icons", Some(Value::Bool(false)))
+    );
+    assert_eq!(press(&mut page, NamedKey::Right), SettingsOutcome::Pending);
+}
+
+#[test]
+fn the_prompt_duration_steps_and_edits_like_other_integers() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.duration_ms");
+    let more = Value::Integer(2500);
+    assert_eq!(
+        press(&mut page, NamedKey::Right),
+        preview_of("", "prompt.duration_ms", Some(&more))
+    );
+    assert_eq!(control(&page), Control::Number("2500".to_owned()));
+    assert_eq!(
+        press(&mut page, NamedKey::Enter),
+        save("prompt.duration_ms", Some(more))
+    );
+    press(&mut page, NamedKey::Enter);
+    page.key(&ctrl('u'));
+    type_text(&mut page, "700000");
+    assert_eq!(press(&mut page, NamedKey::Enter), SettingsOutcome::Pending);
+    assert_eq!(
+        error(&page).as_deref(),
+        Some("enter a whole number from 0 to 600000")
+    );
+    page.key(&ctrl('u'));
+    type_text(&mut page, "750");
+    assert_eq!(
+        press(&mut page, NamedKey::Enter),
+        save("prompt.duration_ms", Some(Value::Integer(750)))
+    );
+}
+
+#[test]
+fn search_finds_prompt_entries_under_a_prompt_heading() {
+    let mut page = page("");
+    type_text(&mut page, "icons");
+    let sheet = page.sheet();
+    let headings: Vec<_> = sheet.groups.iter().map(|group| group.heading).collect();
+    assert_eq!(headings, [Some("Prompt")]);
+    assert_eq!(titles(&sheet), ["Icons"]);
+    page.key(&ctrl('u'));
+    type_text(&mut page, "kube");
+    let sheet = page.sheet();
+    let headings: Vec<_> = sheet.groups.iter().map(|group| group.heading).collect();
+    assert_eq!(headings, [Some("Prompt")]);
+    assert_eq!(titles(&sheet), ["Kubernetes context"]);
+}
+
 #[path = "settings_page_events_tests.rs"]
 mod events;
 
