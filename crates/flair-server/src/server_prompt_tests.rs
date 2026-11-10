@@ -301,6 +301,34 @@ fn shell_facts_are_sent_only_when_their_chips_are_on() {
 }
 
 #[test]
+fn the_shell_facts_osc_reaches_the_band() {
+    let (mut server, _) = chips(|prompt| {
+        prompt.user = true;
+        prompt.host = true;
+        prompt.venv = true;
+    });
+    let out = output(
+        &mut server,
+        1,
+        b"\x1b]6973;flair;u=ada;h=box%3B1;v=my%3Denv\x07",
+    );
+    let sent = infos(&out);
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].1, PaneId(1));
+    assert_eq!(
+        sent[0].2.shell,
+        Some(ShellFacts {
+            user: "ada".into(),
+            host: "box;1".into(),
+            venv: Some("my=env".into()),
+        })
+    );
+    let (mut server, _) = chips(|_| {});
+    let out = output(&mut server, 1, b"\x1b]6973;flair;u=ada;h=box;v=\x07");
+    assert!(infos(&out).is_empty());
+}
+
+#[test]
 fn contexts_are_read_once_at_a_time_and_reach_the_band() {
     let (mut server, initial) = chips(|prompt| prompt.docker = true);
     assert_eq!(context_reads(&initial), 0);
