@@ -500,7 +500,8 @@ fn run(
                     let shells = panes
                         .iter()
                         .filter_map(|pane| workers.get(pane))
-                        .map(|worker| worker.pty.pid())
+                        .flat_map(|worker| [Some(worker.pty.pid()), worker.pty.foreground()])
+                        .flatten()
                         .collect();
                     unanswered.extend(request(
                         &jobs,

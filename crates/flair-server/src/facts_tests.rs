@@ -239,3 +239,59 @@ fn the_worker_answers_every_directory_and_stops_with_its_queue() {
     drop(shells);
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn a_nested_shell_in_the_foreground_vouches_for_its_directory() {
+    if !git_available() {
+        eprintln!("skipping git worker test: git is not on PATH");
+        return;
+    }
+    let dir = temp("nested");
+    let repo = dir.join("repo");
+    let outer = dir.join("outer");
+    let planted = dir.join("planted");
+    fs::create_dir_all(&outer).unwrap();
+    commit(&repo, "a.txt", "one\n");
+    commit(&planted, "b.txt", "two\n");
+    let pane = Shell::in_dir(&outer);
+    let nested = Shell(
+        Command::new("sh")
+            .arg("-c")
+            .arg("cd \"$1\" && exec sleep 30")
+            .arg("sh")
+            .arg(&repo)
+            .current_dir(&outer)
+            .spawn()
+            .unwrap(),
+    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !inside(&repo, &BTreeSet::from([nested.pid()])) {
+        assert!(
+            Instant::now() < deadline,
+            "the nested shell never reached the repo"
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    assert!(!inside(&repo, &BTreeSet::from([pane.pid()])));
+    let (jobs, queue) = mpsc::channel();
+    for cwd in [repo.clone(), planted.clone()] {
+        jobs.send(Job::Git {
+            cwd,
+            changes: false,
+            shells: vec![pane.pid(), nested.pid()],
+        })
+        .unwrap();
+    }
+    drop(jobs);
+    let mut events = Vec::new();
+    let nowhere = PathBuf::from("/nonexistent");
+    work(queue, None, nowhere.clone(), nowhere, |event| {
+        events.push(event);
+        true
+    });
+    let mut expected = vec![(repo, Some(Head::Branch("main".into()))), (planted, None)];
+    expected.sort_by(|a, b| a.0.cmp(&b.0));
+    assert_eq!(reads(events), expected);
+    drop((pane, nested));
+    fs::remove_dir_all(dir).unwrap();
+}
