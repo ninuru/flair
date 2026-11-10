@@ -112,10 +112,12 @@ pub enum PromptStyle {
 }
 
 impl PromptStyle {
+    pub const NAMES: [&'static str; 2] = ["chips", "ps1"];
+
     pub fn name(self) -> &'static str {
         match self {
-            PromptStyle::Chips => "chips",
-            PromptStyle::Ps1 => "ps1",
+            PromptStyle::Chips => Self::NAMES[0],
+            PromptStyle::Ps1 => Self::NAMES[1],
         }
     }
 }

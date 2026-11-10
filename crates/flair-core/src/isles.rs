@@ -84,6 +84,22 @@ pub struct ShellFacts {
     pub venv: Option<String>,
 }
 
+pub const LABEL_MAX: usize = 64;
+
+pub fn plain(text: &str) -> bool {
+    !text.chars().any(|c| {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+            )
+    })
+}
+
+pub fn label(text: &str) -> Option<String> {
+    plain(text).then(|| text.chars().take(LABEL_MAX).collect())
+}
+
 #[cfg(test)]
 #[path = "isles_tests.rs"]
 mod tests;

@@ -1,30 +1,88 @@
 use super::*;
 use crate::git::tests::{commit, git_available, temp};
 use flair_core::isles::Head;
-use std::{fs, sync::mpsc};
+use std::{
+    fs,
+    os::unix::fs::symlink,
+    process::{Child, Command},
+    sync::mpsc,
+};
 
-fn job(cwd: &str, changes: bool) -> Job {
+fn job(cwd: &str, changes: bool, shells: &[u32]) -> Job {
     Job::Git {
         cwd: PathBuf::from(cwd),
         changes,
+        shells: shells.to_vec(),
+    }
+}
+
+struct Shell(Child);
+
+impl Shell {
+    fn in_dir(dir: &Path) -> Shell {
+        Shell(
+            Command::new("sleep")
+                .arg("30")
+                .current_dir(dir)
+                .spawn()
+                .unwrap(),
+        )
+    }
+
+    fn pid(&self) -> u32 {
+        self.0.id()
+    }
+}
+
+impl Drop for Shell {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
     }
 }
 
 #[test]
-fn a_batch_keeps_each_directory_once_and_merges_the_flags() {
+fn a_batch_keeps_each_directory_once_and_merges_the_flags_and_shells() {
     let (cwds, contexts) = batch(vec![
-        job("/a", false),
-        job("/b", false),
-        job("/a", true),
+        job("/a", false, &[1]),
+        job("/b", false, &[2]),
+        job("/a", true, &[3]),
         Job::Contexts,
-        job("/b", false),
+        job("/b", false, &[2]),
     ]);
-    let expected = BTreeMap::from([(PathBuf::from("/a"), true), (PathBuf::from("/b"), false)]);
+    let expected = BTreeMap::from([
+        (PathBuf::from("/a"), (true, BTreeSet::from([1, 3]))),
+        (PathBuf::from("/b"), (false, BTreeSet::from([2]))),
+    ]);
     assert_eq!(cwds, expected);
     assert!(contexts);
-    let (cwds, contexts) = batch(vec![job("/c", true)]);
+    let (cwds, contexts) = batch(vec![job("/c", true, &[])]);
     assert_eq!(cwds.len(), 1);
     assert!(!contexts);
+}
+
+#[test]
+fn a_directory_counts_only_when_a_shell_really_is_there() {
+    let dir = temp("inside");
+    let here = dir.join("here");
+    let elsewhere = dir.join("elsewhere");
+    fs::create_dir_all(&here).unwrap();
+    fs::create_dir_all(&elsewhere).unwrap();
+    symlink(&here, dir.join("link")).unwrap();
+    let shell = Shell::in_dir(&here);
+    let other = Shell::in_dir(&elsewhere);
+    assert!(inside(&here, &BTreeSet::from([shell.pid()])));
+    assert!(inside(&dir.join("link"), &BTreeSet::from([shell.pid()])));
+    assert!(inside(&here, &BTreeSet::from([other.pid(), shell.pid()])));
+    assert!(!inside(&elsewhere, &BTreeSet::from([shell.pid()])));
+    assert!(!inside(&here, &BTreeSet::new()));
+    assert!(!inside(
+        &dir.join("missing"),
+        &BTreeSet::from([shell.pid()])
+    ));
+    assert!(!inside(&here, &BTreeSet::from([u32::MAX])));
+    drop((shell, other));
+    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
@@ -57,43 +115,55 @@ fn the_kube_context_is_the_top_level_current_context() {
 }
 
 #[test]
+fn contexts_with_invisible_characters_are_dropped_and_long_ones_capped() {
+    let bidi = "{\"currentContext\": \"pr\u{202E}od\"}";
+    assert_eq!(docker_context(bidi), None);
+    assert_eq!(kube_context("current-context: a\u{1b}b\n"), None);
+    assert_eq!(kube_context("current-context: a\u{200B}b\n"), None);
+    let long = "k".repeat(100);
+    assert_eq!(
+        kube_context(&format!("current-context: {long}\n")),
+        Some("k".repeat(64))
+    );
+    let docker = format!("{{\"currentContext\": \"{long}\"}}");
+    assert_eq!(docker_context(&docker), Some("k".repeat(64)));
+}
+
+#[test]
 fn contexts_come_from_the_given_files() {
     let dir = temp("contexts");
     let docker = dir.join("config.json");
     let kube = dir.join("kube");
     fs::write(&docker, r#"{"currentContext": "colima"}"#).unwrap();
     fs::write(&kube, "current-context: prod\n").unwrap();
-    let contexts = read_contexts(&docker, &kube);
+    let contexts = read_contexts(None, &docker, &kube);
     assert_eq!(contexts.docker, Some("colima".into()));
     assert_eq!(contexts.kube, Some("prod".into()));
-    let missing = read_contexts(&dir.join("none.json"), &dir.join("none"));
+    let missing = read_contexts(None, &dir.join("none.json"), &dir.join("none"));
     assert_eq!(missing, Contexts::default());
     fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
-fn the_worker_answers_every_directory_and_stops_with_its_queue() {
-    if !git_available() {
-        eprintln!("skipping git worker test: git is not on PATH");
-        return;
-    }
-    let dir = temp("worker");
-    let repo = dir.join("repo");
-    let plain = dir.join("plain");
-    fs::create_dir_all(repo.join("sub")).unwrap();
-    fs::create_dir_all(&plain).unwrap();
-    commit(&repo, "a.txt", "one\n");
-    let (jobs, queue) = mpsc::channel();
-    for cwd in [repo.join("sub"), repo.clone(), plain.clone()] {
-        jobs.send(Job::Git { cwd, changes: true }).unwrap();
-    }
-    drop(jobs);
-    let mut events = Vec::new();
-    let nowhere = PathBuf::from("/nonexistent");
-    work(queue, nowhere.clone(), nowhere, |event| {
-        events.push(event);
-        true
-    });
+fn the_docker_context_variable_wins_over_the_config_file() {
+    let dir = temp("docker-env");
+    let docker = dir.join("config.json");
+    let kube = dir.join("kube");
+    fs::write(&docker, r#"{"currentContext": "colima"}"#).unwrap();
+    assert_eq!(
+        read_contexts(Some("remote"), &docker, &kube).docker,
+        Some("remote".into())
+    );
+    assert_eq!(read_contexts(Some("default"), &docker, &kube).docker, None);
+    assert_eq!(
+        read_contexts(Some(""), &docker, &kube).docker,
+        Some("colima".into())
+    );
+    assert_eq!(read_contexts(Some("a\u{1b}b"), &docker, &kube).docker, None);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+fn reads(events: Vec<Event>) -> Vec<(PathBuf, Option<Head>)> {
     let mut reads: Vec<_> = events
         .into_iter()
         .map(|event| match event {
@@ -110,13 +180,62 @@ fn the_worker_answers_every_directory_and_stops_with_its_queue() {
         })
         .collect();
     reads.sort_by(|a, b| a.0.cmp(&b.0));
+    reads
+}
+
+#[test]
+fn the_worker_answers_every_directory_and_stops_with_its_queue() {
+    if !git_available() {
+        eprintln!("skipping git worker test: git is not on PATH");
+        return;
+    }
+    let dir = temp("worker");
+    let repo = dir.join("repo");
+    let plain = dir.join("plain");
+    let planted = dir.join("planted");
+    fs::create_dir_all(repo.join("sub")).unwrap();
+    fs::create_dir_all(&plain).unwrap();
+    commit(&repo, "a.txt", "one\n");
+    commit(&planted, "b.txt", "two\n");
+    let shells = [
+        Shell::in_dir(&repo.join("sub")),
+        Shell::in_dir(&repo),
+        Shell::in_dir(&plain),
+    ];
+    let (jobs, queue) = mpsc::channel();
+    for (cwd, shell) in [repo.join("sub"), repo.clone(), plain.clone()]
+        .into_iter()
+        .zip(&shells)
+    {
+        jobs.send(Job::Git {
+            cwd,
+            changes: true,
+            shells: vec![shell.pid()],
+        })
+        .unwrap();
+    }
+    jobs.send(Job::Git {
+        cwd: planted.clone(),
+        changes: true,
+        shells: vec![shells[2].pid()],
+    })
+    .unwrap();
+    drop(jobs);
+    let mut events = Vec::new();
+    let nowhere = PathBuf::from("/nonexistent");
+    work(queue, None, nowhere.clone(), nowhere, |event| {
+        events.push(event);
+        true
+    });
     let main = Some(Head::Branch("main".into()));
     let mut expected = vec![
         (repo.join("sub"), main.clone()),
         (repo, main),
         (plain, None),
+        (planted, None),
     ];
     expected.sort_by(|a, b| a.0.cmp(&b.0));
-    assert_eq!(reads, expected);
+    assert_eq!(reads(events), expected);
+    drop(shells);
     fs::remove_dir_all(dir).unwrap();
 }

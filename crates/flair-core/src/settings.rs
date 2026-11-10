@@ -1,7 +1,7 @@
 use toml_edit::Array;
 
 use crate::{
-    config::Config,
+    config::{Config, PromptStyle},
     config_edit::{contains, document},
     theme::{Rgb, Rgba, Theme},
 };
@@ -360,7 +360,7 @@ pub const SETTINGS: &[Setting] = &[
         key: "prompt.style",
         title: "Style",
         section: Section::Prompt,
-        kind: Kind::Choice(Choices::Of(&["chips", "ps1"])),
+        kind: Kind::Choice(Choices::Of(&PromptStyle::NAMES)),
         description: "Chips draw a band above each pane; new shells get a minimal prompt.",
         read: |config, _| Value::Text(config.prompt.style.name().to_owned()),
     },

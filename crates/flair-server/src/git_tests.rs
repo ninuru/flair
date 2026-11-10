@@ -52,9 +52,20 @@ pub(crate) fn commit(dir: &Path, file: &str, text: &str) {
     run(dir, &["commit", "-q", "-m", file]);
 }
 
+fn outcome(dir: &Path, changes: bool, deadline: Duration) -> Read {
+    let (root, _) = open(dir).unwrap();
+    let (read, straggler) = read(root, changes, deadline);
+    if let Some(straggler) = straggler {
+        straggler.join().unwrap();
+    }
+    read
+}
+
 fn info(dir: &Path, changes: bool, deadline: Duration) -> GitInfo {
-    let (_, repo) = open(dir).unwrap();
-    read(&repo, changes, deadline)
+    match outcome(dir, changes, deadline) {
+        Read::Done(info) => info,
+        other @ (Read::Slow(_) | Read::Failed(_)) => panic!("unfinished read: {other:?}"),
+    }
 }
 
 fn none() -> Changes {
@@ -187,8 +198,168 @@ fn a_status_past_its_deadline_leaves_changes_unknown() {
     }
     let dir = temp("deadline");
     commit(&dir, "a.txt", "one\n");
-    let found = info(&dir, true, Duration::ZERO);
+    match outcome(&dir, true, Duration::ZERO) {
+        Read::Slow(found) => assert!(found.is_none_or(|found| found.changes.is_none())),
+        other @ (Read::Done(_) | Read::Failed(_)) => panic!("not slow: {other:?}"),
+    }
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_broken_status_leaves_changes_unknown_without_being_slow() {
+    if !git_available() {
+        eprintln!("skipping git test: git is not on PATH");
+        return;
+    }
+    let dir = temp("broken");
+    commit(&dir, "a.txt", "one\n");
+    fs::write(dir.join(".git/index"), b"DIRC garbage").unwrap();
+    let found = info(&dir, true, Duration::from_secs(2));
     assert_eq!(found.head, Head::Branch("main".into()));
     assert_eq!(found.changes, None);
+    fs::remove_dir_all(dir).unwrap();
+}
+
+fn stage(head: &str) -> GitInfo {
+    GitInfo {
+        head: Head::Branch(head.into()),
+        upstream: None,
+        changes: None,
+    }
+}
+
+#[test]
+fn a_reader_that_panics_fails_with_what_it_had() {
+    let (sender, stages) = mpsc::channel();
+    let reader = thread::spawn(move || {
+        sender.send(stage("main")).unwrap();
+        panic!("corrupt repository");
+    });
+    assert!(reader.join().is_err());
+    assert_eq!(
+        collect(&stages, 3, Duration::from_secs(2)),
+        Read::Failed(Some(stage("main")))
+    );
+    let (sender, stages) = mpsc::channel::<GitInfo>();
+    drop(sender);
+    assert_eq!(
+        collect(&stages, 2, Duration::from_secs(2)),
+        Read::Failed(None)
+    );
+}
+
+#[test]
+fn a_reader_past_the_deadline_is_slow_and_a_complete_one_is_done() {
+    let (sender, stages) = mpsc::channel();
+    sender.send(stage("a")).unwrap();
+    assert_eq!(
+        collect(&stages, 2, Duration::from_millis(10)),
+        Read::Slow(Some(stage("a")))
+    );
+    sender.send(stage("b")).unwrap();
+    sender.send(stage("c")).unwrap();
+    assert_eq!(
+        collect(&stages, 2, Duration::from_secs(2)),
+        Read::Done(stage("c"))
+    );
+}
+
+#[test]
+fn an_untracked_directory_counts_as_one_change() {
+    if !git_available() {
+        eprintln!("skipping git test: git is not on PATH");
+        return;
+    }
+    let dir = temp("collapsed");
+    commit(&dir, "a.txt", "one\n");
+    fs::create_dir_all(dir.join("build/deep")).unwrap();
+    for file in ["build/x", "build/y", "build/deep/z"] {
+        fs::write(dir.join(file), "x\n").unwrap();
+    }
+    assert_eq!(
+        info(&dir, true, Duration::from_secs(2)).changes,
+        Some(Changes {
+            files: 1,
+            added: 0,
+            removed: 0
+        })
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn a_large_committed_file_counts_without_lines() {
+    if !git_available() {
+        eprintln!("skipping git test: git is not on PATH");
+        return;
+    }
+    let dir = temp("large");
+    commit(&dir, "big.txt", &"line\n".repeat(300_000));
+    fs::write(dir.join("big.txt"), "small\n").unwrap();
+    assert_eq!(
+        info(&dir, true, Duration::from_secs(2)).changes,
+        Some(Changes {
+            files: 1,
+            added: 0,
+            removed: 0
+        })
+    );
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn repository_filter_drivers_never_run() {
+    if !git_available() {
+        eprintln!("skipping git test: git is not on PATH");
+        return;
+    }
+    let dir = temp("filter");
+    let marker = dir.join("ran");
+    commit(&dir, "a.txt", "one\n");
+    commit(&dir, ".gitattributes", "*.txt filter=evil\n");
+    run(
+        &dir,
+        &[
+            "config",
+            "filter.evil.clean",
+            &format!("touch {}; cat", marker.display()),
+        ],
+    );
+    run(
+        &dir,
+        &[
+            "config",
+            "filter.evil.process",
+            &format!("touch {}", marker.display()),
+        ],
+    );
+    fs::write(dir.join("a.txt"), "two\n").unwrap();
+    let found = info(&dir, true, Duration::from_secs(2));
+    assert_eq!(found.head, Head::Branch("main".into()));
+    assert!(found.changes.is_some());
+    assert!(!marker.exists(), "a filter driver ran");
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn branch_names_are_sanitised_for_the_chrome() {
+    if !git_available() {
+        eprintln!("skipping git test: git is not on PATH");
+        return;
+    }
+    let dir = temp("names");
+    commit(&dir, "a.txt", "one\n");
+    let long = "b".repeat(80);
+    run(&dir, &["checkout", "-q", "-b", &long]);
+    assert_eq!(
+        info(&dir, false, Duration::from_secs(2)).head,
+        Head::Branch("b".repeat(64))
+    );
+    run(&dir, &["checkout", "-q", "-b", "evil\u{202E}txt"]);
+    let short = run(&dir, &["rev-parse", "--short=7", "HEAD"]);
+    assert_eq!(
+        info(&dir, false, Duration::from_secs(2)).head,
+        Head::Detached(short)
+    );
     fs::remove_dir_all(dir).unwrap();
 }

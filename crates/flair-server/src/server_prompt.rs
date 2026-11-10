@@ -94,28 +94,40 @@ impl Server {
         }
     }
 
+    fn read_git(&self, cwd: PathBuf) -> Effect {
+        let panes = self
+            .panes
+            .keys()
+            .copied()
+            .filter(|pane| self.pane_cwd(*pane).as_ref() == Some(&cwd))
+            .collect();
+        Effect::ReadGit {
+            cwd,
+            changes: self.config.prompt.git_changes,
+            panes,
+        }
+    }
+
     pub(super) fn want_git(&mut self, cwd: PathBuf, out: &mut Vec<Effect>) {
         if !self.git_on() {
             return;
         }
-        let changes = self.config.prompt.git_changes;
         let entry = self.git.entry(cwd.clone()).or_insert(GitEntry {
             info: None,
             pending: Pending::Idle,
         });
         if entry.pending.request() {
-            out.push(Effect::ReadGit { cwd, changes });
+            out.push(self.read_git(cwd));
         }
     }
 
     pub(super) fn git_read(&mut self, cwd: PathBuf, info: Option<GitInfo>, out: &mut Vec<Effect>) {
-        let changes = self.config.prompt.git_changes;
         let Some(entry) = self.git.get_mut(&cwd) else {
             return;
         };
         entry.info = info;
         if entry.pending.finish() {
-            out.push(Effect::ReadGit { cwd, changes });
+            out.push(self.read_git(cwd));
         }
     }
 
@@ -148,7 +160,10 @@ impl Server {
                 head: info.head,
             });
         PromptInfo {
-            cwd: prompt.enabled(Chip::Cwd).then_some(cwd),
+            cwd: prompt
+                .enabled(Chip::Cwd)
+                .then_some(cwd)
+                .filter(|cwd| cwd.to_str().is_some()),
             git,
             last: state.last.filter(|_| prompt.enabled(Chip::Exit)),
             shell: state.shell.clone().filter(|_| {
@@ -188,6 +203,9 @@ impl Server {
     }
 
     pub(super) fn flush_prompts(&mut self, out: &mut Vec<Effect>) {
+        if !std::mem::take(&mut self.prompts_dirty) {
+            return;
+        }
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
         for id in ids {
             let panes = self.banded_panes(self.clients[&id].view.window);
@@ -199,8 +217,9 @@ impl Server {
                     self.want_git(cwd.clone(), out);
                 }
                 let info = self.prompt_info(*pane, cwd);
-                let client = self.clients.get_mut(&id).unwrap();
-                if client.prompts.get(pane) != Some(&info) {
+                if let Some(client) = self.clients.get_mut(&id)
+                    && client.prompts.get(pane) != Some(&info)
+                {
                     client.prompts.insert(*pane, info.clone());
                     out.push(Effect::Send(
                         id,
@@ -208,11 +227,9 @@ impl Server {
                     ));
                 }
             }
-            self.clients
-                .get_mut(&id)
-                .unwrap()
-                .prompts
-                .retain(|pane, _| panes.contains(pane));
+            if let Some(client) = self.clients.get_mut(&id) {
+                client.prompts.retain(|pane, _| panes.contains(pane));
+            }
         }
     }
 

@@ -19,7 +19,11 @@ pub enum Effect {
     Send(ClientId, ServerMsg),
     SetTimer(Timer, Millis),
     ReadConfig(PathBuf),
-    ReadGit { cwd: PathBuf, changes: bool },
+    ReadGit {
+        cwd: PathBuf,
+        changes: bool,
+        panes: Vec<PaneId>,
+    },
     ReadContexts,
     Shutdown,
 }
