@@ -66,6 +66,7 @@ pub struct Sheet {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct OverlayHits {
+    pub prompt_scroll_limit: Option<usize>,
     pub panel: PxRect,
     pub rows: Vec<(usize, PxRect)>,
     pub controls: Vec<(SettingsHit, PxRect)>,

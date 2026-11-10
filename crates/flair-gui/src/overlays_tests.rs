@@ -171,6 +171,7 @@ fn hits(rows: usize) -> OverlayHits {
         h,
     };
     OverlayHits {
+        prompt_scroll_limit: None,
         panel: rect(100.0, 400.0),
         rows: (0..rows)
             .map(|index| (index, rect(150.0 + 40.0 * index as f32, 32.0)))

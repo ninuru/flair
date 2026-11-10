@@ -282,6 +282,11 @@ impl Overlays {
     }
 
     pub fn place(&mut self, hits: Option<OverlayHits>) {
+        if let Some(page) = &mut self.settings
+            && let Some(limit) = hits.as_ref().and_then(|hits| hits.prompt_scroll_limit)
+        {
+            page.set_prompt_scroll_limit(limit);
+        }
         self.hits = hits;
     }
 

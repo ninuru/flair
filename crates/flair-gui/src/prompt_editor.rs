@@ -1,18 +1,12 @@
-use crate::{
-    CellMetrics,
-    chrome_bar::{opaque, rounded, ui_text},
-    overlay_layout::{OverlayInput, OverlayScene},
-    renderer::{Border, PxRect, TextFace, TextRun},
-    settings_layout::{self, SettingsHit, SettingsSheet},
-};
+use std::cmp::Ordering;
+
 use flair_core::{
     config::{
         AnsiColour, PromptAppearance, PromptConfig, PromptDateFormat, PromptOrder, PromptPath,
         PromptSeparator, PromptStyle, PromptTimeFormat, SegmentConfig,
     },
-    isles::{AheadBehind, Changes, Chip, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
+    isles::Chip,
     settings::Value,
-    time::Millis,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,6 +36,7 @@ pub(crate) struct PromptEditor {
     original: PromptConfig,
     selected: Chip,
     scroll: usize,
+    scroll_limit: usize,
 }
 
 impl PromptEditor {
@@ -51,11 +46,18 @@ impl PromptEditor {
             original: config.clone(),
             selected: Chip::Cwd,
             scroll: 0,
+            scroll_limit: 0,
         }
     }
 
     pub(crate) fn wheel(&mut self, rows: i32) {
-        self.scroll = (self.scroll as i32 + rows).clamp(0, 7) as usize;
+        self.scroll =
+            (self.scroll as i64 + i64::from(rows)).clamp(0, self.scroll_limit as i64) as usize;
+    }
+
+    pub(crate) fn set_scroll_limit(&mut self, limit: usize) {
+        self.scroll_limit = limit;
+        self.scroll = self.scroll.min(limit);
     }
 
     pub(crate) fn selected(&self) -> Chip {
@@ -64,6 +66,41 @@ impl PromptEditor {
 
     pub(crate) fn dirty(&self) -> bool {
         self.draft != self.original
+    }
+
+    pub(crate) fn available(&self, action: PromptAction) -> bool {
+        match action {
+            PromptAction::Save | PromptAction::Cancel => self.dirty(),
+            PromptAction::Reset => self.draft != PromptConfig::default(),
+            PromptAction::Move(delta) => {
+                let order = self.ordered();
+                order
+                    .iter()
+                    .position(|chip| *chip == self.selected)
+                    .is_some_and(|index| {
+                        let target = index as i32 + i32::from(delta);
+                        delta != 0 && target >= 0 && target < order.len() as i32
+                    })
+            }
+            PromptAction::Duration(delta) => match delta.cmp(&0) {
+                Ordering::Less => self.draft.duration_ms > 0,
+                Ordering::Greater => self.draft.duration_ms < 600_000,
+                Ordering::Equal => false,
+            },
+            PromptAction::Select(_)
+            | PromptAction::Add(_)
+            | PromptAction::Toggle
+            | PromptAction::Icon
+            | PromptAction::Colour
+            | PromptAction::Appearance
+            | PromptAction::Path
+            | PromptAction::Time
+            | PromptAction::Date
+            | PromptAction::Separator
+            | PromptAction::GlobalAppearance
+            | PromptAction::GlobalIcons
+            | PromptAction::Style => true,
+        }
     }
 
     pub(crate) fn sync(&mut self, config: &PromptConfig) {
@@ -260,254 +297,6 @@ impl PromptEditor {
         }
         changes
     }
-
-    pub(crate) fn layout(
-        &self,
-        sheet: &SettingsSheet,
-        input: &OverlayInput,
-        metrics: CellMetrics,
-        measure: &mut impl FnMut(&str, bool) -> f32,
-    ) -> OverlayScene {
-        let mut sheet = sheet.clone();
-        sheet.groups.clear();
-        sheet.focus = None;
-        sheet.keys = vec![
-            ("Space", "toggle".into()),
-            ("Shift ←/→", "reorder".into()),
-            ("Enter", "save".into()),
-            ("Esc", "cancel".into()),
-        ];
-        let mut scene = settings_layout::layout(&sheet, input, measure);
-        let rect = settings_layout::editor_rect(input);
-        if rect.w < 160.0 * input.scale || rect.h < 100.0 * input.scale {
-            return scene;
-        }
-        let scale = input.scale;
-        let mut y = rect.y;
-        let preview = PxRect {
-            x: rect.x,
-            y,
-            w: rect.w,
-            h: 76.0 * scale,
-        };
-        scene.quads.push(rounded(
-            preview,
-            input.theme.surfaces().surface1,
-            4.0,
-            scale,
-        ));
-        let info = sample();
-        let hits = crate::isles::preview(
-            input,
-            metrics,
-            &self.draft,
-            &info,
-            PxRect {
-                x: preview.x + 8.0 * scale,
-                y: preview.y + 8.0 * scale,
-                w: (preview.w - 16.0 * scale).max(0.0),
-                h: metrics.height + 4.0 * scale,
-            },
-            &mut scene,
-        );
-        scene.hits.controls.extend(
-            hits.into_iter()
-                .map(|(chip, rect)| (SettingsHit::PromptEditor(PromptAction::Select(chip)), rect)),
-        );
-        scene.text.push(TextRun {
-            face: TextFace::Mono,
-            ..ui_text(
-                preview.x + 8.0 * scale,
-                preview.y + preview.h - 14.0 * scale,
-                format!(
-                    "{}cargo build",
-                    match self.draft.separator {
-                        PromptSeparator::None => "",
-                        PromptSeparator::Chevron => "❯ ",
-                        PromptSeparator::Dollar => "$ ",
-                        PromptSeparator::Percent => "% ",
-                    }
-                ),
-                input.theme.foreground,
-                false,
-            )
-        });
-        y += preview.h + 12.0 * scale;
-        let gap = 6.0 * scale;
-        let mut x = rect.x;
-        let mut row_y = y;
-        for chip in self.ordered() {
-            let text = format!(
-                "{} {}",
-                if self.draft.enabled(chip) { "✓" } else { "+" },
-                title(chip)
-            );
-            let width = (measure(&text, false) + 16.0 * scale).min(rect.w);
-            if x > rect.x && x + width > rect.x + rect.w {
-                x = rect.x;
-                row_y += 32.0 * scale;
-            }
-            let at = PxRect {
-                x,
-                y: row_y,
-                w: width,
-                h: 26.0 * scale,
-            };
-            button(
-                &text,
-                if self.draft.enabled(chip) {
-                    PromptAction::Select(chip)
-                } else {
-                    PromptAction::Add(chip)
-                },
-                at,
-                chip == self.selected,
-                input,
-                &mut scene,
-                measure,
-            );
-            x += width + gap;
-        }
-        y = row_y + 38.0 * scale;
-        let segment = self
-            .draft
-            .segments
-            .get(&self.selected)
-            .copied()
-            .unwrap_or_default();
-        let controls = [
-            (
-                format!(
-                    "{} {}",
-                    if self.draft.enabled(self.selected) {
-                        "Remove"
-                    } else {
-                        "Add"
-                    },
-                    title(self.selected)
-                ),
-                PromptAction::Toggle,
-            ),
-            (
-                format!(
-                    "Colour: {}",
-                    segment.colour.map_or("theme", AnsiColour::name)
-                ),
-                PromptAction::Colour,
-            ),
-            (
-                format!(
-                    "Shape: {}",
-                    segment.appearance.map_or("inherit", PromptAppearance::name)
-                ),
-                PromptAction::Appearance,
-            ),
-            (
-                format!(
-                    "Icon: {}",
-                    segment
-                        .icons
-                        .map_or("inherit", |icons| if icons { "on" } else { "off" })
-                ),
-                PromptAction::Icon,
-            ),
-            ("Move left".into(), PromptAction::Move(-1)),
-            ("Move right".into(), PromptAction::Move(1)),
-            (
-                format!("Path: {}", self.draft.path.name()),
-                PromptAction::Path,
-            ),
-            (
-                format!("Time: {}", self.draft.time_format.name()),
-                PromptAction::Time,
-            ),
-            (
-                format!("Date: {}", self.draft.date_format.name()),
-                PromptAction::Date,
-            ),
-            (
-                format!("Input: {}", self.draft.separator.name()),
-                PromptAction::Separator,
-            ),
-            (
-                format!("Style: {}", self.draft.appearance.name()),
-                PromptAction::GlobalAppearance,
-            ),
-            (
-                format!("Icons: {}", if self.draft.icons { "on" } else { "off" }),
-                PromptAction::GlobalIcons,
-            ),
-            (
-                format!("Prompt: {}", self.draft.style.name()),
-                PromptAction::Style,
-            ),
-            (
-                format!("Duration − ({} ms)", self.draft.duration_ms),
-                PromptAction::Duration(-1),
-            ),
-            ("Duration +500 ms".into(), PromptAction::Duration(1)),
-        ];
-        let control_columns = if rect.w >= 520.0 * scale { 3 } else { 2 };
-        let control_width = (rect.w - gap * (control_columns - 1) as f32) / control_columns as f32;
-        let bottom = rect.y + rect.h - 56.0 * scale;
-        let visible = ((bottom - y) / (34.0 * scale)).floor().max(1.0) as usize;
-        let scroll = self.scroll.min(
-            controls
-                .len()
-                .div_ceil(control_columns)
-                .saturating_sub(visible),
-        );
-        for (index, (text, action)) in controls.iter().enumerate() {
-            let at = PxRect {
-                x: rect.x + (index % control_columns) as f32 * (control_width + gap),
-                y: y + ((index / control_columns) as f32 - scroll as f32) * 34.0 * scale,
-                w: control_width,
-                h: 28.0 * scale,
-            };
-            if at.y >= y && at.y + at.h <= bottom {
-                button(text, *action, at, false, input, &mut scene, measure);
-            }
-        }
-        scene.text.push(ui_text(
-            rect.x,
-            bottom + 8.0 * scale,
-            "Scroll for more options · Input separator applies to new shells".into(),
-            input.theme.surfaces().muted,
-            false,
-        ));
-        let w = (rect.w - gap * 2.0) / 3.0;
-        for (index, (text, action)) in [
-            ("Reset", PromptAction::Reset),
-            ("Cancel", PromptAction::Cancel),
-            (
-                if self.dirty() {
-                    "Save changes"
-                } else {
-                    "Saved"
-                },
-                PromptAction::Save,
-            ),
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            button(
-                text,
-                action,
-                PxRect {
-                    x: rect.x + index as f32 * (w + gap),
-                    y: bottom + 24.0 * scale,
-                    w,
-                    h: 28.0 * scale,
-                },
-                action == PromptAction::Save && self.dirty(),
-                input,
-                &mut scene,
-                measure,
-            );
-        }
-        scene
-    }
 }
 
 fn colour_from_index(index: usize) -> Option<AnsiColour> {
@@ -525,103 +314,9 @@ fn colour_from_index(index: usize) -> Option<AnsiColour> {
     .copied()
 }
 
-fn title(chip: Chip) -> &'static str {
-    match chip {
-        Chip::User => "User",
-        Chip::Host => "Host",
-        Chip::Cwd => "Directory",
-        Chip::GitBranch => "Branch",
-        Chip::GitAheadBehind => "Ahead/behind",
-        Chip::GitChanges => "Changes",
-        Chip::Venv => "Environment",
-        Chip::Docker => "Docker",
-        Chip::Kube => "Kubernetes",
-        Chip::Exit => "Exit / duration",
-        Chip::Time => "Time",
-        Chip::Date => "Date",
-    }
-}
-
-fn button(
-    text: &str,
-    action: PromptAction,
-    rect: PxRect,
-    selected: bool,
-    input: &OverlayInput,
-    scene: &mut OverlayScene,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) {
-    if rect.y < 0.0 || rect.y + rect.h > input.px.1 as f32 || rect.w <= 0.0 {
-        return;
-    }
-    let surfaces = input.theme.surfaces();
-    scene.quads.push(crate::renderer::Quad {
-        border: Some(Border {
-            color: opaque(if selected {
-                input.theme.accent
-            } else {
-                surfaces.outline
-            }),
-            width: input.scale,
-        }),
-        ..rounded(
-            rect,
-            if selected {
-                surfaces.surface2
-            } else {
-                surfaces.surface1
-            },
-            3.0,
-            input.scale,
-        )
-    });
-    let text = crate::chrome_bar::ellipsize(text, rect.w - 12.0 * input.scale, false, measure);
-    scene.text.push(ui_text(
-        rect.x + 6.0 * input.scale,
-        rect.y + rect.h / 2.0 + input.ui.ascent / 2.0 - 2.0 * input.scale,
-        text,
-        if selected {
-            input.theme.foreground
-        } else {
-            surfaces.muted
-        },
-        false,
-    ));
-    scene
-        .hits
-        .controls
-        .push((SettingsHit::PromptEditor(action), rect));
-}
-
-fn sample() -> PromptInfo {
-    PromptInfo {
-        cwd: Some("/home/developer/projects/flair".into()),
-        git: Some(GitInfo {
-            head: Head::Branch("main".into()),
-            upstream: Some(AheadBehind {
-                ahead: 1,
-                behind: 2,
-            }),
-            changes: Some(Changes {
-                files: 2,
-                added: 12,
-                removed: 3,
-            }),
-        }),
-        last: Some(LastCommand {
-            exit: Some(0),
-            duration: Millis(2400),
-        }),
-        docker: Some("skynetx-prod".into()),
-        kube: Some("production".into()),
-        shell: Some(ShellFacts {
-            user: "developer".into(),
-            host: "workstation".into(),
-            venv: Some(".venv".into()),
-        }),
-    }
-}
-
 #[cfg(test)]
 #[path = "prompt_editor_tests.rs"]
 mod tests;
+
+#[path = "prompt_editor_layout.rs"]
+mod layout;

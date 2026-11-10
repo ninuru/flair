@@ -1,6 +1,10 @@
 use super::*;
 
 impl SettingsPage {
+    pub(crate) fn set_prompt_scroll_limit(&mut self, limit: usize) {
+        self.prompt_editor.set_scroll_limit(limit);
+    }
+
     pub(super) fn prompt_key(&mut self, key: &KeyInput) -> SettingsOutcome {
         if key.key == Key::Named(NamedKey::Tab) {
             self.focus_sections();
