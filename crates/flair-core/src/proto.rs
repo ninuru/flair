@@ -15,7 +15,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 8;
+pub const PROTOCOL: u32 = 9;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -195,6 +195,7 @@ pub enum CursorShape {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PaneFlags {
+    pub prompt_row: Option<u16>,
     pub alt_screen: bool,
     pub mouse_reporting: bool,
     pub display_offset: u32,

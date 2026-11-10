@@ -3,6 +3,7 @@ pub mod encode;
 mod listener;
 mod osc;
 pub mod pty;
+mod shell_integration;
 pub mod snapshot;
 pub mod terminal;
 

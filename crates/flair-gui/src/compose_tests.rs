@@ -822,7 +822,7 @@ fn band_prompts() -> BTreeMap<PaneId, PromptInfo> {
 }
 
 #[test]
-fn gpu_frame_draws_band_chips_on_the_band_row_above_each_pane() {
+fn gpu_frame_draws_chips_on_each_panes_shell_prompt_row() {
     const W: u32 = 960;
     const H: u32 = 400;
     let (ctx, gl) = match HeadlessContext::new((W, H)) {
@@ -837,7 +837,6 @@ fn gpu_frame_draws_band_chips_on_the_band_row_above_each_pane() {
     };
     let config = Config::default();
     let theme = config.theme();
-    let surfaces = theme.surfaces();
     let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
     let metrics = fonts.metrics();
     let padding = (
@@ -845,8 +844,28 @@ fn gpu_frame_draws_band_chips_on_the_band_row_above_each_pane() {
         f32::from(config.window.padding_y),
     );
     let size = grid_size((W, H), padding, 1.0, metrics);
-    let (mirror, layout) = split_frame(size);
-    let layout = banded(layout);
+    let (mut mirror, layout) = split_frame(size);
+    let updates: Vec<_> = layout
+        .panes
+        .iter()
+        .map(|placement| PaneUpdate {
+            pane: placement.pane,
+            size: placement.rect.size,
+            full: false,
+            rows: Vec::new(),
+            cursor: Cursor {
+                point: CellPoint { col: 0, row: 3 },
+                shape: CursorShape::Block,
+                visible: true,
+            },
+            flags: PaneFlags {
+                prompt_row: Some(2),
+                ..Default::default()
+            },
+            selection: Vec::new(),
+        })
+        .collect();
+    mirror.apply(&updates);
     let grid = compose_frame(&mirror, &layout, size, &theme, true);
     let prompts = band_prompts();
     let prompt = PromptConfig {
@@ -874,6 +893,7 @@ fn gpu_frame_draws_band_chips_on_the_band_row_above_each_pane() {
         notice: None,
         isles: Some(Isles {
             info: &prompts,
+            mirror: &mirror,
             config: &prompt,
             clock: Some((15, 48)),
             home: Some(Path::new("/home/ada")),
@@ -894,19 +914,20 @@ fn gpu_frame_draws_band_chips_on_the_band_row_above_each_pane() {
     drop(ctx);
     frame.dump("FLAIR_BAND_PPM");
     let origin = grid_origin((W, H), padding, 1.0, metrics);
+    let prompt_y = origin.1 + 2.0 * metrics.height;
     let chips: Vec<_> = chrome
         .chrome
         .quads
         .iter()
-        .filter(|quad| quad.rect.y >= origin.1 && quad.border.is_some())
+        .filter(|quad| quad.rect.y >= prompt_y && quad.border.is_some())
         .collect();
     assert!(chips.len() >= 4, "{chips:?}");
     for chip in &chips {
         let rect = chip.rect;
-        assert!(rect.y >= origin.1 && rect.y + rect.h <= origin.1 + metrics.height);
+        assert!(rect.y >= prompt_y && rect.y + rect.h <= prompt_y + metrics.height);
         assert_eq!(
             frame.at(rect.x + 3.0, rect.y + rect.h / 2.0),
-            rgb(surfaces.surface2),
+            [chip.color.r, chip.color.g, chip.color.b],
             "{rect:?}"
         );
         assert_eq!(

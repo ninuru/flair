@@ -217,22 +217,10 @@ impl Server {
                 return;
             }
         };
-        let band = self.band();
         match Config::from_toml(&text) {
             Ok(config) => self.config = self.config.reloaded(&config),
             Err(error) => {
                 log::warn!("config reload failed, keeping the current config: {error}");
-            }
-        }
-        if self.band() != band {
-            let windows: Vec<WindowId> = self
-                .tree
-                .sessions
-                .iter()
-                .flat_map(|session| session.windows.iter().map(|window| window.id))
-                .collect();
-            for window in windows {
-                self.resize_window(window, out);
             }
         }
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();

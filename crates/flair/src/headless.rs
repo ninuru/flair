@@ -130,6 +130,7 @@ impl Pixels {
 fn isles<'a>(mirror: &'a Mirror, config: &'a PromptConfig, home: Option<&'a Path>) -> Isles<'a> {
     Isles {
         info: mirror.prompts(),
+        mirror,
         config,
         clock: config.time.then(local_clock).flatten(),
         home,
@@ -250,17 +251,26 @@ impl Capture {
         }
         let clock = prompt.time.then(local_clock).flatten();
         let cols = usize::from(grid.size.cols);
-        for placement in layout.panes.iter().filter(|placement| placement.band > 0) {
+        for placement in &layout.panes {
             let Some(info) = self.mirror.prompts().get(&placement.pane) else {
                 continue;
             };
-            let outer = placement.outer();
-            let row = usize::from(outer.origin.row);
-            let left = usize::from(outer.origin.col);
+            let Some(pane) = self.mirror.pane(placement.pane) else {
+                continue;
+            };
+            let Some(prompt_row) = pane.flags.prompt_row.filter(|row| {
+                *row < placement.rect.size.rows
+                    && !pane.flags.alt_screen
+                    && pane.flags.display_offset == 0
+            }) else {
+                continue;
+            };
+            let row = usize::from(placement.rect.origin.row + prompt_row);
+            let left = usize::from(placement.rect.origin.col);
             if row >= usize::from(grid.size.rows) {
                 continue;
             }
-            let width = usize::from(outer.size.cols).min(cols.saturating_sub(left));
+            let width = usize::from(placement.rect.size.cols).min(cols.saturating_sub(left));
             let text = line(&labels(info, prompt, clock, self.home.as_deref()));
             for (offset, c) in text.chars().take(width).enumerate() {
                 grid.cells[row * cols + left + offset].c = c;

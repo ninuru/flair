@@ -116,7 +116,7 @@ fn separator_drag_resizes_both_panes_and_release_ends_capture() {
         .tree
         .window(WindowId(1))
         .unwrap()
-        .geometry(server.band())
+        .geometry(0)
         .separators[0]
         .rect
         .origin;
@@ -186,12 +186,7 @@ fn application_press_selects_target_and_drag_release_stays_with_that_pane() {
         ClientId(1),
         Command::SelectPane(PaneRef::Id(PaneId(1))),
     );
-    let origin = server
-        .tree
-        .window(WindowId(1))
-        .unwrap()
-        .geometry(server.band())
-        .panes[1]
+    let origin = server.tree.window(WindowId(1)).unwrap().geometry(0).panes[1]
         .rect
         .origin;
     let pressed = mouse(
@@ -266,12 +261,7 @@ fn shift_selects_text_in_mouse_reporting_pane() {
         Event::PtyOutput(second, b"\x1b[?1002h\x1b[?1006hhello".to_vec()),
         &mut out,
     );
-    let origin = server
-        .tree
-        .window(WindowId(1))
-        .unwrap()
-        .geometry(server.band())
-        .panes[1]
+    let origin = server.tree.window(WindowId(1)).unwrap().geometry(0).panes[1]
         .rect
         .origin;
     for (offset, action) in [(0, MouseAction::Press), (4, MouseAction::Release)] {
@@ -639,7 +629,7 @@ fn replacing_application_button_capture_releases_previous_button() {
 }
 
 #[test]
-fn a_press_on_the_band_row_selects_the_pane_without_reaching_the_app() {
+fn the_top_content_row_remains_available_to_the_app_with_prompt_chips() {
     let mut config = Config::default();
     config.prompt.style = PromptStyle::Chips;
     let mut server = Server::new(ServerConfig::from_config(&config));
@@ -661,12 +651,12 @@ fn a_press_on_the_band_row_selects_the_pane_without_reaching_the_app() {
         .tree
         .window(WindowId(1))
         .unwrap()
-        .geometry(server.band())
+        .geometry(0)
         .panes
         .into_iter()
         .find(|placement| placement.pane == PaneId(1))
         .unwrap();
-    assert_eq!(placement.band, 1);
+    assert_eq!(placement.band, 0);
     let out = mouse(
         &mut server,
         ClientId(1),
@@ -676,7 +666,7 @@ fn a_press_on_the_band_row_selects_the_pane_without_reaching_the_app() {
     );
     assert_eq!(server.client_pane(ClientId(1)), Some(PaneId(1)));
     assert!(
-        !out.iter()
+        out.iter()
             .any(|effect| matches!(effect, Effect::WritePty(_, _)))
     );
     assert!(!server.clients[&ClientId(1)].selecting);

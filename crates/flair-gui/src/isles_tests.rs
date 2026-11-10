@@ -624,6 +624,23 @@ fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
     };
     let info = BTreeMap::from([(PaneId(1), info)]);
     let config = PromptConfig::default();
+    let mut mirror = crate::mirror::Mirror::default();
+    mirror.apply(&[flair_core::proto::PaneUpdate {
+        pane: PaneId(1),
+        size: GridSize { cols, rows: 33 },
+        full: true,
+        rows: Vec::new(),
+        cursor: flair_core::proto::Cursor {
+            point: CellPoint { col: 0, row: 1 },
+            shape: flair_core::proto::CursorShape::Block,
+            visible: true,
+        },
+        flags: flair_core::proto::PaneFlags {
+            prompt_row: Some(0),
+            ..Default::default()
+        },
+        selection: Vec::new(),
+    }]);
     let input = ChromeInput {
         px: (800, 600),
         scale: 1.0,
@@ -643,6 +660,7 @@ fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
         notice: None,
         isles: Some(Isles {
             info: &info,
+            mirror: &mirror,
             config: &config,
             clock: None,
             home: None,
@@ -671,10 +689,10 @@ fn icons_use_the_small_terminal_face_and_its_cell_advance() {
     assert_eq!(
         icon_runs(info, 98),
         [
-            (18.0, 53.0, "\u{f114}".to_owned(), TextFace::Icon),
-            (29.0, 54.0, "/srv/one".to_owned(), TextFace::Small),
-            (75.0, 53.0, "\u{f418}".to_owned(), TextFace::Icon),
-            (86.0, 54.0, "main".to_owned(), TextFace::Small),
+            (18.0, 77.0, "\u{f114}".to_owned(), TextFace::Icon),
+            (29.0, 78.0, "/srv/one".to_owned(), TextFace::Small),
+            (75.0, 77.0, "\u{f418}".to_owned(), TextFace::Icon),
+            (86.0, 78.0, "main".to_owned(), TextFace::Small),
         ]
     );
 }
@@ -699,4 +717,28 @@ fn a_wide_icon_takes_two_small_cells() {
     let input_ui = icon_ui();
     assert_eq!(icon_cells('\u{f114}') as f32 * input_ui.icon.width, 7.0);
     assert_eq!(icon_cells('\u{1f40d}') as f32 * input_ui.icon.width, 14.0);
+}
+
+#[test]
+fn warp_chips_use_distinct_theme_ansi_colours_with_readable_text() {
+    let mut theme = Config::default().theme();
+    for (chip, tone, index) in [
+        (Chip::Cwd, Tone::Plain, 4),
+        (Chip::GitBranch, Tone::Plain, 5),
+        (Chip::GitChanges, Tone::Plain, 2),
+        (Chip::Exit, Tone::Failed, 1),
+        (Chip::Time, Tone::Plain, 6),
+    ] {
+        let label = Label {
+            chip,
+            icon: None,
+            text: "test".into(),
+            tone,
+        };
+        theme.normal[index] = theme.bright[index];
+        let (fill, ink) = colours(&theme, &label);
+        assert_eq!(fill, theme.normal[index]);
+        assert!(ink == theme.background || ink == theme.foreground);
+        assert!(contrast(fill, ink) >= 4.5, "{chip:?}: {fill:?} {ink:?}");
+    }
 }

@@ -38,13 +38,9 @@ impl Pending {
 }
 
 impl Server {
-    pub(super) fn band(&self) -> u16 {
-        self.config.prompt.band()
-    }
-
     fn git_on(&self) -> bool {
         let prompt = &self.config.prompt;
-        self.band() > 0
+        self.config.prompt.band() > 0
             && [Chip::GitBranch, Chip::GitAheadBehind, Chip::GitChanges]
                 .into_iter()
                 .any(|chip| prompt.enabled(chip))
@@ -52,7 +48,8 @@ impl Server {
 
     fn contexts_on(&self) -> bool {
         let prompt = &self.config.prompt;
-        self.band() > 0 && (prompt.enabled(Chip::Docker) || prompt.enabled(Chip::Kube))
+        self.config.prompt.band() > 0
+            && (prompt.enabled(Chip::Docker) || prompt.enabled(Chip::Kube))
     }
 
     pub(super) fn pane_cwd(&self, pane: PaneId) -> Option<PathBuf> {
@@ -186,17 +183,16 @@ impl Server {
         }
     }
 
-    fn banded_panes(&self, window: WindowId) -> Vec<PaneId> {
-        let band = self.band();
+    fn prompt_panes(&self, window: WindowId) -> Vec<PaneId> {
+        let band = self.config.prompt.band();
         if band == 0 {
             return Vec::new();
         }
         self.tree.window(window).map_or_else(Vec::new, |window| {
             window
-                .geometry(band)
+                .geometry(0)
                 .panes
                 .into_iter()
-                .filter(|placement| placement.band > 0)
                 .map(|placement| placement.pane)
                 .collect()
         })
@@ -208,7 +204,7 @@ impl Server {
         }
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
         for id in ids {
-            let panes = self.banded_panes(self.clients[&id].view.window);
+            let panes = self.prompt_panes(self.clients[&id].view.window);
             for pane in &panes {
                 let Some(cwd) = self.pane_cwd(*pane) else {
                     continue;
@@ -246,7 +242,7 @@ impl Server {
         let visible: BTreeSet<PathBuf> = self
             .clients
             .values()
-            .flat_map(|client| self.banded_panes(client.view.window))
+            .flat_map(|client| self.prompt_panes(client.view.window))
             .filter_map(|pane| self.pane_cwd(pane))
             .collect();
         for cwd in visible {

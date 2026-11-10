@@ -14,7 +14,7 @@ impl Server {
                         .filter(|client| {
                             self.tree.window(client.view.window).is_some_and(|window| {
                                 window
-                                    .geometry(self.band())
+                                    .geometry(0)
                                     .panes
                                     .iter()
                                     .any(|placement| placement.pane == **pane_id)

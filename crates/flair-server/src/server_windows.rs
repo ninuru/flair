@@ -21,9 +21,7 @@ impl Server {
             origin: CellPoint::default(),
             size,
         };
-        let size = Layout::Leaf(id).geometry(area, self.band()).panes[0]
-            .rect
-            .size;
+        let size = Layout::Leaf(id).geometry(area, 0).panes[0].rect.size;
         let size = GridSize {
             cols: size.cols.max(1),
             rows: size.rows.max(1),
@@ -182,7 +180,7 @@ impl Server {
             .tree
             .window(window_id)
             .unwrap()
-            .geometry(self.band())
+            .geometry(0)
             .panes
             .into_iter()
             .find(|placement| placement.pane == new)

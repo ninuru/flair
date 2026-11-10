@@ -4,7 +4,7 @@ use alacritty_terminal::{
     grid::{Dimensions, Scroll},
     index::{Column, Line, Point, Side},
     selection::{Selection, SelectionType},
-    term::{Config as TermConfig, TermMode, search::RegexSearch},
+    term::{Config as TermConfig, TermMode, cell::Flags, search::RegexSearch},
     vte::ansi::Processor,
 };
 use flair_core::{
@@ -18,6 +18,8 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
 };
+
+pub(crate) const PROMPT_ANCHOR: Flags = Flags::from_bits_retain(0x8000);
 
 pub struct Terminal {
     pub(crate) term: Term<Collector>,
@@ -110,15 +112,20 @@ impl Terminal {
     pub fn advance(&mut self, bytes: &[u8]) {
         let old_alt = self.modes().alt_screen;
         let old_end = self.selection_end_line();
-        self.processor.advance(&mut self.term, bytes);
+        for chunk in bytes.split_inclusive(|byte| matches!(byte, 7 | b'\\')) {
+            self.processor.advance(&mut self.term, chunk);
+            self.osc.advance(chunk);
+            if self.osc.take_prompt() && !self.modes().alt_screen {
+                self.mark_prompt();
+            }
+            self.events.borrow_mut().extend(self.osc.take());
+        }
         let top = self.term.topmost_line();
         if let (Some(old_end), Some(end)) = (old_end, self.selection_end_line())
             && let Some(anchor) = &mut self.copy_anchor
         {
             anchor.line = (anchor.line + (end - old_end)).max(top);
         }
-        self.osc.advance(bytes);
-        self.events.borrow_mut().extend(self.osc.take());
         for event in self.events.borrow().iter() {
             match event {
                 TermEvent::Title(title) => self.title = Some(title.clone()),
@@ -134,6 +141,18 @@ impl Terminal {
             self.exit_copy_mode();
         }
         self.force_full |= alt_changed;
+    }
+    fn mark_prompt(&mut self) {
+        let top = self.term.topmost_line().0;
+        for line in top..i32::from(self.size.rows) {
+            self.term.grid_mut()[Point::new(Line(line), Column(0))]
+                .flags
+                .remove(PROMPT_ANCHOR);
+        }
+        let row = self.term.grid().cursor.point.line;
+        self.term.grid_mut()[Point::new(row, Column(0))]
+            .flags
+            .insert(PROMPT_ANCHOR);
     }
     pub fn copy_mode(&self) -> bool {
         self.term.mode().contains(TermMode::VI)

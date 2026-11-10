@@ -1,6 +1,7 @@
 use super::*;
 use std::{
     io::{Read, Write},
+    os::unix::fs::DirBuilderExt,
     thread,
     time::{Duration, Instant},
 };
@@ -202,5 +203,116 @@ fn the_foreground_process_group_leader_is_the_running_job() {
         std::fs::read_link(format!("/proc/{job}/cwd")).unwrap(),
         PathBuf::from("/")
     );
+    pty.kill();
+}
+
+#[test]
+fn zsh_chips_loads_integration_after_user_startup_without_dotfile_changes() {
+    if !std::path::Path::new("/bin/zsh").exists() {
+        eprintln!("skipping automatic shell integration test: /bin/zsh unavailable");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("flair-zsh-{}", std::process::id()));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&root)
+        .unwrap();
+    std::fs::write(root.join(".zshenv"), "export FLAIR_ENV_LOADED=yes\n").unwrap();
+    std::fs::write(root.join(".zprofile"), "export FLAIR_PROFILE_LOADED=yes\n").unwrap();
+    std::fs::write(
+        root.join(".zlogin"),
+        "export FLAIR_LOGIN_LOADED=yes\nPS1='login-prompt> '\n",
+    )
+    .unwrap();
+    let rc = "_FLAIR_INTEGRATION_LOADED=1\nPS1='original-prompt> '\nprecmd() { PS1='framework-prompt> '; RPS1='framework-right-prompt'; }\n";
+    std::fs::write(root.join(".zshrc"), rc).unwrap();
+    let mut spawn = spec("");
+    spawn.program = "/bin/zsh".into();
+    spawn.args = vec!["-il".into()];
+    spawn.env.extend([
+        ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
+        ("HOME".into(), root.to_string_lossy().into_owned()),
+        ("FLAIR_PROMPT".into(), "chips".into()),
+    ]);
+    let mut pty = Pty::spawn(&spawn).unwrap();
+    let mut reader = pty.reader().unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    assert!(text.contains("\u{1b}]6973;flair;"), "{text:?}");
+    assert!(!text.contains("framework-prompt> "), "{text:?}");
+    assert!(!text.contains("framework-right-prompt"), "{text:?}");
+    assert!(text.contains("\u{1b}]6973;prompt\u{7}"), "{text:?}");
+    let mut terminal = crate::Terminal::new(spawn.size, 100);
+    terminal.advance(text.as_bytes());
+    let frame = terminal.snapshot(flair_core::ids::PaneId(1), true).unwrap();
+    assert_eq!(
+        frame.flags.prompt_row,
+        Some(frame.cursor.point.row - 1),
+        "{text:?}"
+    );
+    pty.writer().unwrap().write_all(b"printf 'env=%s profile=%s login=%s zdot=%s\\n' \"$FLAIR_ENV_LOADED\" \"$FLAIR_PROFILE_LOADED\" \"$FLAIR_LOGIN_LOADED\" \"$ZDOTDIR\"\n").unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    assert!(
+        text.contains(&format!(
+            "env=yes profile=yes login=yes zdot={}",
+            root.display()
+        )),
+        "{text:?}"
+    );
+    assert_eq!(std::fs::read_to_string(root.join(".zshrc")).unwrap(), rc);
+    pty.kill();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn zsh_ps1_style_preserves_the_user_prompt_and_startup_paths() {
+    if !std::path::Path::new("/bin/zsh").exists() {
+        eprintln!("skipping PS1 shell integration test: /bin/zsh unavailable");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("flair-zsh-ps1-{}", std::process::id()));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&root)
+        .unwrap();
+    let integration = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contrib/flair.zsh");
+    std::fs::write(
+        root.join(".zshrc"),
+        format!("PS1='user-prompt> '\nsource '{}'\n", integration.display()),
+    )
+    .unwrap();
+    let mut spawn = spec("");
+    spawn.program = "/bin/zsh".into();
+    spawn.args = vec!["--interactive".into()];
+    spawn.env.extend([
+        ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
+        ("HOME".into(), root.to_string_lossy().into_owned()),
+        ("FLAIR_PROMPT".into(), "ps1".into()),
+    ]);
+    let mut pty = Pty::spawn(&spawn).unwrap();
+    let text = read_until(&mut pty.reader().unwrap(), "user-prompt> ");
+    assert!(text.contains("user-prompt> "), "{text:?}");
+    assert!(text.contains("\u{1b}]133;A\u{7}"), "{text:?}");
+    assert!(!text.contains("\u{1b}]6973;prompt"), "{text:?}");
+    assert_eq!(text.matches("\u{1b}]133;B\u{7}").count(), 1, "{text:?}");
+    pty.kill();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn zsh_command_execution_keeps_the_requested_startup_environment() {
+    if !std::path::Path::new("/bin/zsh").exists() {
+        eprintln!("skipping zsh command test: /bin/zsh unavailable");
+        return;
+    }
+    let mut spawn = spec("printf 'zdot=%s\\n' \"$ZDOTDIR\"; read x");
+    spawn.program = "/bin/zsh".into();
+    spawn.env.extend([
+        ("ZDOTDIR".into(), "/tmp/flair-command-zdotdir".into()),
+        ("FLAIR_PROMPT".into(), "chips".into()),
+    ]);
+    let mut pty = Pty::spawn(&spawn).unwrap();
+    let text = read_until(&mut pty.reader().unwrap(), "\n");
+    assert!(text.contains("zdot=/tmp/flair-command-zdotdir"), "{text:?}");
+    assert!(!text.contains("\u{1b}]6973;"), "{text:?}");
     pty.kill();
 }

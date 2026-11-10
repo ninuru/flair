@@ -1,6 +1,6 @@
 [[ $TERM_PROGRAM == flair ]] || return
-[[ -z $_FLAIR_INTEGRATION_LOADED ]] || return
-typeset -g _FLAIR_INTEGRATION_LOADED=1
+[[ $_FLAIR_INTEGRATION_LOADED != 2 ]] || return
+typeset -g _FLAIR_INTEGRATION_LOADED=2
 
 autoload -Uz add-zsh-hook
 
@@ -30,7 +30,8 @@ _flair_precmd() {
     user=$REPLY
     _flair_encode "${${VIRTUAL_ENV:t}:-$CONDA_DEFAULT_ENV}"
     printf '\e]6973;flair;u=%s;h=%s;v=%s\a' "$user" "$host" "$REPLY"
-    PS1=$'❯ %{\e]133;B\a%}'
+    RPS1=''
+    PS1=$'%{\e]6973;prompt\a%}\n❯ %{\e]133;B\a%}'
 }
 
 _flair_preexec() {

@@ -56,7 +56,7 @@ fn real_scenarios_run_without_display_and_capture_cells() {
         let screen = fs::read_to_string(output.0.join("screen.txt")).unwrap();
         assert!(screen.contains(match scenario {
             "basic" => "got:ok",
-            "resize" => "29 100",
+            "resize" => "30 100",
             "input" => "paste:hello world",
             "stress" => "INTERRUPTED",
             _ => unreachable!(),
@@ -95,7 +95,7 @@ fn windows_scenario_frames_status_split_and_window_switch() {
     assert!(
         rows[1..]
             .iter()
-            .any(|row| row.trim_end().ends_with("11 40"))
+            .any(|row| row.trim_end().ends_with("12 40"))
     );
 }
 
@@ -607,10 +607,9 @@ fn git(repo: &Path, args: &[&str]) -> bool {
 }
 
 fn band_labels(capture: &str) -> Vec<String> {
-    capture
-        .lines()
-        .nth(1)
-        .unwrap()
+    let rows: Vec<_> = capture.lines().collect();
+    let input = rows.iter().rposition(|row| row.trim_end() == "❯").unwrap();
+    rows[input - 1]
         .trim_end()
         .split("  ")
         .map(str::to_owned)
@@ -635,15 +634,7 @@ fn prompt_band_shows_directory_branch_changes_and_exit() {
         eprintln!("skipped prompt band e2e: git unavailable");
         return;
     }
-    let integration = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../contrib/flair.zsh");
-    fs::write(
-        zdotdir.join(".zshrc"),
-        format!(
-            "source '{}'\n",
-            integration.canonicalize().unwrap().display()
-        ),
-    )
-    .unwrap();
+    fs::write(zdotdir.join(".zshrc"), "PS1='user-theme> '\n").unwrap();
     let scenario = output.0.join("band.toml");
     fs::write(
         &scenario,
@@ -664,7 +655,7 @@ action = "text"
 text = "stty size\r"
 [[steps]]
 action = "wait"
-text = "7 120"
+text = "8 120"
 [[steps]]
 action = "text"
 text = "false\r"
@@ -715,12 +706,20 @@ name = "changes"
     let cwd = "~/repo";
     let band = fs::read_to_string(output.0.join("band.txt")).unwrap();
     assert_eq!(band_labels(&band), [cwd, "main", "1"], "{band}");
-    let content: Vec<&str> = band.lines().skip(2).map(str::trim_end).collect();
-    assert_eq!(
-        content[..4],
-        ["❯ stty size", "7 120", "❯ false", "❯"],
+    let content: Vec<&str> = band.lines().map(str::trim_end).collect();
+    let command = content
+        .iter()
+        .position(|row| *row == "❯ stty size")
+        .unwrap();
+    let result = content.iter().position(|row| *row == "8 120").unwrap();
+    let failed = content.iter().position(|row| *row == "❯ false").unwrap();
+    let prompt = content.iter().rposition(|row| *row == "❯").unwrap();
+    assert!(
+        command < result && result < failed && failed < prompt - 1,
         "{band}"
     );
+    assert!(content[prompt - 1].starts_with(cwd), "{band}");
+    assert!(!band.contains("user-theme> "), "{band}");
     let changes = fs::read_to_string(output.0.join("changes.txt")).unwrap();
     assert_eq!(band_labels(&changes), [cwd, "main", "2"], "{changes}");
 }

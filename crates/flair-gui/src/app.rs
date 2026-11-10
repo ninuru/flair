@@ -278,6 +278,7 @@ impl App {
             notice: self.overlays.notice(),
             isles: Some(Isles {
                 info: self.mirror.prompts(),
+                mirror: &self.mirror,
                 config: &prompt,
                 clock,
                 home: self.home.as_deref(),

@@ -42,7 +42,7 @@ fn ack(server: &mut Server, effects: &[Effect]) -> Vec<Effect> {
 }
 
 #[test]
-fn the_prompt_style_reaches_the_shell_and_the_band_takes_a_pty_row() {
+fn the_prompt_style_reaches_the_shell_without_reserving_a_pty_row() {
     let spawn = |style| {
         let mut config = Config::default();
         config.prompt.style = style;
@@ -66,7 +66,7 @@ fn the_prompt_style_reaches_the_shell_and_the_band_takes_a_pty_row() {
     assert!(chips_env.contains(&("FLAIR_PROMPT".to_owned(), "chips".to_owned())));
     assert!(ps1_env.contains(&("FLAIR_PROMPT".to_owned(), "ps1".to_owned())));
     assert_eq!(chips.cols, ps1.cols);
-    assert_eq!(chips.rows + 1, ps1.rows);
+    assert_eq!(chips.rows, ps1.rows);
 }
 
 #[test]

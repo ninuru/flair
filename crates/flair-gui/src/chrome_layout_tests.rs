@@ -857,6 +857,28 @@ fn band_layout(
 ) -> ChromeLayout {
     let theme = Config::default().theme();
     let status = parts();
+    let mut mirror = crate::mirror::Mirror::default();
+    let updates: Vec<_> = window
+        .panes
+        .iter()
+        .map(|placement| flair_core::proto::PaneUpdate {
+            pane: placement.pane,
+            size: placement.rect.size,
+            full: true,
+            rows: Vec::new(),
+            cursor: flair_core::proto::Cursor {
+                point: CellPoint { col: 0, row: 1 },
+                shape: flair_core::proto::CursorShape::Block,
+                visible: true,
+            },
+            flags: flair_core::proto::PaneFlags {
+                prompt_row: (placement.band > 0).then_some(0),
+                ..Default::default()
+            },
+            selection: Vec::new(),
+        })
+        .collect();
+    mirror.apply(&updates);
     let input = ChromeInput {
         px: (800, 600),
         scale: 1.0,
@@ -872,6 +894,7 @@ fn band_layout(
         notice: None,
         isles: Some(Isles {
             info,
+            mirror: &mirror,
             config,
             clock: None,
             home: None,
@@ -910,7 +933,7 @@ fn plain_config() -> PromptConfig {
 #[test]
 fn every_banded_pane_draws_its_chips_inside_its_band_row() {
     let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
+
     let separators = [Separator {
         axis: Axis::Horizontal,
         rect: cells(49, 0, 1, 34),
@@ -925,24 +948,24 @@ fn every_banded_pane_draws_its_chips_inside_its_band_row() {
         (PaneId(2), prompt("/srv/two")),
     ]);
     let layout = band_layout(&window, &info, &plain_config());
-    let chip = |x, w| Quad {
-        rect: rect(x, 45.0, w, 14.0),
-        color: opaque(surfaces.surface2),
+    let chip = |x, w, index| Quad {
+        rect: rect(x, 69.0, w, 14.0),
+        color: opaque(theme.normal[index]),
         radius: 4.0,
         border: Some(Border {
-            color: opaque(surfaces.outline),
+            color: opaque(theme.normal[index]),
             width: 1.0,
         }),
     };
     assert_eq!(
         band_chips(&layout),
         [
-            chip(12.0, 40.0),
-            chip(58.0, 26.0),
-            chip(90.0, 28.0),
-            chip(412.0, 40.0),
-            chip(458.0, 26.0),
-            chip(490.0, 28.0),
+            chip(12.0, 40.0, 4),
+            chip(58.0, 26.0, 5),
+            chip(90.0, 28.0, 1),
+            chip(412.0, 40.0, 4),
+            chip(458.0, 26.0, 5),
+            chip(490.0, 28.0, 1),
         ]
     );
     let dots: Vec<Quad> = layout
@@ -953,18 +976,18 @@ fn every_banded_pane_draws_its_chips_inside_its_band_row() {
         .copied()
         .collect();
     assert_eq!(dots.len(), 2);
-    assert_eq!(dots[0].rect, rect(96.0, 49.0, 6.0, 6.0));
-    assert_eq!(dots[0].color, opaque(surfaces.attention));
+    assert_eq!(dots[0].rect, rect(96.0, 73.0, 6.0, 6.0));
+    assert_eq!(dots[0].color, opaque(theme.background));
     assert_eq!(dots[0].radius, 3.0);
     assert_eq!(
         band_text(&layout),
         [
-            (18.0, 54.0, "/srv/one", TextFace::Small),
-            (64.0, 54.0, "main", TextFace::Small),
-            (108.0, 54.0, "1", TextFace::Small),
-            (418.0, 54.0, "/srv/two", TextFace::Small),
-            (464.0, 54.0, "main", TextFace::Small),
-            (508.0, 54.0, "1", TextFace::Small),
+            (18.0, 78.0, "/srv/one", TextFace::Small),
+            (64.0, 78.0, "main", TextFace::Small),
+            (108.0, 78.0, "1", TextFace::Small),
+            (418.0, 78.0, "/srv/two", TextFace::Small),
+            (464.0, 78.0, "main", TextFace::Small),
+            (508.0, 78.0, "1", TextFace::Small),
         ]
     );
     assert!(
@@ -973,12 +996,12 @@ fn every_banded_pane_draws_its_chips_inside_its_band_row() {
             .text
             .iter()
             .filter(|run| run.baseline >= chrome_bottom(1.0))
-            .all(|run| run.color == surfaces.muted)
+            .all(|run| run.color == theme.background)
     );
 }
 
 #[test]
-fn a_successful_exit_dot_is_running_green() {
+fn a_successful_exit_uses_a_green_chip_and_contrasting_dot() {
     let theme = Config::default().theme();
     let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
     let info = BTreeMap::from([(
@@ -1002,8 +1025,8 @@ fn a_successful_exit_dot_is_running_green() {
         .iter()
         .find(|quad| quad.rect.y >= chrome_bottom(1.0) && quad.rect.w == 6.0)
         .expect("exit dot");
-    assert_eq!(dot.color, opaque(theme.surfaces().running));
-    assert_eq!(band_text(&layout), [(30.0, 54.0, "0.42s", TextFace::Small)]);
+    assert_eq!(dot.color, opaque(theme.background));
+    assert_eq!(band_text(&layout), [(30.0, 78.0, "0.42s", TextFace::Small)]);
 }
 
 #[test]
@@ -1019,11 +1042,11 @@ fn icons_draw_in_the_small_terminal_face_before_the_label() {
     assert_eq!(
         band_text(&layout),
         [
-            (18.0, 53.0, "\u{f114}", TextFace::Icon),
-            (29.0, 54.0, "/srv/one", TextFace::Small),
-            (75.0, 53.0, "\u{f418}", TextFace::Icon),
-            (86.0, 54.0, "main", TextFace::Small),
-            (130.0, 54.0, "1", TextFace::Small),
+            (18.0, 77.0, "\u{f114}", TextFace::Icon),
+            (29.0, 78.0, "/srv/one", TextFace::Small),
+            (75.0, 77.0, "\u{f418}", TextFace::Icon),
+            (86.0, 78.0, "main", TextFace::Small),
+            (130.0, 78.0, "1", TextFace::Small),
         ]
     );
 }
@@ -1065,7 +1088,7 @@ fn a_narrow_pane_shortens_the_cwd_before_dropping_chips() {
 }
 
 #[test]
-fn a_top_band_centres_its_chips_between_the_bar_rule_and_the_first_content_row() {
+fn chips_centre_on_the_shell_prompt_row_in_stacked_panes() {
     let info = BTreeMap::from([
         (PaneId(1), prompt("/srv/one")),
         (PaneId(2), prompt("/srv/two")),
@@ -1077,17 +1100,17 @@ fn a_top_band_centres_its_chips_between_the_bar_rule_and_the_first_content_row()
     );
     let layout = band_layout(&window, &info, &plain_config());
     let (_, top) = grid_origin((800, 600), (8.0, 4.0), 1.0, metrics(1.0));
-    let content = top + 16.0;
+    let prompt_top = top + 16.0;
     let chips = band_chips(&layout);
     assert_eq!(chips.len(), 6);
     let upper = chips[0].rect;
     let middle = upper.y + upper.h / 2.0;
-    let centre = (chrome_bottom(1.0) + content) / 2.0;
+    let centre = prompt_top + 8.0;
     assert!((middle - centre).abs() <= 0.5, "{upper:?} centre {centre}");
     assert!(chips[..3].iter().all(|chip| chip.rect.y == upper.y));
     let lower = chips[3].rect;
     assert_eq!(lower.h, upper.h);
-    let row = top + 17.0 * 16.0;
+    let row = top + 18.0 * 16.0;
     assert_eq!(lower.y, row + 1.0);
     assert_eq!(lower.y + lower.h / 2.0, row + 8.0);
 }

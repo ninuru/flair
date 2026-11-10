@@ -2,16 +2,18 @@ use std::{collections::BTreeMap, path::Path, time::Duration};
 
 use flair_core::{
     config::PromptConfig,
-    geom::{CellRect, GridSize},
+    geom::{CellPoint, CellRect, GridSize},
     ids::PaneId,
     isles::{AheadBehind, Changes, Chip, Head, LastCommand, PromptInfo},
     proto::WindowLayout,
+    theme::{Rgb, Theme},
 };
 use unicode_width::UnicodeWidthChar;
 
 use crate::{
     chrome_bar::{Scene, opaque, rounded, small_text},
-    chrome_layout::{ChromeInput, cell_rect, chrome_bottom},
+    chrome_layout::{ChromeInput, cell_rect},
+    mirror::Mirror,
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
     ui::{CAP_HEIGHT, CAP_PAD, CAP_RADIUS, DOT, ELLIPSIS, ITEM_GAP, LINE, px},
 };
@@ -35,6 +37,7 @@ const DROP: [Chip; 10] = [
 #[derive(Clone, Copy)]
 pub struct Isles<'a> {
     pub info: &'a BTreeMap<PaneId, PromptInfo>,
+    pub mirror: &'a Mirror,
     pub config: &'a PromptConfig,
     pub clock: Option<(u8, u8)>,
     pub home: Option<&'a Path>,
@@ -274,36 +277,33 @@ pub(crate) fn band(
         return;
     }
     for placement in &window.panes {
-        let Some(info) = isles
-            .info
-            .get(&placement.pane)
-            .filter(|_| placement.band > 0)
-        else {
+        let Some(info) = isles.info.get(&placement.pane) else {
             continue;
         };
-        let outer = placement.outer();
+        let Some(pane) = isles.mirror.pane(placement.pane) else {
+            continue;
+        };
+        let Some(prompt_row) = pane.flags.prompt_row.filter(|row| {
+            *row < placement.rect.size.rows
+                && !pane.flags.alt_screen
+                && pane.flags.display_offset == 0
+        }) else {
+            continue;
+        };
         let row = cell_rect(
             input,
             CellRect {
-                origin: outer.origin,
+                origin: CellPoint {
+                    row: placement.rect.origin.row + prompt_row,
+                    ..placement.rect.origin
+                },
                 size: GridSize {
-                    rows: placement.band,
-                    ..outer.size
+                    rows: 1,
+                    ..placement.rect.size
                 },
             },
         );
         let height = px(CAP_HEIGHT, input.scale).min(row.h - px(LINE, input.scale) * 2.0);
-        let row = match outer.origin.row {
-            0 => {
-                let top = chrome_bottom(input.scale);
-                PxRect {
-                    y: top,
-                    h: row.y + row.h - top,
-                    ..row
-                }
-            }
-            _ => row,
-        };
         let labels = labels(info, isles.config, isles.clock, isles.home);
         chips(input, &labels, row, height, scene, measure);
     }
@@ -383,19 +383,19 @@ fn chips(
 
 fn draw(input: &ChromeInput, label: &Label, text: String, rect: PxRect, scene: &mut Scene) {
     let scale = input.scale;
-    let surfaces = input.theme.surfaces();
+    let (fill, ink) = colours(input.theme, label);
     scene.quads.push(Quad {
         border: Some(Border {
-            color: opaque(surfaces.outline),
+            color: opaque(fill),
             width: px(LINE, scale),
         }),
-        ..rounded(rect, surfaces.surface2, CAP_RADIUS, scale)
+        ..rounded(rect, fill, CAP_RADIUS, scale)
     });
     let x = rect.x + px(CAP_PAD, scale);
     let mark = match label.tone {
         Tone::Plain => None,
-        Tone::Ok => Some(surfaces.running),
-        Tone::Failed => Some(surfaces.attention),
+        Tone::Ok => Some(ink),
+        Tone::Failed => Some(ink),
     };
     match (mark, label.icon) {
         (Some(color), _) => {
@@ -410,7 +410,7 @@ fn draw(input: &ChromeInput, label: &Label, text: String, rect: PxRect, scene: &
         }
         (None, Some(icon)) => {
             let ui = input.ui;
-            let label = small_text(x, rect, String::new(), surfaces.muted, ui);
+            let label = small_text(x, rect, String::new(), ink, ui);
             scene.text.push(TextRun {
                 x: x.round(),
                 baseline: (label.baseline - ui.cap / 2.0 - ui.icon.height / 2.0 + ui.icon.baseline)
@@ -426,9 +426,46 @@ fn draw(input: &ChromeInput, label: &Label, text: String, rect: PxRect, scene: &
         (x + lead(input, label)).round(),
         rect,
         text,
-        surfaces.muted,
+        ink,
         input.ui,
     ));
+}
+
+fn colours(theme: &Theme, label: &Label) -> (Rgb, Rgb) {
+    let index = match label.chip {
+        Chip::Cwd | Chip::Docker => 4,
+        Chip::GitBranch | Chip::Kube => 5,
+        Chip::GitChanges | Chip::GitAheadBehind | Chip::Venv | Chip::Host => 2,
+        Chip::User => 3,
+        Chip::Time => 6,
+        Chip::Exit => match label.tone {
+            Tone::Failed => 1,
+            Tone::Ok | Tone::Plain => 2,
+        },
+    };
+    let fill = theme.normal[index];
+    let ink = if contrast(fill, theme.background) >= contrast(fill, theme.foreground) {
+        theme.background
+    } else {
+        theme.foreground
+    };
+    (fill, ink)
+}
+
+fn contrast(a: Rgb, b: Rgb) -> f32 {
+    let luminance = |color: Rgb| {
+        let channel = |value: u8| {
+            let value = f32::from(value) / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        channel(color.r) * 0.2126 + channel(color.g) * 0.7152 + channel(color.b) * 0.0722
+    };
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
 }
 
 fn width(

@@ -176,6 +176,7 @@ fn server_messages() -> Vec<ServerMsg> {
                 },
                 selection: Vec::new(),
                 flags: PaneFlags {
+                    prompt_row: Some(3),
                     alt_screen: true,
                     display_offset: 12,
                     mouse_reporting: false,

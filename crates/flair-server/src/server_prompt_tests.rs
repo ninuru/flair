@@ -453,7 +453,7 @@ fn a_window_switch_sends_info_for_the_newly_visible_panes() {
 }
 
 #[test]
-fn new_windows_spawn_at_the_banded_size() {
+fn new_windows_use_the_full_pane_size_for_the_shell_prompt() {
     let (mut server, initial) = chips(|_| {});
     let created = command(&mut server, 1, Command::NewWindow);
     for (out, pane) in [(initial, PaneId(1)), (created, PaneId(2))] {
@@ -474,7 +474,7 @@ fn new_windows_spawn_at_the_banded_size() {
                 | Effect::Shutdown => None,
             })
             .unwrap();
-        assert_eq!(size, GridSize { cols: 20, rows: 3 });
+        assert_eq!(size, GridSize { cols: 20, rows: 4 });
         assert!(
             !out.iter()
                 .any(|effect| matches!(effect, Effect::ResizePty(id, _) if *id == pane))
@@ -483,16 +483,12 @@ fn new_windows_spawn_at_the_banded_size() {
 }
 
 #[test]
-fn ps1_sends_nothing_and_reloading_chips_takes_a_row() {
+fn reloading_chips_sends_facts_without_reserving_a_pane_row() {
     let (mut server, initial) = chips(|prompt| prompt.style = PromptStyle::Ps1);
     assert!(infos(&initial).is_empty());
     assert!(git_jobs(&initial).is_empty());
     assert!(prompt_timers(&initial).is_empty());
-    let geometry = server
-        .tree
-        .window(WindowId(1))
-        .unwrap()
-        .geometry(server.band());
+    let geometry = server.tree.window(WindowId(1)).unwrap().geometry(0);
     assert_eq!(geometry.panes[0].band, 0);
     for effect in &initial {
         if let Effect::Send(client, ServerMsg::Frame { seq, .. }) = effect {
@@ -505,14 +501,10 @@ fn ps1_sends_nothing_and_reloading_chips_takes_a_row() {
     }
     let toml = "[prompt]\nstyle = \"chips\"\n";
     let out = handle(&mut server, 2, Event::ConfigRead(Ok(toml.into())));
-    assert!(out.iter().any(|effect| matches!(
-        effect,
-        Effect::ResizePty(PaneId(1), GridSize { cols: 20, rows: 3 })
-    )));
-    assert!(out.iter().any(|effect| matches!(
-        effect,
-        Effect::Send(ClientId(1), ServerMsg::Layout(layout)) if layout.panes[0].band == 1
-    )));
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::ResizePty(_, _)))
+    );
     assert_eq!(infos(&out).len(), 1);
     assert_eq!(prompt_timers(&out), vec![Millis(5002)]);
 }

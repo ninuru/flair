@@ -434,6 +434,7 @@ fn the_icon_face_draws_terminal_glyphs_at_the_small_size() {
     let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
     let metrics = fonts.metrics();
     let icon = fonts.ui_metrics().icon;
+    let raster = fonts.rasterize_icon('\u{f114}').unwrap();
     assert!(
         icon.height > 0.0 && icon.height < metrics.height && icon.width <= metrics.width,
         "{icon:?} {metrics:?}"
@@ -477,12 +478,13 @@ fn the_icon_face_draws_terminal_glyphs_at_the_small_size() {
         .filter(|(x, y)| pixels[((H - 1 - y) * W + x) * 4] > 0)
         .collect();
     assert!(!lit.is_empty(), "the icon face left no pixels");
-    let top = baseline - icon.baseline;
+    let left = 10 + raster.left;
+    let top = baseline as i32 - raster.top;
     for (x, y) in lit {
         assert!(
-            (top.floor() as usize..(top + icon.height).ceil() as usize).contains(&y)
-                && (10..10 + 2 * icon.width.ceil() as usize).contains(&x),
-            "pixel {x},{y} outside the icon cell {icon:?}"
+            (top..top + raster.height as i32).contains(&(y as i32))
+                && (left..left + raster.width as i32).contains(&(x as i32)),
+            "pixel {x},{y} outside icon raster {raster:?} at {left},{top}"
         );
     }
     drop(renderer);
