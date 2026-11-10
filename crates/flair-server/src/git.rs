@@ -48,16 +48,8 @@ pub(crate) fn open(cwd: &Path) -> Option<(PathBuf, Repository)> {
     Some((root, repo))
 }
 
-pub(crate) fn quick(repo: &Repository) -> GitInfo {
-    GitInfo {
-        head: head(repo),
-        upstream: upstream(repo),
-        changes: None,
-    }
-}
-
 pub(crate) fn read(
-    root: PathBuf,
+    cwd: PathBuf,
     changes: bool,
     deadline: Duration,
 ) -> (Read, Option<JoinHandle<()>>) {
@@ -67,7 +59,7 @@ pub(crate) fn read(
     let spawned = thread::Builder::new()
         .name("flair-git".into())
         .spawn(move || {
-            let Some((_, repo)) = open(&root) else {
+            let Some((_, repo)) = open(&cwd) else {
                 return;
             };
             let mut info = GitInfo {

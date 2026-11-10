@@ -363,3 +363,28 @@ fn branch_names_are_sanitised_for_the_chrome() {
     );
     fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn the_reader_discovers_the_repository_from_any_directory_inside_it() {
+    let dir = temp("discover");
+    let plain = dir.join("plain");
+    fs::create_dir_all(&plain).unwrap();
+    assert_eq!(
+        read(plain, false, Duration::from_secs(2)).0,
+        Read::Failed(None)
+    );
+    if git_available() {
+        let repo = dir.join("repo");
+        fs::create_dir_all(repo.join("sub")).unwrap();
+        commit(&repo, "a.txt", "one\n");
+        let (outcome, straggler) = read(repo.join("sub"), false, Duration::from_secs(2));
+        assert!(straggler.is_none());
+        match outcome {
+            Read::Done(found) => assert_eq!(found.head, Head::Branch("main".into())),
+            other @ (Read::Slow(_) | Read::Failed(_)) => panic!("unfinished read: {other:?}"),
+        }
+    } else {
+        eprintln!("skipping the repository half: git is not on PATH");
+    }
+    fs::remove_dir_all(dir).unwrap();
+}

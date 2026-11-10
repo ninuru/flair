@@ -1,4 +1,9 @@
 use super::*;
+use flair_core::{
+    geom::{CellPoint, CellRect, GridSize},
+    ids::{PaneId, WindowId},
+    proto::{PanePlacement, WindowLayout},
+};
 
 #[test]
 fn bar_press_goes_to_the_bar_and_other_bar_events_drop() {
@@ -213,4 +218,50 @@ fn bar_hits_map_to_commands() {
         Command::SelectWindow(WindowRef::Id(flair_core::ids::WindowId(4)))
     );
     assert_eq!(bar_command(HitTarget::Session), Command::ChooseSession);
+}
+
+#[test]
+fn a_primary_paste_lands_only_in_pane_content_never_on_its_band() {
+    let at = |row, col| CellPoint { row, col };
+    let layout = WindowLayout {
+        window: WindowId(1),
+        area: CellRect {
+            origin: at(0, 0),
+            size: GridSize { cols: 20, rows: 10 },
+        },
+        panes: vec![
+            PanePlacement {
+                pane: PaneId(1),
+                rect: CellRect {
+                    origin: at(1, 0),
+                    size: GridSize { cols: 9, rows: 9 },
+                },
+                band: 1,
+            },
+            PanePlacement {
+                pane: PaneId(2),
+                rect: CellRect {
+                    origin: at(1, 10),
+                    size: GridSize { cols: 10, rows: 9 },
+                },
+                band: 1,
+            },
+        ],
+        separators: vec![],
+        active: PaneId(2),
+        zoomed: false,
+    };
+    let active = Some(PaneId(2));
+    assert_eq!(paste_target(Some(&layout), active, at(0, 3)), None);
+    assert_eq!(paste_target(Some(&layout), active, at(0, 12)), None);
+    assert_eq!(paste_target(Some(&layout), active, at(4, 9)), None);
+    assert_eq!(
+        paste_target(Some(&layout), active, at(1, 3)),
+        Some(PaneId(1))
+    );
+    assert_eq!(
+        paste_target(Some(&layout), active, at(9, 19)),
+        Some(PaneId(2))
+    );
+    assert_eq!(paste_target(None, active, at(0, 0)), active);
 }

@@ -1,6 +1,9 @@
 use flair_core::{
     command::{Command, WindowRef},
+    geom::CellPoint,
+    ids::PaneId,
     key::{MouseAction, MouseButton},
+    proto::WindowLayout,
 };
 
 use crate::chrome_layout::HitTarget;
@@ -64,6 +67,21 @@ pub(crate) fn capture_after(
             Capture::Server
         }
         (MouseAction::Press, Capture::Idle, MouseRoute::Server | MouseRoute::Drop) => Capture::Idle,
+    }
+}
+
+pub(crate) fn paste_target(
+    layout: Option<&WindowLayout>,
+    active: Option<PaneId>,
+    point: CellPoint,
+) -> Option<PaneId> {
+    match layout {
+        Some(layout) => layout
+            .panes
+            .iter()
+            .find(|placement| placement.rect.contains(point))
+            .map(|placement| placement.pane),
+        None => active,
     }
 }
 

@@ -2,12 +2,10 @@ use crate::{
     event::Event,
     git::{self, Read},
 };
-use flair_core::isles::label;
-use gix::Repository;
+use flair_core::isles::{GitInfo, label};
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs, iter,
-    panic::{self, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::mpsc::Receiver,
     thread::JoinHandle,
@@ -16,6 +14,7 @@ use std::{
 
 const STATUS_DEADLINE: Duration = Duration::from_secs(2);
 const SLOW_PAUSE: Duration = Duration::from_secs(60);
+const KNOWN_CAP: usize = 256;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Contexts {
@@ -64,11 +63,59 @@ pub(crate) fn inside(cwd: &Path, shells: &BTreeSet<u32>) -> bool {
         .any(|pid| fs::canonicalize(format!("/proc/{pid}/cwd")).is_ok_and(|real| real == claimed))
 }
 
-fn guarded<T>(what: &Path, read: impl FnOnce() -> Option<T>) -> Option<T> {
-    panic::catch_unwind(AssertUnwindSafe(read)).unwrap_or_else(|_| {
-        log::warn!("reading git facts for {} panicked", what.display());
-        None
-    })
+#[derive(Debug, Default)]
+pub(crate) struct Reads {
+    slow: BTreeMap<PathBuf, Instant>,
+    straggler: Option<JoinHandle<()>>,
+    known: BTreeMap<PathBuf, GitInfo>,
+}
+
+impl Reads {
+    pub(crate) fn git(
+        &mut self,
+        cwd: PathBuf,
+        changes: bool,
+        read: impl FnOnce(PathBuf, bool) -> (Read, Option<JoinHandle<()>>),
+    ) -> Option<GitInfo> {
+        if self
+            .straggler
+            .as_ref()
+            .is_some_and(|reader| !reader.is_finished())
+        {
+            return self.known.get(&cwd).cloned();
+        }
+        self.slow.retain(|_, since| since.elapsed() < SLOW_PAUSE);
+        let changes = changes && !self.slow.contains_key(&cwd);
+        let (outcome, left) = read(cwd.clone(), changes);
+        self.straggler = left;
+        let info = match outcome {
+            Read::Done(info) => Some(info),
+            Read::Slow(info) => {
+                log::debug!("git facts for {} are slow, skipping changes", cwd.display());
+                self.slow.insert(cwd.clone(), Instant::now());
+                info
+            }
+            Read::Failed(info) => {
+                if info.is_some() {
+                    log::warn!("reading git facts for {} failed", cwd.display());
+                    self.slow.insert(cwd.clone(), Instant::now());
+                }
+                info
+            }
+        };
+        match &info {
+            Some(found) => {
+                if self.known.len() >= KNOWN_CAP && !self.known.contains_key(&cwd) {
+                    self.known.clear();
+                }
+                self.known.insert(cwd, found.clone());
+            }
+            None => {
+                self.known.remove(&cwd);
+            }
+        }
+        info
+    }
 }
 
 pub(crate) fn work(
@@ -78,8 +125,7 @@ pub(crate) fn work(
     kube: PathBuf,
     mut send: impl FnMut(Event) -> bool,
 ) {
-    let mut slow: BTreeMap<PathBuf, Instant> = BTreeMap::new();
-    let mut straggler: Option<JoinHandle<()>> = None;
+    let mut reads = Reads::default();
     while let Ok(first) = jobs.recv() {
         let (cwds, contexts) = batch(iter::once(first).chain(jobs.try_iter()));
         if contexts
@@ -91,60 +137,16 @@ pub(crate) fn work(
         {
             return;
         }
-        slow.retain(|_, since| since.elapsed() < SLOW_PAUSE);
-        let mut roots: BTreeMap<PathBuf, (Repository, bool, Vec<PathBuf>)> = BTreeMap::new();
         for (cwd, (changes, shells)) in cwds {
-            let found = if inside(&cwd, &shells) {
-                guarded(&cwd, || git::open(&cwd))
+            let info = if inside(&cwd, &shells) {
+                reads.git(cwd.clone(), changes, |cwd, changes| {
+                    git::read(cwd, changes, STATUS_DEADLINE)
+                })
             } else {
                 None
             };
-            match found {
-                Some((root, repo)) => {
-                    let group = roots
-                        .entry(root)
-                        .or_insert_with(|| (repo, false, Vec::new()));
-                    group.1 |= changes;
-                    group.2.push(cwd);
-                }
-                None => {
-                    if !send(Event::GitRead(cwd, None)) {
-                        return;
-                    }
-                }
-            }
-        }
-        for (root, (repo, changes, cwds)) in roots {
-            let info = if straggler
-                .as_ref()
-                .is_some_and(|reader| !reader.is_finished())
-            {
-                guarded(&root, || Some(git::quick(&repo)))
-            } else {
-                let changes = changes && !slow.contains_key(&root);
-                let (read, left) = git::read(root.clone(), changes, STATUS_DEADLINE);
-                straggler = left;
-                match read {
-                    Read::Done(info) => Some(info),
-                    Read::Slow(info) => {
-                        log::debug!(
-                            "git facts for {} are slow, skipping changes",
-                            root.display()
-                        );
-                        slow.insert(root, Instant::now());
-                        info
-                    }
-                    Read::Failed(info) => {
-                        log::warn!("reading git facts for {} failed", root.display());
-                        slow.insert(root, Instant::now());
-                        info
-                    }
-                }
-            };
-            for cwd in cwds {
-                if !send(Event::GitRead(cwd, info.clone())) {
-                    return;
-                }
+            if !send(Event::GitRead(cwd, info)) {
+                return;
             }
         }
     }

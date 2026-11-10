@@ -295,3 +295,80 @@ fn a_nested_shell_in_the_foreground_vouches_for_its_directory() {
     drop((pane, nested));
     fs::remove_dir_all(dir).unwrap();
 }
+
+fn branch(name: &str) -> GitInfo {
+    GitInfo {
+        head: Head::Branch(name.into()),
+        upstream: None,
+        changes: None,
+    }
+}
+
+fn blocked() -> (mpsc::Sender<()>, JoinHandle<()>) {
+    let (release, wait) = mpsc::channel::<()>();
+    let reader = std::thread::spawn(move || {
+        let _ = wait.recv();
+    });
+    (release, reader)
+}
+
+fn untouched(_: PathBuf, _: bool) -> (Read, Option<JoinHandle<()>>) {
+    panic!("the repository was read while a straggler lives")
+}
+
+#[test]
+fn while_a_straggler_lives_every_directory_gets_its_last_facts_without_a_read() {
+    let mut reads = Reads::default();
+    let cached = PathBuf::from("/repo");
+    let answer = reads.git(cached.clone(), true, |_, _| {
+        (Read::Done(branch("main")), None)
+    });
+    assert_eq!(answer, Some(branch("main")));
+    let (release, reader) = blocked();
+    let slow = reads.git(PathBuf::from("/huge"), true, move |_, _| {
+        (Read::Slow(Some(branch("big"))), Some(reader))
+    });
+    assert_eq!(slow, Some(branch("big")));
+    assert_eq!(
+        reads.git(cached.clone(), true, untouched),
+        Some(branch("main"))
+    );
+    assert_eq!(
+        reads.git(PathBuf::from("/huge"), true, untouched),
+        Some(branch("big"))
+    );
+    assert_eq!(reads.git(PathBuf::from("/new"), true, untouched), None);
+    release.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while reads
+        .straggler
+        .as_ref()
+        .is_some_and(|reader| !reader.is_finished())
+    {
+        assert!(Instant::now() < deadline, "the straggler never finished");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    let fresh = reads.git(cached, true, |_, _| (Read::Done(branch("next")), None));
+    assert_eq!(fresh, Some(branch("next")));
+}
+
+#[test]
+fn a_slow_directory_is_read_without_changes_and_a_failed_one_forgets_its_facts() {
+    let mut reads = Reads::default();
+    let dir = PathBuf::from("/repo");
+    reads.git(dir.clone(), true, |cwd, changes| {
+        assert_eq!(cwd, PathBuf::from("/repo"));
+        assert!(changes);
+        (Read::Slow(Some(branch("main"))), None)
+    });
+    reads.git(dir.clone(), true, |_, changes| {
+        assert!(!changes);
+        (Read::Failed(None), None)
+    });
+    let (release, reader) = blocked();
+    reads.git(PathBuf::from("/other"), false, move |_, _| {
+        (Read::Slow(None), Some(reader))
+    });
+    assert_eq!(reads.git(dir, true, untouched), None);
+    release.send(()).unwrap();
+}

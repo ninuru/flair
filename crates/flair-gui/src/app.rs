@@ -39,7 +39,7 @@ use crate::{
     isles::{Isles, local_clock, next_minute},
     mirror::Mirror,
     mouse::{self, WheelAccumulator},
-    mouse_route::{Capture, MouseRoute, bar_command, capture_after, route_mouse},
+    mouse_route::{Capture, MouseRoute, bar_command, capture_after, paste_target, route_mouse},
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
     probe::Probe,
@@ -208,18 +208,6 @@ impl App {
             self.ime = active;
             self.send(ClientMsg::Input(InputEvent::Ime(active)));
         }
-    }
-    fn pane_at(&self, point: CellPoint) -> Option<PaneId> {
-        self.layout
-            .as_ref()
-            .and_then(|layout| {
-                layout
-                    .panes
-                    .iter()
-                    .find(|placement| placement.rect.contains(point))
-                    .map(|placement| placement.pane)
-            })
-            .or(self.pane)
     }
     fn reload(&mut self, config: Config) {
         let fonts_changed = config.font != self.effective().font;
@@ -625,10 +613,11 @@ impl ApplicationHandler<UserEvent> for App {
                         MouseAction::Press,
                         self.capture,
                     ) == MouseRoute::Server
+                    && let Some(pane) = paste_target(self.layout.as_ref(), self.pane, point)
                     && (self.mods.shift_key()
                         || self
-                            .pane_at(point)
-                            .and_then(|pane| self.mirror.pane(pane))
+                            .mirror
+                            .pane(pane)
                             .is_some_and(|pane| !pane.flags.mouse_reporting))
                 {
                     if state == ElementState::Pressed {
