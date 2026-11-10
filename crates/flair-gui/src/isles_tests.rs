@@ -487,3 +487,16 @@ fn the_local_clock_reads_a_valid_time() {
     let (hour, minute) = local_clock().expect("localtime");
     assert!(hour < 24 && minute < 60);
 }
+
+#[test]
+fn control_characters_never_reach_a_chip() {
+    let mut info = full();
+    info.shell = Some(ShellFacts {
+        user: "a\u{1b}da\u{7}".into(),
+        host: "box\n".into(),
+        venv: None,
+    });
+    let config = all_on(false);
+    assert_eq!(text_of(&info, &config, Chip::User).as_deref(), Some("ada"));
+    assert_eq!(text_of(&info, &config, Chip::Host).as_deref(), Some("box"));
+}

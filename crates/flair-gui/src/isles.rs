@@ -131,7 +131,12 @@ fn text(
     clock: Option<(u8, u8)>,
     home: Option<&Path>,
 ) -> Option<(String, Tone)> {
-    let plain = |text: String| Some((text, Tone::Plain));
+    let plain = |text: String| {
+        Some((
+            text.chars().filter(|c| !c.is_control()).collect(),
+            Tone::Plain,
+        ))
+    };
     let named = |prefix: &str, value: &str| match config.icons {
         true => value.to_owned(),
         false => format!("{prefix} {value}"),
