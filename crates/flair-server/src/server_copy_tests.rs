@@ -1,6 +1,7 @@
 use super::*;
 use flair_core::{
     command::{Command, CopyCommand},
+    config::PromptStyle,
     geom::{CellPoint, GridSize},
     key::{
         InputEvent, Key, KeyAction, KeyInput, Locks, Mods, MouseAction, MouseButton, MouseInput,
@@ -22,7 +23,9 @@ fn hello() -> ClientMsg {
 }
 
 fn setup() -> Server {
-    let mut server = Server::new(ServerConfig::from_config(&Config::default()));
+    let mut config = Config::default();
+    config.prompt.style = PromptStyle::Ps1;
+    let mut server = Server::new(ServerConfig::from_config(&config));
     let mut out = Vec::new();
     server.handle(Millis(0), Event::Client(ClientId(1), hello()), &mut out);
     ack(&mut server, &out);

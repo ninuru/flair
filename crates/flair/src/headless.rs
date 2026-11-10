@@ -180,6 +180,7 @@ impl Capture {
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::ChooseSession { .. }
             | ServerMsg::Sessions(_)
+            | ServerMsg::PromptInfo { .. }
             | ServerMsg::ChooseWindow
             | ServerMsg::ChooseTheme
             | ServerMsg::Settings
@@ -412,6 +413,7 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
+            isles: None,
         };
         let ChromeLayout { overlay, .. } =
             chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
@@ -452,6 +454,7 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
+            isles: None,
         };
         let ChromeLayout {
             chrome, overlay, ..

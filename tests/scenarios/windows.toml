@@ -16,7 +16,7 @@ text = "stty size\r"
 
 [[steps]]
 action = "wait"
-text = "12 80"
+text = "11 80"
 
 [[steps]]
 action = "key"
@@ -30,7 +30,7 @@ text = "stty size\r"
 
 [[steps]]
 action = "wait"
-text = "12 40"
+text = "11 40"
 
 [[steps]]
 action = "key"
@@ -60,4 +60,4 @@ alt = true
 
 [[steps]]
 action = "wait"
-text = "12 80"
+text = "11 80"

@@ -12,15 +12,17 @@ pub enum Section {
     Font,
     Window,
     Terminal,
+    Prompt,
     Keys,
 }
 
 impl Section {
-    pub const ALL: [Section; 5] = [
+    pub const ALL: [Section; 6] = [
         Section::Appearance,
         Section::Font,
         Section::Window,
         Section::Terminal,
+        Section::Prompt,
         Section::Keys,
     ];
 
@@ -30,6 +32,7 @@ impl Section {
             Section::Font => "Font",
             Section::Window => "Window",
             Section::Terminal => "Terminal",
+            Section::Prompt => "Prompt",
             Section::Keys => "Keys",
         }
     }
@@ -55,11 +58,17 @@ pub enum Kind {
     Toggle,
     Integer { step: i64, min: i64, max: i64 },
     Float { step: f64, min: f64, max: f64 },
-    Choice,
+    Choice(Choices),
     Text,
     Font,
     Words,
     Color { alpha: bool },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Choices {
+    Themes,
+    Of(&'static [&'static str]),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -115,7 +124,7 @@ impl Setting {
     pub fn parse(&self, text: &str) -> Result<Option<Value>, String> {
         let trimmed = text.trim();
         match self.kind {
-            Kind::Toggle | Kind::Choice => Err("use space or ← →".to_owned()),
+            Kind::Toggle | Kind::Choice(_) => Err("use space or ← →".to_owned()),
             Kind::Integer { min, max, .. } => trimmed
                 .parse::<i64>()
                 .ok()
@@ -169,11 +178,15 @@ impl Setting {
                 let grid = ((value + f64::from(delta) * step) / step).round() * step;
                 Value::Float(((grid * 1e6).round() / 1e6).clamp(min, max))
             }
-            Kind::Choice => {
+            Kind::Choice(choices) => {
                 let Value::Text(name) = current else {
                     return None;
                 };
-                Value::Text(cycle(themes, name, delta)?)
+                let names: Vec<&str> = match choices {
+                    Choices::Themes => themes.iter().map(String::as_str).collect(),
+                    Choices::Of(names) => names.to_vec(),
+                };
+                Value::Text(cycle(&names, name, delta)?)
             }
             Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => return None,
         };
@@ -193,7 +206,7 @@ pub const SETTINGS: &[Setting] = &[
         key: "theme",
         title: "Theme",
         section: Section::Appearance,
-        kind: Kind::Choice,
+        kind: Kind::Choice(Choices::Themes),
         description: "Colour theme for the terminal and the chrome.",
         read: |config, _| Value::Text(config.theme.clone()),
     },
@@ -344,6 +357,124 @@ pub const SETTINGS: &[Setting] = &[
         },
     },
     Setting {
+        key: "prompt.style",
+        title: "Prompt",
+        section: Section::Prompt,
+        kind: Kind::Choice(Choices::Of(&["chips", "ps1"])),
+        description: "Chips draw a band above each pane; new shells get a minimal prompt.",
+        read: |config, _| Value::Text(config.prompt.style.name().to_owned()),
+    },
+    Setting {
+        key: "prompt.icons",
+        title: "Icons",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows a Nerd Font icon before each chip.",
+        read: |config, _| Value::Bool(config.prompt.icons),
+    },
+    Setting {
+        key: "prompt.user",
+        title: "User",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the shell user.",
+        read: |config, _| Value::Bool(config.prompt.user),
+    },
+    Setting {
+        key: "prompt.host",
+        title: "Host",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the host name.",
+        read: |config, _| Value::Bool(config.prompt.host),
+    },
+    Setting {
+        key: "prompt.cwd",
+        title: "Directory",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the working directory.",
+        read: |config, _| Value::Bool(config.prompt.cwd),
+    },
+    Setting {
+        key: "prompt.git_branch",
+        title: "Git branch",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the branch or the detached commit.",
+        read: |config, _| Value::Bool(config.prompt.git_branch),
+    },
+    Setting {
+        key: "prompt.git_ahead_behind",
+        title: "Ahead and behind",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows commits ahead of and behind the upstream.",
+        read: |config, _| Value::Bool(config.prompt.git_ahead_behind),
+    },
+    Setting {
+        key: "prompt.git_changes",
+        title: "Git changes",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows changed files and added and removed lines.",
+        read: |config, _| Value::Bool(config.prompt.git_changes),
+    },
+    Setting {
+        key: "prompt.venv",
+        title: "Python environment",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the active virtualenv or conda env.",
+        read: |config, _| Value::Bool(config.prompt.venv),
+    },
+    Setting {
+        key: "prompt.docker",
+        title: "Docker context",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the current docker context.",
+        read: |config, _| Value::Bool(config.prompt.docker),
+    },
+    Setting {
+        key: "prompt.kube",
+        title: "Kubernetes context",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the current kube context.",
+        read: |config, _| Value::Bool(config.prompt.kube),
+    },
+    Setting {
+        key: "prompt.exit",
+        title: "Exit status",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the last exit status and duration.",
+        read: |config, _| Value::Bool(config.prompt.exit),
+    },
+    Setting {
+        key: "prompt.time",
+        title: "Time",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the time of day.",
+        read: |config, _| Value::Bool(config.prompt.time),
+    },
+    Setting {
+        key: "prompt.duration_ms",
+        title: "Duration above (ms)",
+        section: Section::Prompt,
+        kind: Kind::Integer {
+            step: 500,
+            min: 0,
+            max: 600_000,
+        },
+        description: "Hides shorter command durations.",
+        read: |config, _| {
+            Value::Integer(i64::try_from(config.prompt.duration_ms).unwrap_or(i64::MAX))
+        },
+    },
+    Setting {
         key: "keys.enabled",
         title: "Bindings",
         section: Section::Keys,
@@ -440,15 +571,15 @@ fn split_words(text: &str) -> Result<Vec<String>, String> {
     Ok(words)
 }
 
-fn cycle(names: &[String], current: &str, delta: i32) -> Option<String> {
+fn cycle(names: &[&str], current: &str, delta: i32) -> Option<String> {
     let len = i64::try_from(names.len()).ok().filter(|len| *len > 0)?;
-    let start = match names.iter().position(|name| name == current) {
+    let start = match names.iter().position(|name| *name == current) {
         Some(index) => i64::try_from(index).ok()?,
         None if delta < 0 => len,
         None => -1,
     };
     let index = usize::try_from((start + i64::from(delta)).rem_euclid(len)).ok()?;
-    Some(names[index].clone())
+    Some(names[index].to_owned())
 }
 
 #[cfg(test)]

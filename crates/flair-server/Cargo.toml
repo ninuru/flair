@@ -8,6 +8,7 @@ repository.workspace = true
 [dependencies]
 flair-core.workspace = true
 flair-term.workspace = true
+gix.workspace = true
 log.workspace = true
 libc = "0.2"
 serde.workspace = true

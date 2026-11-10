@@ -117,6 +117,7 @@ impl<'a> Case<'a> {
             hover: self.hover,
             overlays: None,
             notice: self.notice,
+            isles: None,
         };
         layout(&input, measure)
     }

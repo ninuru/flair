@@ -172,7 +172,7 @@ impl Server {
             .tree
             .window(window_id)
             .unwrap()
-            .geometry()
+            .geometry(self.band())
             .panes
             .into_iter()
             .find(|placement| placement.pane == new)

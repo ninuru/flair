@@ -55,7 +55,7 @@ fn real_scenarios_run_without_display_and_capture_cells() {
         let screen = fs::read_to_string(output.0.join("screen.txt")).unwrap();
         assert!(screen.contains(match scenario {
             "basic" => "got:ok",
-            "resize" => "30 100",
+            "resize" => "29 100",
             "input" => "paste:hello world",
             "stress" => "INTERRUPTED",
             _ => unreachable!(),
@@ -94,7 +94,7 @@ fn windows_scenario_frames_status_split_and_window_switch() {
     assert!(
         rows[1..]
             .iter()
-            .any(|row| row.trim_end().ends_with("12 40"))
+            .any(|row| row.trim_end().ends_with("11 40"))
     );
 }
 

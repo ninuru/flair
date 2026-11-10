@@ -276,6 +276,7 @@ impl App {
             hover: Some((self.pointer.x as f32, self.pointer.y as f32)),
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
+            isles: None,
         };
         let ChromeLayout {
             chrome,
@@ -472,6 +473,7 @@ impl ApplicationHandler<UserEvent> for App {
                 | ServerMsg::ChooseTheme
                 | ServerMsg::Settings
                 | ServerMsg::Sessions(_)
+                | ServerMsg::PromptInfo { .. }
                 | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
                 ServerMsg::Exit(_) => {

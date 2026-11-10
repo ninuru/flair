@@ -1,7 +1,7 @@
 use super::*;
 use flair_core::{
     command::Command,
-    config::Config,
+    config::{Config, PromptStyle},
     geom::{CellPoint, GridSize},
     key::{InputEvent, Key, KeyAction, KeyInput, Locks, Mods, MouseAction, MouseButton},
     proto::ClientKind,
@@ -19,7 +19,9 @@ fn hello() -> ClientMsg {
 }
 
 fn setup() -> (Server, Vec<Effect>) {
-    let mut server = Server::new(ServerConfig::from_config(&Config::default()));
+    let mut config = Config::default();
+    config.prompt.style = PromptStyle::Ps1;
+    let mut server = Server::new(ServerConfig::from_config(&config));
     let mut out = Vec::new();
     server.handle(Millis(0), Event::Client(ClientId(1), hello()), &mut out);
     (server, out)
@@ -37,6 +39,34 @@ fn ack(server: &mut Server, effects: &[Effect]) -> Vec<Effect> {
         }
     }
     out
+}
+
+#[test]
+fn the_prompt_style_reaches_the_shell_and_the_band_takes_a_pty_row() {
+    let spawn = |style| {
+        let mut config = Config::default();
+        config.prompt.style = style;
+        let mut server = Server::new(ServerConfig::from_config(&config));
+        let mut out = Vec::new();
+        server.handle(Millis(0), Event::Client(ClientId(1), hello()), &mut out);
+        let spec = out
+            .into_iter()
+            .find_map(|effect| {
+                if let Effect::Spawn(PaneId(1), spec) = effect {
+                    Some(spec)
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        (spec.env, server.panes[&PaneId(1)].size)
+    };
+    let (chips_env, chips) = spawn(PromptStyle::Chips);
+    let (ps1_env, ps1) = spawn(PromptStyle::Ps1);
+    assert!(chips_env.contains(&("FLAIR_PROMPT".to_owned(), "chips".to_owned())));
+    assert!(ps1_env.contains(&("FLAIR_PROMPT".to_owned(), "ps1".to_owned())));
+    assert_eq!(chips.cols, ps1.cols);
+    assert_eq!(chips.rows + 1, ps1.rows);
 }
 
 #[test]

@@ -95,6 +95,7 @@ fn window(separators: &[Separator], panes: &[(u32, CellRect)], active: u32) -> W
             .map(|(pane, rect)| PanePlacement {
                 pane: PaneId(*pane),
                 rect: *rect,
+                band: 0,
             })
             .collect(),
         separators: separators.to_vec(),
@@ -119,6 +120,7 @@ fn run_layout(scale: f32, width: u32, window: Option<&WindowLayout>) -> ChromeLa
         hover: None,
         overlays: None,
         notice: None,
+        isles: None,
     };
     layout(&input, measure)
 }
@@ -214,6 +216,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
             hover: None,
             overlays: None,
             notice: None,
+            isles: None,
         };
         let chrome = layout(&input, measure).chrome;
         let full = rect(0.0, top, px.0 as f32, px.1 as f32 - top);
@@ -503,6 +506,7 @@ fn scaled_layout(
         hover: None,
         overlays: Some(overlays),
         notice,
+        isles: None,
     };
     layout(&input, fractional)
 }
@@ -645,6 +649,7 @@ fn bar_layout(width: u32, status: &StatusParts) -> ChromeLayout {
         hover: None,
         overlays: None,
         notice: None,
+        isles: None,
     };
     layout(&input, measure)
 }
@@ -773,6 +778,7 @@ fn monogram_letters_at_the_small_size_fit_inside_the_square() {
             hover: None,
             overlays: None,
             notice: None,
+            isles: None,
         };
         let layout = layout(&input, measure);
         let letters = text(&layout, session).unwrap();

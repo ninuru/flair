@@ -9,6 +9,7 @@ use alacritty_terminal::{
 };
 use flair_core::{
     geom::{CellPoint, GridSize},
+    isles::ShellFacts,
     proto::PaneUpdate,
     theme::Theme,
 };
@@ -41,6 +42,7 @@ pub enum TermEvent {
     PtyWrite(Vec<u8>),
     Cwd(PathBuf),
     Mark(MarkKind, Option<i32>),
+    Facts(ShellFacts),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,7 +123,10 @@ impl Terminal {
             match event {
                 TermEvent::Title(title) => self.title = Some(title.clone()),
                 TermEvent::Cwd(cwd) => self.cwd = Some(cwd.clone()),
-                TermEvent::Bell | TermEvent::PtyWrite(_) | TermEvent::Mark(_, _) => (),
+                TermEvent::Bell
+                | TermEvent::PtyWrite(_)
+                | TermEvent::Mark(_, _)
+                | TermEvent::Facts(_) => (),
             }
         }
         let alt_changed = old_alt != self.modes().alt_screen;

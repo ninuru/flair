@@ -3,8 +3,8 @@ use std::path::PathBuf;
 use crate::{
     geom::{CellPoint, CellRect, GridSize},
     ids::{PaneId, SessionId, WindowId},
-    layout::Layout,
-    proto::{PanePlacement, WindowLayout},
+    layout::{Layout, leaf},
+    proto::WindowLayout,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,17 +142,11 @@ impl Window {
         }
     }
 
-    pub fn geometry(&self) -> WindowLayout {
+    pub fn geometry(&self, band: u16) -> WindowLayout {
         let area = self.area();
-        let geometry = self.layout.geometry(area);
+        let geometry = self.layout.geometry(area, band);
         let (panes, separators) = if self.zoomed {
-            (
-                vec![PanePlacement {
-                    pane: self.active_pane,
-                    rect: area,
-                }],
-                vec![],
-            )
+            (vec![leaf(self.active_pane, area, band)], vec![])
         } else {
             (geometry.panes, geometry.separators)
         };

@@ -1,4 +1,7 @@
-use flair_core::{config::Config, keys::KeysConfig};
+use flair_core::{
+    config::{Config, PromptConfig},
+    keys::KeysConfig,
+};
 use std::{env, path::PathBuf};
 
 #[derive(Debug, Clone)]
@@ -9,6 +12,7 @@ pub struct ServerConfig {
     pub env: Vec<(String, String)>,
     pub scrollback: usize,
     pub keys: KeysConfig,
+    pub prompt: PromptConfig,
     pub path: PathBuf,
 }
 
@@ -20,6 +24,7 @@ impl ServerConfig {
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
         env.push(("TERM_PROGRAM".into(), "flair".into()));
+        env.push(("FLAIR_PROMPT".into(), config.prompt.style.name().into()));
         ServerConfig {
             program: config.shell.program.clone(),
             args: config.shell.args.clone(),
@@ -27,6 +32,7 @@ impl ServerConfig {
             env,
             scrollback: config.scrollback.lines,
             keys: config.keys.clone(),
+            prompt: config.prompt,
             path: Config::default_path(),
         }
     }

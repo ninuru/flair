@@ -1,7 +1,7 @@
 use super::spawn_in_process;
 use crate::ServerConfig;
 use flair_core::{
-    config::Config,
+    config::{Config, PromptStyle},
     geom::GridSize,
     key::{InputEvent, Key, KeyAction, KeyInput, Locks, Mods, NamedKey},
     link::channel_pair,
@@ -18,7 +18,9 @@ fn start(script: &str) -> Option<(flair_core::link::ClientLink, std::thread::Joi
         eprintln!("skipping real PTY test: /bin/sh unavailable");
         return None;
     }
-    let mut config = ServerConfig::from_config(&Config::default());
+    let mut prompt_free = Config::default();
+    prompt_free.prompt.style = PromptStyle::Ps1;
+    let mut config = ServerConfig::from_config(&prompt_free);
     config.program = "/bin/sh".into();
     config.args = vec!["-c".into(), script.into()];
     let (client, server) = channel_pair();
@@ -73,6 +75,7 @@ fn wait_text(client: &flair_core::link::ClientLink, text: &str) {
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }
+            | ServerMsg::PromptInfo { .. }
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Done => {}
         }

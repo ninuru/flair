@@ -1,4 +1,5 @@
 use super::*;
+use crate::geom::Axis;
 
 fn single() -> Tree {
     Tree::single(
@@ -107,7 +108,38 @@ fn window_area_starts_at_row_zero_and_covers_the_whole_size() {
         size,
     };
     assert_eq!(window.area(), area);
-    let geometry = window.geometry();
+    let geometry = window.geometry(0);
     assert_eq!(geometry.area, area);
     assert_eq!(geometry.panes[0].rect, area);
+}
+
+#[test]
+fn window_geometry_applies_the_band_to_every_leaf() {
+    let size = GridSize { cols: 80, rows: 24 };
+    let window = Window::new(WindowId(3), PaneId(3), size);
+    let geometry = window.geometry(1);
+    assert_eq!(geometry.panes[0].band, 1);
+    assert_eq!(geometry.panes[0].rect.origin, CellPoint { col: 0, row: 1 });
+    assert_eq!(geometry.panes[0].rect.size, GridSize { cols: 80, rows: 23 });
+    assert_eq!(geometry.panes[0].outer(), window.area());
+}
+
+#[test]
+fn a_zoomed_window_applies_the_band_to_the_active_pane() {
+    let size = GridSize { cols: 80, rows: 24 };
+    let mut window = Window::new(WindowId(3), PaneId(3), size);
+    assert!(
+        window
+            .layout
+            .split(PaneId(3), PaneId(4), Axis::Vertical, window.area())
+    );
+    window.panes.push(PaneId(4));
+    window.active_pane = PaneId(4);
+    window.zoomed = true;
+    let geometry = window.geometry(1);
+    assert_eq!(geometry.panes.len(), 1);
+    assert_eq!(geometry.panes[0].pane, PaneId(4));
+    assert_eq!(geometry.panes[0].band, 1);
+    assert_eq!(geometry.panes[0].outer(), window.area());
+    assert_eq!(window.geometry(0).panes[0].rect, window.area());
 }

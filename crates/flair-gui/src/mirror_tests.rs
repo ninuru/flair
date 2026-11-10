@@ -80,6 +80,7 @@ fn layout_keeps_current_panes_and_removes_previous_window_cells() {
         panes: vec![PanePlacement {
             pane: PaneId(2),
             rect,
+            band: 0,
         }],
         separators: vec![],
         active: PaneId(2),

@@ -1,6 +1,7 @@
 use std::process;
 
 use super::*;
+use crate::isles::Chip;
 
 const BLUEPRINT_EXAMPLE: &str = r##"
 [shell]
@@ -29,6 +30,22 @@ blink = false
 
 [bell]
 audible = false
+
+[prompt]
+style = "chips"
+icons = true
+cwd = true
+git_branch = true
+git_ahead_behind = true
+git_changes = true
+exit = true
+duration_ms = 2000
+time = false
+user = false
+host = false
+venv = false
+docker = false
+kube = false
 
 [colors]
 background = "#030303"
@@ -107,6 +124,107 @@ fn bad_hex_names_the_key() {
 fn unknown_keys_are_rejected() {
     assert!(Config::from_toml("[font]\nfamly = \"x\"\n").is_err());
     assert!(Config::from_toml("colours = 1\n").is_err());
+}
+
+#[test]
+fn prompt_defaults_to_chips_with_directory_git_and_exit() {
+    let prompt = Config::default().prompt;
+    assert_eq!(
+        prompt,
+        PromptConfig {
+            style: PromptStyle::Chips,
+            icons: true,
+            cwd: true,
+            git_branch: true,
+            git_ahead_behind: true,
+            git_changes: true,
+            exit: true,
+            duration_ms: 2000,
+            time: false,
+            user: false,
+            host: false,
+            venv: false,
+            docker: false,
+            kube: false,
+        }
+    );
+    assert_eq!(prompt.band(), 1);
+}
+
+#[test]
+fn prompt_table_overrides_defaults() {
+    let config = Config::from_toml(
+        "[prompt]\nstyle = \"ps1\"\nicons = false\ncwd = false\nduration_ms = 500\nkube = true\n",
+    )
+    .unwrap();
+    let prompt = config.prompt;
+    assert_eq!(prompt.style, PromptStyle::Ps1);
+    assert!(!prompt.icons);
+    assert!(!prompt.cwd);
+    assert!(prompt.git_branch);
+    assert_eq!(prompt.duration_ms, 500);
+    assert!(prompt.kube);
+    assert_eq!(prompt.band(), 0);
+}
+
+#[test]
+fn prompt_rejects_unknown_keys_and_styles() {
+    assert!(Config::from_toml("[prompt]\nchips = []\n").is_err());
+    assert!(Config::from_toml("[prompt]\nstyle = \"fancy\"\n").is_err());
+    assert!(Config::from_toml("[prompt]\nstyle = \"Chips\"\n").is_err());
+    assert!(Config::from_toml("[prompt]\nduration_ms = -1\n").is_err());
+}
+
+#[test]
+fn prompt_style_names() {
+    assert_eq!(PromptStyle::Chips.name(), "chips");
+    assert_eq!(PromptStyle::Ps1.name(), "ps1");
+}
+
+#[test]
+fn prompt_enabled_reads_exactly_the_matching_field() {
+    let off = PromptConfig {
+        cwd: false,
+        git_branch: false,
+        git_ahead_behind: false,
+        git_changes: false,
+        exit: false,
+        ..PromptConfig::default()
+    };
+    for chip in Chip::ALL {
+        assert!(!off.enabled(chip), "{chip:?}");
+    }
+    let only = |chip| match chip {
+        Chip::User => PromptConfig { user: true, ..off },
+        Chip::Host => PromptConfig { host: true, ..off },
+        Chip::Cwd => PromptConfig { cwd: true, ..off },
+        Chip::GitBranch => PromptConfig {
+            git_branch: true,
+            ..off
+        },
+        Chip::GitAheadBehind => PromptConfig {
+            git_ahead_behind: true,
+            ..off
+        },
+        Chip::GitChanges => PromptConfig {
+            git_changes: true,
+            ..off
+        },
+        Chip::Venv => PromptConfig { venv: true, ..off },
+        Chip::Docker => PromptConfig {
+            docker: true,
+            ..off
+        },
+        Chip::Kube => PromptConfig { kube: true, ..off },
+        Chip::Exit => PromptConfig { exit: true, ..off },
+        Chip::Time => PromptConfig { time: true, ..off },
+    };
+    for chip in Chip::ALL {
+        let config = only(chip);
+        for other in Chip::ALL {
+            assert_eq!(config.enabled(other), other == chip, "{chip:?} {other:?}");
+        }
+    }
 }
 
 #[test]

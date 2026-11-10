@@ -27,7 +27,7 @@ fn clicks_map_to_sections_and_controls() {
     assert_eq!(sheet.section, Some(3));
     assert!(!sheet.sections_focused);
     assert_eq!(page.click(SettingsHit::Close), SettingsOutcome::Close);
-    section(&mut page, 4);
+    section(&mut page, 5);
     assert_eq!(
         page.click(SettingsHit::Toggle(0)),
         save("keys.enabled", Some(Value::Bool(false)))
@@ -85,7 +85,7 @@ fn a_section_click_reverts_an_open_editor() {
 #[test]
 fn a_control_click_on_another_entry_saves_the_pending_value_first() {
     let mut page = page("");
-    section(&mut page, 4);
+    section(&mut page, 5);
     page.focus(2);
     press(&mut page, NamedKey::Right);
     assert_eq!(
@@ -260,7 +260,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         Path::new("/nonexistent/flair.toml"),
     ));
     let page = overlays.settings_mut().unwrap();
-    section(page, 4);
+    section(page, 5);
     page.focus(1);
     let status = StatusLine {
         session: "main".into(),
@@ -280,6 +280,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         hover: None,
         overlays: Some(&overlays),
         notice: None,
+        isles: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -319,7 +320,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
             .map(|(_, rect)| *rect)
             .unwrap()
     };
-    let nav = control(SettingsHit::Section(4));
+    let nav = control(SettingsHit::Section(5));
     let first = row(0);
     let second = row(1);
     let page_rect = hits.panel;

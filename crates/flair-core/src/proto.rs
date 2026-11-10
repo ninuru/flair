@@ -9,12 +9,13 @@ use crate::{
     command::Command,
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::{ClientId, PaneId, WindowId},
+    isles::PromptInfo,
     key::InputEvent,
     status::StatusLine,
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 7;
+pub const PROTOCOL: u32 = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -80,6 +81,10 @@ pub enum ServerMsg {
     ChooseSession {
         sessions: Vec<SessionInfo>,
         current: String,
+    },
+    PromptInfo {
+        pane: PaneId,
+        info: PromptInfo,
     },
 }
 
@@ -261,6 +266,22 @@ pub struct WindowLayout {
 pub struct PanePlacement {
     pub pane: PaneId,
     pub rect: CellRect,
+    pub band: u16,
+}
+
+impl PanePlacement {
+    pub fn outer(self) -> CellRect {
+        CellRect {
+            origin: CellPoint {
+                row: self.rect.origin.row.saturating_sub(self.band),
+                ..self.rect.origin
+            },
+            size: GridSize {
+                rows: self.rect.size.rows.saturating_add(self.band),
+                ..self.rect.size
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -116,7 +116,7 @@ fn separator_drag_resizes_both_panes_and_release_ends_capture() {
         .tree
         .window(WindowId(1))
         .unwrap()
-        .geometry()
+        .geometry(server.band())
         .separators[0]
         .rect
         .origin;
@@ -186,7 +186,12 @@ fn application_press_selects_target_and_drag_release_stays_with_that_pane() {
         ClientId(1),
         Command::SelectPane(PaneRef::Id(PaneId(1))),
     );
-    let origin = server.tree.window(WindowId(1)).unwrap().geometry().panes[1]
+    let origin = server
+        .tree
+        .window(WindowId(1))
+        .unwrap()
+        .geometry(server.band())
+        .panes[1]
         .rect
         .origin;
     let pressed = mouse(
@@ -261,7 +266,12 @@ fn shift_selects_text_in_mouse_reporting_pane() {
         Event::PtyOutput(second, b"\x1b[?1002h\x1b[?1006hhello".to_vec()),
         &mut out,
     );
-    let origin = server.tree.window(WindowId(1)).unwrap().geometry().panes[1]
+    let origin = server
+        .tree
+        .window(WindowId(1))
+        .unwrap()
+        .geometry(server.band())
+        .panes[1]
         .rect
         .origin;
     for (offset, action) in [(0, MouseAction::Press), (4, MouseAction::Release)] {

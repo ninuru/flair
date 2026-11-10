@@ -281,7 +281,11 @@ impl SettingsPage {
             let section = Section::ALL[self.section];
             let bindings = match section {
                 Section::Keys => self.bindings.len(),
-                Section::Appearance | Section::Font | Section::Window | Section::Terminal => 0,
+                Section::Appearance
+                | Section::Font
+                | Section::Window
+                | Section::Terminal
+                | Section::Prompt => 0,
             };
             return SETTINGS
                 .iter()
@@ -342,7 +346,7 @@ impl SettingsPage {
         }
         match SETTINGS[index].kind {
             Kind::Toggle => self.toggle(),
-            Kind::Choice => self.step(1),
+            Kind::Choice(_) => self.step(1),
             Kind::Integer { .. }
             | Kind::Float { .. }
             | Kind::Text
@@ -367,7 +371,7 @@ impl SettingsPage {
             ),
             Kind::Integer { .. }
             | Kind::Float { .. }
-            | Kind::Choice
+            | Kind::Choice(_)
             | Kind::Text
             | Kind::Font
             | Kind::Words
@@ -381,7 +385,7 @@ impl SettingsPage {
         };
         let setting = &SETTINGS[index];
         match setting.kind {
-            Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice => {}
+            Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {}
             Kind::Toggle | Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => {
                 return SettingsOutcome::Pending;
             }
@@ -418,7 +422,7 @@ impl SettingsPage {
                 Kind::Toggle
                 | Kind::Integer { .. }
                 | Kind::Float { .. }
-                | Kind::Choice
+                | Kind::Choice(_)
                 | Kind::Text
                 | Kind::Font
                 | Kind::Words,
@@ -652,7 +656,7 @@ impl SettingsPage {
         match SETTINGS[index].kind {
             Kind::Toggle => Control::Toggle(value == Value::Bool(true)),
             Kind::Integer { .. } | Kind::Float { .. } => Control::Number(value.display()),
-            Kind::Choice => Control::Choice(value.display()),
+            Kind::Choice(_) => Control::Choice(value.display()),
             Kind::Text | Kind::Font | Kind::Words => Control::Text(value.display()),
             Kind::Color { .. } => Control::Color(value.display()),
         }
@@ -696,7 +700,9 @@ impl SettingsPage {
             (Focus::Items, Some(index)) => {
                 keys.push(match SETTINGS[index].kind {
                     Kind::Toggle => (SPACE_KEY, "toggle"),
-                    Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice => (STEP_KEY, "step"),
+                    Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {
+                        (STEP_KEY, "step")
+                    }
                     Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => {
                         (ENTER_KEY, "edit")
                     }

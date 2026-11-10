@@ -16,4 +16,4 @@ key = "Enter"
 
 [[steps]]
 action = "wait"
-text = "30 100"
+text = "29 100"

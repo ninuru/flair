@@ -141,10 +141,12 @@ fn frame_places_panes_from_row_zero_and_only_shows_active_cursor() {
             PanePlacement {
                 pane: PaneId(1),
                 rect: rect(0, 2),
+                band: 0,
             },
             PanePlacement {
                 pane: PaneId(2),
                 rect: rect(3, 2),
+                band: 0,
             },
         ],
         separators: vec![Separator {
@@ -210,6 +212,7 @@ fn frame_clips_stale_rectangles_and_wide_glyphs_at_the_edge() {
             panes: vec![PanePlacement {
                 pane: PaneId(1),
                 rect,
+                band: 0,
             }],
             separators: vec![],
             active: PaneId(1),
@@ -361,10 +364,12 @@ fn split_frame(size: GridSize) -> (Mirror, WindowLayout) {
             PanePlacement {
                 pane: PaneId(1),
                 rect: rect(0, left),
+                band: 0,
             },
             PanePlacement {
                 pane: PaneId(2),
                 rect: rect(left + 1, size.cols - left - 1),
+                band: 0,
             },
         ],
         separators: vec![Separator {
@@ -449,6 +454,7 @@ fn draw_chrome_frame(
         hover: None,
         overlays: Some(&overlays),
         notice: None,
+        isles: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -681,10 +687,12 @@ fn stacked_frame_moves_selection_with_cells_and_draws_horizontal_separator() {
             PanePlacement {
                 pane: PaneId(1),
                 rect: rect(0),
+                band: 0,
             },
             PanePlacement {
                 pane: PaneId(2),
                 rect: rect(2),
+                band: 0,
             },
         ],
         separators: vec![Separator {

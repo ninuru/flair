@@ -136,6 +136,7 @@ impl Overlays {
             | ServerMsg::PasteClipboard
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Sessions(_)
+            | ServerMsg::PromptInfo { .. }
             | ServerMsg::Done
             | ServerMsg::Error(_)
             | ServerMsg::Exit(_) => return false,

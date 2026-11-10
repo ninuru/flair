@@ -8,6 +8,7 @@ use flair_core::{
 use crate::{
     CellMetrics, UiMetrics,
     chrome_bar::{self, Scene, fill},
+    isles::Isles,
     notice::Notice,
     overlay_layout::{OverlayHits, OverlayInput},
     overlays::Overlays,
@@ -36,6 +37,7 @@ pub struct ChromeInput<'a> {
     pub hover: Option<(f32, f32)>,
     pub overlays: Option<&'a Overlays>,
     pub notice: Option<&'a Notice>,
+    pub isles: Option<Isles<'a>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

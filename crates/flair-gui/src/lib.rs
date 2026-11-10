@@ -9,6 +9,7 @@ pub mod cursor;
 pub mod drive;
 mod font;
 pub mod input;
+pub mod isles;
 pub mod mirror;
 pub mod mouse;
 mod mouse_route;

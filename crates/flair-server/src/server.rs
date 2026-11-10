@@ -272,6 +272,10 @@ impl Server {
         }
     }
 
+    fn band(&self) -> u16 {
+        self.config.prompt.band()
+    }
+
     fn client_pane(&self, id: ClientId) -> Option<PaneId> {
         self.clients
             .get(&id)
@@ -308,7 +312,9 @@ impl Server {
                 TermEvent::Mark(MarkKind::CommandEnd | MarkKind::PromptStart, _) => {
                     self.set_running(pane, false);
                 }
-                TermEvent::Cwd(_) | TermEvent::Mark(MarkKind::PromptEnd, _) => {}
+                TermEvent::Cwd(_)
+                | TermEvent::Mark(MarkKind::PromptEnd, _)
+                | TermEvent::Facts(_) => {}
             }
         }
     }

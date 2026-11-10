@@ -59,7 +59,7 @@ impl Server {
             return;
         }
         let Some(placement) = window
-            .geometry()
+            .geometry(self.band())
             .panes
             .into_iter()
             .find(|placement| placement.rect.contains(mouse.point))
@@ -161,7 +161,7 @@ impl Server {
             .tree
             .window(self.clients[&id].view.window)
             .unwrap()
-            .geometry()
+            .geometry(self.band())
             .panes
             .into_iter()
             .find(|placement| placement.pane == pane)

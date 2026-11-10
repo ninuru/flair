@@ -11,7 +11,7 @@ fn rect(cols: u16, rows: u16) -> CellRect {
 fn side_by_side_split_reserves_one_separator_cell() {
     let mut layout = Layout::Leaf(PaneId(1));
     assert!(layout.split(PaneId(1), PaneId(2), Axis::Horizontal, rect(21, 8)));
-    let geometry = layout.geometry(rect(21, 8));
+    let geometry = layout.geometry(rect(21, 8), 0);
     assert_eq!(geometry.panes.len(), 2);
     assert_eq!(geometry.panes[0].rect, rect(10, 8));
     assert_eq!(geometry.panes[1].rect.origin, CellPoint { col: 11, row: 1 });
@@ -23,7 +23,7 @@ fn side_by_side_split_reserves_one_separator_cell() {
 fn stacked_split_keeps_global_content_offset() {
     let mut layout = Layout::Leaf(PaneId(1));
     assert!(layout.split(PaneId(1), PaneId(2), Axis::Vertical, rect(20, 9)));
-    let geometry = layout.geometry(rect(20, 9));
+    let geometry = layout.geometry(rect(20, 9), 0);
     assert_eq!(geometry.panes[0].rect, rect(20, 4));
     assert_eq!(geometry.panes[1].rect.origin, CellPoint { col: 0, row: 6 });
     assert_eq!(geometry.panes[1].rect.size, GridSize { cols: 20, rows: 4 });
@@ -35,7 +35,7 @@ fn nested_removal_collapses_only_the_removed_branch() {
     assert!(layout.split(PaneId(1), PaneId(2), Axis::Horizontal, rect(41, 9)));
     assert!(layout.split(PaneId(2), PaneId(3), Axis::Vertical, rect(41, 9)));
     let layout = layout.remove(PaneId(2)).unwrap();
-    let geometry = layout.geometry(rect(41, 9));
+    let geometry = layout.geometry(rect(41, 9), 0);
     assert_eq!(geometry.panes.len(), 2);
     assert_eq!(geometry.panes[1].pane, PaneId(3));
     assert_eq!(geometry.panes[1].rect.size, GridSize { cols: 20, rows: 9 });
@@ -79,7 +79,7 @@ fn nested_rectangles_stay_disjoint_and_within_available_area() {
     for cols in 0..50 {
         for rows in 0..20 {
             let area = rect(cols, rows);
-            let geometry = layout.geometry(area);
+            let geometry = layout.geometry(area, 0);
             let mut occupied = std::collections::BTreeSet::new();
             for placement in geometry.panes {
                 for row in
@@ -139,7 +139,7 @@ fn extreme_ratios_preserve_nested_leaf_minimum_sizes_when_they_fit() {
         }),
         second: Box::new(Layout::Leaf(PaneId(3))),
     };
-    let geometry = layout.geometry(rect(5, 1));
+    let geometry = layout.geometry(rect(5, 1), 0);
     assert_eq!(
         geometry
             .panes
@@ -193,10 +193,10 @@ fn horizontal_separator_resize_reaches_exact_requested_column_and_clamps_edges()
     let mut layout = Layout::Leaf(PaneId(1));
     assert!(layout.split(PaneId(1), PaneId(2), Axis::Horizontal, area));
     assert!(layout.resize_separator(&[], area, CellPoint { col: 7, row: 4 }));
-    assert_eq!(layout.geometry(area).separators[0].rect.origin.col, 7);
+    assert_eq!(layout.geometry(area, 0).separators[0].rect.origin.col, 7);
     assert!(!layout.resize_separator(&[], area, CellPoint { col: 7, row: 4 }));
     assert!(layout.resize_separator(&[], area, CellPoint { col: 0, row: 4 }));
-    assert_eq!(layout.geometry(area).panes[0].rect.size.cols, 1);
+    assert_eq!(layout.geometry(area, 0).panes[0].rect.size.cols, 1);
     assert!(layout.resize_separator(
         &[],
         area,
@@ -205,7 +205,7 @@ fn horizontal_separator_resize_reaches_exact_requested_column_and_clamps_edges()
             row: 4
         }
     ));
-    assert_eq!(layout.geometry(area).panes[1].rect.size.cols, 1);
+    assert_eq!(layout.geometry(area, 0).panes[1].rect.size.cols, 1);
 }
 
 #[test]
@@ -217,7 +217,7 @@ fn vertical_separator_resize_uses_global_row_offset() {
     let mut layout = Layout::Leaf(PaneId(1));
     assert!(layout.split(PaneId(1), PaneId(2), Axis::Vertical, area));
     assert!(layout.resize_separator(&[], area, CellPoint { col: 5, row: 7 }));
-    let geometry = layout.geometry(area);
+    let geometry = layout.geometry(area, 0);
     assert_eq!(geometry.panes[0].rect.size.rows, 3);
     assert_eq!(geometry.separators[0].rect.origin.row, 7);
     assert_eq!(geometry.panes[1].rect.size.rows, 7);
@@ -229,11 +229,11 @@ fn nested_separator_path_resizes_only_its_subtree() {
     let mut layout = Layout::Leaf(PaneId(1));
     assert!(layout.split(PaneId(1), PaneId(2), Axis::Horizontal, area));
     assert!(layout.split(PaneId(2), PaneId(3), Axis::Vertical, area));
-    let before = layout.geometry(area);
+    let before = layout.geometry(area, 0);
     let point = CellPoint { col: 30, row: 6 };
     assert_eq!(layout.separator_at(area, point), Some(vec![true]));
     assert!(layout.resize_separator(&[true], area, CellPoint { col: 30, row: 3 }));
-    let after = layout.geometry(area);
+    let after = layout.geometry(area, 0);
     assert_eq!(after.panes[0], before.panes[0]);
     assert_eq!(after.separators[0], before.separators[0]);
     assert_eq!(after.panes[1].rect.size.rows, 2);
@@ -247,7 +247,7 @@ fn separator_resize_preserves_recursive_minimum_sizes() {
     assert!(layout.split(PaneId(1), PaneId(2), Axis::Horizontal, area));
     assert!(layout.split(PaneId(1), PaneId(3), Axis::Horizontal, area));
     assert!(layout.resize_separator(&[], area, CellPoint { col: 0, row: 2 }));
-    let geometry = layout.geometry(area);
+    let geometry = layout.geometry(area, 0);
     assert_eq!(geometry.panes[0].rect.size.cols, 1);
     assert_eq!(geometry.panes[1].rect.size.cols, 1);
     assert_eq!(geometry.separators[1].rect.origin.col, 3);
@@ -270,7 +270,69 @@ fn resizing_at_current_separator_preserves_fractional_ratio() {
     let mut layout = Layout::Leaf(PaneId(1));
     assert!(layout.split(PaneId(1), PaneId(2), Axis::Horizontal, area));
     let before = layout.clone();
-    let separator = layout.geometry(area).separators[0].rect.origin;
+    let separator = layout.geometry(area, 0).separators[0].rect.origin;
     assert!(!layout.resize_separator(&[], area, separator));
     assert_eq!(layout, before);
+}
+
+#[test]
+fn a_band_moves_the_content_of_a_leaf_down() {
+    let geometry = Layout::Leaf(PaneId(1)).geometry(rect(20, 9), 1);
+    assert_eq!(
+        geometry.panes,
+        vec![PanePlacement {
+            pane: PaneId(1),
+            rect: CellRect {
+                origin: CellPoint { col: 0, row: 2 },
+                size: GridSize { cols: 20, rows: 8 },
+            },
+            band: 1,
+        }]
+    );
+    assert_eq!(geometry.panes[0].outer(), rect(20, 9));
+}
+
+#[test]
+fn every_leaf_of_a_split_gets_its_own_band() {
+    let mut layout = Layout::Leaf(PaneId(1));
+    assert!(layout.split(PaneId(1), PaneId(2), Axis::Vertical, rect(20, 9)));
+    let plain = layout.geometry(rect(20, 9), 0);
+    let banded = layout.geometry(rect(20, 9), 1);
+    assert_eq!(banded.separators, plain.separators);
+    for (banded, plain) in banded.panes.iter().zip(&plain.panes) {
+        assert_eq!(banded.band, 1);
+        assert_eq!(plain.band, 0);
+        assert_eq!(banded.outer(), plain.rect);
+        assert_eq!(banded.rect.origin.row, plain.rect.origin.row + 1);
+        assert_eq!(banded.rect.size.rows, plain.rect.size.rows - 1);
+    }
+}
+
+#[test]
+fn a_leaf_too_short_for_the_band_keeps_its_rows() {
+    let mut layout = Layout::Leaf(PaneId(1));
+    assert!(layout.split(PaneId(1), PaneId(2), Axis::Vertical, rect(20, 3)));
+    let geometry = layout.geometry(rect(20, 3), 1);
+    for placement in &geometry.panes {
+        assert_eq!(placement.band, 0);
+        assert_eq!(placement.rect.size.rows, 1);
+        assert_eq!(placement.outer(), placement.rect);
+    }
+    let empty = Layout::Leaf(PaneId(1)).geometry(rect(20, 0), 1);
+    assert_eq!(empty.panes[0].band, 0);
+    assert_eq!(empty.panes[0].rect, rect(20, 0));
+}
+
+#[test]
+fn split_hit_test_and_neighbors_ignore_the_band() {
+    let mut layout = Layout::Leaf(PaneId(1));
+    assert!(layout.split(PaneId(1), PaneId(2), Axis::Vertical, rect(20, 3)));
+    assert_eq!(
+        layout.hit_test(rect(20, 3), CellPoint { col: 0, row: 1 }),
+        Some(PaneId(1))
+    );
+    assert_eq!(
+        layout.neighbor(PaneId(1), Direction::Down, rect(20, 3)),
+        Some(PaneId(2))
+    );
 }

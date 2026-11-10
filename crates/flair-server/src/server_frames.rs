@@ -25,7 +25,11 @@ impl Server {
                 self.cancel_mouse(id, out);
             }
         }
-        let Some(geometry) = self.tree.window(window).map(|window| window.geometry()) else {
+        let Some(geometry) = self
+            .tree
+            .window(window)
+            .map(|window| window.geometry(self.band()))
+        else {
             return;
         };
         let mut resized = false;
@@ -63,6 +67,7 @@ impl Server {
                 pane.dirty = false;
             }
         }
+        let band = self.band();
         for (id, client) in &mut self.clients {
             if client.awaiting_ack.is_some() {
                 continue;
@@ -70,7 +75,7 @@ impl Server {
             let Some(layout) = self
                 .tree
                 .window(client.view.window)
-                .map(|window| window.geometry())
+                .map(|window| window.geometry(band))
             else {
                 continue;
             };

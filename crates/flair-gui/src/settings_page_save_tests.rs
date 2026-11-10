@@ -43,7 +43,7 @@ fn an_edit_click_on_another_entry_opens_the_editor_after_the_save() {
 #[test]
 fn a_failed_save_drops_the_queued_action() {
     let mut page = page("");
-    section(&mut page, 4);
+    section(&mut page, 5);
     page.focus(2);
     press(&mut page, NamedKey::Right);
     page.click(SettingsHit::Toggle(0));
