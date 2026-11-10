@@ -1,4 +1,4 @@
-use crate::{Terminal, terminal::PROMPT_ANCHOR};
+use crate::Terminal;
 use alacritty_terminal::{
     index::{Column, Line, Point},
     term::cell::Flags,
@@ -108,15 +108,7 @@ impl Terminal {
             },
             selection: self.selection_spans(),
             flags: PaneFlags {
-                prompt_row: (!self.modes().alt_screen && offset == 0)
-                    .then(|| {
-                        (0..self.size.rows).find(|row| {
-                            self.term.grid()[Point::new(Line(i32::from(*row)), Column(0))]
-                                .flags
-                                .contains(PROMPT_ANCHOR)
-                        })
-                    })
-                    .flatten(),
+                prompt_row: self.current_prompt_row(),
                 alt_screen: self.modes().alt_screen,
                 display_offset: offset.min(u32::MAX as usize) as u32,
                 mouse_reporting: self.modes().mouse != crate::terminal::MouseMode::Off,

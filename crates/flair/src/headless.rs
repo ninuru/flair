@@ -17,7 +17,7 @@ use flair_gui::{
     cellgrid::CellGrid,
     chrome_layout::{self, ChromeInput, ChromeLayout},
     compose::{compose, compose_frame, separator_glyphs},
-    isles::{Isles, labels, line, local_clock},
+    isles::{Isles, calendar_at, labels_at, line, local_clock, local_date},
     mirror::Mirror,
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
@@ -133,6 +133,7 @@ fn isles<'a>(mirror: &'a Mirror, config: &'a PromptConfig, home: Option<&'a Path
         mirror,
         config,
         clock: config.time.then(local_clock).flatten(),
+        date: flair_gui::isles::local_date(),
         home,
     }
 }
@@ -208,6 +209,9 @@ impl Capture {
             ServerMsg::PromptInfo { pane, info } => {
                 self.mirror.insert_prompt(pane, info);
             }
+            ServerMsg::PromptHistory { pane, prompts } => {
+                self.mirror.insert_history(pane, prompts);
+            }
             ServerMsg::Status(status) => {
                 self.status = status;
             }
@@ -249,31 +253,50 @@ impl Capture {
         if prompt.band() == 0 {
             return;
         }
-        let clock = prompt.time.then(local_clock).flatten();
         let cols = usize::from(grid.size.cols);
         for placement in &layout.panes {
-            let Some(info) = self.mirror.prompts().get(&placement.pane) else {
+            let Some(pane) = self
+                .mirror
+                .pane(placement.pane)
+                .filter(|pane| !pane.flags.alt_screen)
+            else {
                 continue;
             };
-            let Some(pane) = self.mirror.pane(placement.pane) else {
-                continue;
+            let rows: Vec<_> = if let Some(history) = self.mirror.history(placement.pane) {
+                history
+                    .iter()
+                    .map(|snapshot| {
+                        let calendar = calendar_at(snapshot.timestamp);
+                        (
+                            snapshot.row,
+                            &snapshot.info,
+                            calendar.map(|value| value.clock),
+                            calendar.map(|value| value.date),
+                        )
+                    })
+                    .collect()
+            } else {
+                pane.flags
+                    .prompt_row
+                    .zip(self.mirror.prompts().get(&placement.pane))
+                    .into_iter()
+                    .map(|(row, info)| (row, info, local_clock(), local_date()))
+                    .collect()
             };
-            let Some(prompt_row) = pane.flags.prompt_row.filter(|row| {
-                *row < placement.rect.size.rows
-                    && !pane.flags.alt_screen
-                    && pane.flags.display_offset == 0
-            }) else {
-                continue;
-            };
-            let row = usize::from(placement.rect.origin.row + prompt_row);
-            let left = usize::from(placement.rect.origin.col);
-            if row >= usize::from(grid.size.rows) {
-                continue;
-            }
-            let width = usize::from(placement.rect.size.cols).min(cols.saturating_sub(left));
-            let text = line(&labels(info, prompt, clock, self.home.as_deref()));
-            for (offset, c) in text.chars().take(width).enumerate() {
-                grid.cells[row * cols + left + offset].c = c;
+            for (prompt_row, info, clock, date) in rows {
+                if prompt_row >= placement.rect.size.rows {
+                    continue;
+                }
+                let row = usize::from(placement.rect.origin.row + prompt_row);
+                let left = usize::from(placement.rect.origin.col);
+                if row >= usize::from(grid.size.rows) {
+                    continue;
+                }
+                let width = usize::from(placement.rect.size.cols).min(cols.saturating_sub(left));
+                let text = line(&labels_at(info, prompt, clock, date, self.home.as_deref()));
+                for (offset, c) in text.chars().take(width).enumerate() {
+                    grid.cells[row * cols + left + offset].c = c;
+                }
             }
         }
     }
@@ -355,6 +378,22 @@ impl Capture {
             }
             SettingsOutcome::Revert | SettingsOutcome::Close => self.preview = None,
             SettingsOutcome::Save { key, value } => return self.save(key, value.as_ref()),
+            SettingsOutcome::SavePrompt(changes) => {
+                let mut text = self.config_text.clone();
+                for (key, value) in &changes {
+                    text = apply(&text, key, value.as_ref())
+                        .map_err(|error| error.to_string())?
+                        .0;
+                }
+                self.config_text = text;
+                let style = Config::from_toml(&self.config_text)
+                    .map_err(|error| error.to_string())?
+                    .prompt
+                    .style
+                    .name()
+                    .to_owned();
+                return self.save("prompt.style", Some(&Value::Text(style)));
+            }
         }
         Ok(self.refit()?.into_iter().collect())
     }

@@ -1,7 +1,10 @@
 use toml_edit::Array;
 
 use crate::{
-    config::{Config, PromptStyle},
+    config::{
+        Config, PromptAppearance, PromptDateFormat, PromptOrder, PromptPath, PromptSeparator,
+        PromptStyle, PromptTimeFormat,
+    },
     config_edit::{contains, document},
     theme::{Rgb, Rgba, Theme},
 };
@@ -123,6 +126,11 @@ impl Setting {
 
     pub fn parse(&self, text: &str) -> Result<Option<Value>, String> {
         let trimmed = text.trim();
+        if self.key == "prompt.order" && !trimmed.is_empty() {
+            return trimmed
+                .parse::<PromptOrder>()
+                .map(|order| Some(Value::Text(order.to_string())));
+        }
         match self.kind {
             Kind::Toggle | Kind::Choice(_) => Err("use space or ← →".to_owned()),
             Kind::Integer { min, max, .. } => trimmed
@@ -361,7 +369,7 @@ pub const SETTINGS: &[Setting] = &[
         title: "Style",
         section: Section::Prompt,
         kind: Kind::Choice(Choices::Of(&PromptStyle::NAMES)),
-        description: "Shows a chip row above each pane.",
+        description: "Uses prompt segments or the shell’s own prompt.",
         read: |config, _| Value::Text(config.prompt.style.name().to_owned()),
     },
     Setting {
@@ -473,6 +481,62 @@ pub const SETTINGS: &[Setting] = &[
         read: |config, _| {
             Value::Integer(i64::try_from(config.prompt.duration_ms).unwrap_or(i64::MAX))
         },
+    },
+    Setting {
+        key: "prompt.appearance",
+        title: "Appearance",
+        section: Section::Prompt,
+        kind: Kind::Choice(Choices::Of(&PromptAppearance::NAMES)),
+        description: "Default segment outline, fill or plain text.",
+        read: |config, _| Value::Text(config.prompt.appearance.name().to_owned()),
+    },
+    Setting {
+        key: "prompt.path",
+        title: "Directory format",
+        section: Section::Prompt,
+        kind: Kind::Choice(Choices::Of(&PromptPath::NAMES)),
+        description: "Full path, home abbreviation or current folder.",
+        read: |config, _| Value::Text(config.prompt.path.name().to_owned()),
+    },
+    Setting {
+        key: "prompt.time_format",
+        title: "Time format",
+        section: Section::Prompt,
+        kind: Kind::Choice(Choices::Of(&PromptTimeFormat::NAMES)),
+        description: "Uses a 24-hour or 12-hour clock.",
+        read: |config, _| Value::Text(config.prompt.time_format.name().to_owned()),
+    },
+    Setting {
+        key: "prompt.date_format",
+        title: "Date format",
+        section: Section::Prompt,
+        kind: Kind::Choice(Choices::Of(&PromptDateFormat::NAMES)),
+        description: "ISO, numeric or long-form date.",
+        read: |config, _| Value::Text(config.prompt.date_format.name().to_owned()),
+    },
+    Setting {
+        key: "prompt.separator",
+        title: "Input separator",
+        section: Section::Prompt,
+        kind: Kind::Choice(Choices::Of(&PromptSeparator::NAMES)),
+        description: "Optional symbol before command input.",
+        read: |config, _| Value::Text(config.prompt.separator.name().to_owned()),
+    },
+    Setting {
+        key: "prompt.order",
+        title: "Segment order",
+        section: Section::Prompt,
+        kind: Kind::Text,
+        description: "Comma-separated segment names, from left to right.",
+        read: |config, _| Value::Text(config.prompt.order.to_string()),
+    },
+    Setting {
+        key: "prompt.date",
+        title: "Date",
+        section: Section::Prompt,
+        kind: Kind::Toggle,
+        description: "Shows the local calendar date.",
+        read: |config, _| Value::Bool(config.prompt.date),
     },
     Setting {
         key: "keys.enabled",

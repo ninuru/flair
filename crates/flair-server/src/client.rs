@@ -4,7 +4,7 @@ use flair_core::{
     isles::PromptInfo,
     key::MouseInput,
     prefix::PrefixMachine,
-    proto::{ClientKind, PaneUpdate, WindowLayout},
+    proto::{ClientKind, PaneUpdate, PromptSnapshot, WindowLayout},
     status::StatusLine,
     time::Millis,
     view::ClientView,
@@ -32,6 +32,7 @@ pub(crate) struct ClientState {
     pub selecting: bool,
     pub mouse: Option<MouseCapture>,
     pub prompts: BTreeMap<PaneId, PromptInfo>,
+    pub prompt_history: BTreeMap<PaneId, Vec<PromptSnapshot>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

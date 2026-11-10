@@ -896,6 +896,7 @@ fn gpu_frame_draws_chips_on_each_panes_shell_prompt_row() {
             mirror: &mirror,
             config: &prompt,
             clock: Some((15, 48)),
+            date: Some((2026, 11, 10)),
             home: Some(Path::new("/home/ada")),
         }),
     };

@@ -67,6 +67,7 @@ pub enum Control {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsHit {
+    PromptEditor(crate::prompt_editor::PromptAction),
     Section(usize),
     Close,
     Search,
@@ -203,6 +204,10 @@ fn frame(input: &OverlayInput) -> Frame {
         },
         footer,
     }
+}
+
+pub(crate) fn editor_rect(input: &OverlayInput) -> PxRect {
+    frame(input).viewport
 }
 
 fn place(sheet: &SettingsSheet, scale: f32) -> Vec<Placed<'_>> {

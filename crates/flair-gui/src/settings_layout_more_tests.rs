@@ -265,6 +265,11 @@ fn wide(text: &str, _: bool) -> f32 {
 fn the_prompt_page_fits_at_960x600_with_whole_descriptions_beside_the_source() {
     let theme = theme();
     let input = OverlayInput {
+        metrics: crate::CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
         px: (960, 600),
         scale: 1.0,
         ui: UiMetrics {
@@ -282,7 +287,7 @@ fn the_prompt_page_fits_at_960x600_with_whole_descriptions_beside_the_source() {
         hover: None,
     };
     let sheet = prompt();
-    assert_eq!(sheet.groups[0].entries.len(), 14);
+    assert_eq!(sheet.groups[0].entries.len(), 21);
     let scene = layout(&sheet, &input, &mut wide);
     assert_inside(&scene, (960, 600));
     assert_eq!(scene.hits.rows.len(), 6);
@@ -300,12 +305,16 @@ fn the_prompt_page_fits_at_960x600_with_whole_descriptions_beside_the_source() {
         .find(|run| run.text == "default" && run.baseline > 159.0 && run.baseline < 215.0)
         .unwrap();
     for description in [
-        "Shows a chip row above each pane.",
+        SETTINGS
+            .iter()
+            .find(|setting| setting.key == "prompt.style")
+            .unwrap()
+            .description,
         "Shows an icon in each chip. Needs a Nerd Font.",
     ] {
         let run = text(&scene, description).unwrap();
         let end = run.x + wide(&run.text, false) * 0.5;
         assert!(end <= label.x - 12.0, "{end} {}", label.x);
     }
-    assert!(text(&scene, "+8 more").is_some());
+    assert!(text(&scene, "+15 more").is_some());
 }

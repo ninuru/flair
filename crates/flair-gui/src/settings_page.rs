@@ -10,6 +10,7 @@ use flair_core::{
 use crate::{
     cursor::{Edit, TextCursor},
     overlay_layout::Field,
+    prompt_editor::{PromptAction, PromptEditor},
     settings_layout::{Control, Entry, Group, SettingsHit, SettingsSheet},
     ui::{DELETE_KEY, ENTER_KEY, ESCAPE_KEY, SEARCH_KEY, SPACE_KEY, STEP_KEY},
 };
@@ -23,6 +24,8 @@ const QUERY_LIMIT: usize = 256;
 const EDITOR_LIMIT: usize = 1024;
 
 pub struct SettingsPage {
+    prompt_editor: PromptEditor,
+    search_focused: bool,
     config: Config,
     theme: Theme,
     file: String,
@@ -72,12 +75,15 @@ pub enum SettingsOutcome {
         key: &'static str,
         value: Option<Value>,
     },
+    SavePrompt(Vec<(String, Option<Value>)>),
     Close,
 }
 
 impl SettingsPage {
     pub fn new(config: &Config, theme: Theme, text: String, themes: Vec<String>) -> SettingsPage {
         SettingsPage {
+            prompt_editor: PromptEditor::new(&config.prompt),
+            search_focused: false,
             config: config.clone(),
             theme,
             sources: sources(&text),
@@ -98,6 +104,9 @@ impl SettingsPage {
     pub fn key(&mut self, key: &KeyInput) -> SettingsOutcome {
         if key.action == KeyAction::Release {
             return SettingsOutcome::Pending;
+        }
+        if self.is_prompt_editor() && self.focus == Focus::Items {
+            return self.prompt_key(key);
         }
         if self.editor.is_some() {
             return self.editor_key(key);
@@ -122,6 +131,7 @@ impl SettingsPage {
 
     pub fn click(&mut self, hit: SettingsHit) -> SettingsOutcome {
         match hit {
+            SettingsHit::PromptEditor(action) => self.prompt_action(action),
             SettingsHit::Section(index) => {
                 let outcome = self.leave();
                 self.query = empty_query();
@@ -132,6 +142,7 @@ impl SettingsPage {
             SettingsHit::Close => SettingsOutcome::Close,
             SettingsHit::Search => {
                 let outcome = self.leave();
+                self.search_focused = true;
                 self.focus = Focus::Items;
                 outcome
             }
@@ -152,6 +163,10 @@ impl SettingsPage {
     }
 
     pub fn wheel(&mut self, rows: i32) -> SettingsOutcome {
+        if self.is_prompt_editor() {
+            self.prompt_editor.wheel(rows);
+            return SettingsOutcome::Pending;
+        }
         match self.editor {
             Some(_) => SettingsOutcome::Pending,
             None => self.move_by(rows),
@@ -159,6 +174,7 @@ impl SettingsPage {
     }
 
     pub fn refresh(&mut self, config: &Config, theme: Theme, text: String) -> SettingsOutcome {
+        self.prompt_editor.sync(&config.prompt);
         self.config = config.clone();
         self.theme = theme;
         self.sources = sources(&text);
@@ -587,6 +603,7 @@ impl SettingsPage {
     }
 
     fn select_section(&mut self, index: usize) {
+        self.search_focused = false;
         self.section = index.min(Section::ALL.len() - 1);
         self.item = 0;
     }
@@ -742,13 +759,16 @@ fn plain(key: &KeyInput) -> bool {
 
 fn then(first: SettingsOutcome, second: SettingsOutcome) -> SettingsOutcome {
     match first {
-        SettingsOutcome::Save { .. } | SettingsOutcome::Close => first,
+        SettingsOutcome::Save { .. } | SettingsOutcome::SavePrompt(_) | SettingsOutcome::Close => {
+            first
+        }
         SettingsOutcome::Pending | SettingsOutcome::Preview(_) | SettingsOutcome::Revert => {
             match second {
                 SettingsOutcome::Pending => first,
                 SettingsOutcome::Preview(_)
                 | SettingsOutcome::Revert
                 | SettingsOutcome::Save { .. }
+                | SettingsOutcome::SavePrompt(_)
                 | SettingsOutcome::Close => second,
             }
         }
@@ -758,3 +778,6 @@ fn then(first: SettingsOutcome, second: SettingsOutcome) -> SettingsOutcome {
 #[cfg(test)]
 #[path = "settings_page_tests.rs"]
 mod tests;
+
+#[path = "settings_page_prompt.rs"]
+mod prompt_editor_actions;

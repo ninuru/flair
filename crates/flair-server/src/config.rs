@@ -25,6 +25,10 @@ impl ServerConfig {
             .collect();
         env.push(("TERM_PROGRAM".into(), "flair".into()));
         env.push(("FLAIR_PROMPT".into(), config.prompt.style.name().into()));
+        env.push((
+            "FLAIR_PROMPT_SEPARATOR".into(),
+            config.prompt.separator.name().into(),
+        ));
         ServerConfig {
             program: config.shell.program.clone(),
             args: config.shell.args.clone(),
@@ -32,7 +36,7 @@ impl ServerConfig {
             env,
             scrollback: config.scrollback.lines,
             keys: config.keys.clone(),
-            prompt: config.prompt,
+            prompt: config.prompt.clone(),
             path: Config::default_path(),
         }
     }

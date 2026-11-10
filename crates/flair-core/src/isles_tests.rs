@@ -3,7 +3,7 @@ use std::collections::BTreeSet;
 use super::*;
 
 #[test]
-fn all_lists_eleven_distinct_chips_in_band_order() {
+fn all_lists_twelve_distinct_chips_in_band_order() {
     assert_eq!(
         Chip::ALL,
         [
@@ -18,10 +18,11 @@ fn all_lists_eleven_distinct_chips_in_band_order() {
             Chip::Kube,
             Chip::Exit,
             Chip::Time,
+            Chip::Date,
         ]
     );
     let distinct: BTreeSet<_> = Chip::ALL.iter().map(|chip| format!("{chip:?}")).collect();
-    assert_eq!(distinct.len(), 11);
+    assert_eq!(distinct.len(), 12);
 }
 
 #[test]

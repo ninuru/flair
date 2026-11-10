@@ -83,6 +83,7 @@ fn wait_text(client: &flair_core::link::ClientLink, text: &str) {
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }
             | ServerMsg::PromptInfo { .. }
+            | ServerMsg::PromptHistory { .. }
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Done => {}
         }
@@ -303,6 +304,7 @@ fn a_prompt_in_a_repository_reports_its_branch() {
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }
             | ServerMsg::ReloadConfig { .. }
+            | ServerMsg::PromptHistory { .. }
             | ServerMsg::Done => {}
         }
     };

@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub struct OverlayInput<'a> {
+    pub metrics: crate::CellMetrics,
     pub px: (u32, u32),
     pub scale: f32,
     pub ui: UiMetrics,

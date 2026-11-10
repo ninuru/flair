@@ -4,7 +4,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::time::Millis;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Chip {
     User,
     Host,
@@ -17,10 +18,11 @@ pub enum Chip {
     Kube,
     Exit,
     Time,
+    Date,
 }
 
 impl Chip {
-    pub const ALL: [Chip; 11] = [
+    pub const ALL: [Chip; 12] = [
         Chip::User,
         Chip::Host,
         Chip::Cwd,
@@ -32,7 +34,29 @@ impl Chip {
         Chip::Kube,
         Chip::Exit,
         Chip::Time,
+        Chip::Date,
     ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Chip::User => "user",
+            Chip::Host => "host",
+            Chip::Cwd => "cwd",
+            Chip::GitBranch => "git_branch",
+            Chip::GitAheadBehind => "git_ahead_behind",
+            Chip::GitChanges => "git_changes",
+            Chip::Venv => "venv",
+            Chip::Docker => "docker",
+            Chip::Kube => "kube",
+            Chip::Exit => "exit",
+            Chip::Time => "time",
+            Chip::Date => "date",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|chip| chip.name() == name)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]

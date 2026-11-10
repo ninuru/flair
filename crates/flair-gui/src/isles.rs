@@ -1,27 +1,33 @@
 use std::{collections::BTreeMap, path::Path, time::Duration};
 
 use flair_core::{
-    config::PromptConfig,
+    config::{PromptAppearance, PromptConfig, PromptDateFormat, PromptPath, PromptTimeFormat},
     geom::{CellPoint, CellRect, GridSize},
     ids::PaneId,
     isles::{AheadBehind, Changes, Chip, Head, LastCommand, PromptInfo},
-    proto::WindowLayout,
-    theme::{Rgb, Theme},
+    proto::{PanePlacement, WindowLayout},
+    theme::{Rgb, Theme, blend},
 };
-use unicode_width::UnicodeWidthChar;
+use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
-    chrome_bar::{Scene, opaque, rounded, small_text},
+    CellMetrics,
+    chrome_bar::{Scene, opaque, rounded},
     chrome_layout::{ChromeInput, cell_rect},
     mirror::Mirror,
+    overlay_layout::{OverlayInput, OverlayScene},
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
-    ui::{CAP_HEIGHT, CAP_PAD, CAP_RADIUS, DOT, ELLIPSIS, ITEM_GAP, LINE, px},
+    ui::{ELLIPSIS, LINE, px},
 };
 
-const EDGE: f32 = 4.0;
+const EDGE: f32 = 0.0;
+const PAD: f32 = 4.0;
+const GAP: f32 = 4.0;
+const RADIUS: f32 = 2.0;
 const ICON_GAP: f32 = 4.0;
 const COUNT_CAP: u32 = 1000;
-const DROP: [Chip; 10] = [
+const DROP: [Chip; 11] = [
+    Chip::Date,
     Chip::Time,
     Chip::Host,
     Chip::User,
@@ -40,6 +46,7 @@ pub struct Isles<'a> {
     pub mirror: &'a Mirror,
     pub config: &'a PromptConfig,
     pub clock: Option<(u8, u8)>,
+    pub date: Option<(i32, u8, u8)>,
     pub home: Option<&'a Path>,
 }
 
@@ -64,20 +71,46 @@ pub fn labels(
     clock: Option<(u8, u8)>,
     home: Option<&Path>,
 ) -> Vec<Label> {
-    Chip::ALL
-        .into_iter()
+    labels_at(info, config, clock, local_date(), home)
+}
+
+pub fn labels_at(
+    info: &PromptInfo,
+    config: &PromptConfig,
+    clock: Option<(u8, u8)>,
+    date: Option<(i32, u8, u8)>,
+    home: Option<&Path>,
+) -> Vec<Label> {
+    config
+        .order
+        .chips()
+        .iter()
+        .copied()
+        .chain(
+            Chip::ALL
+                .into_iter()
+                .filter(|chip| !config.order.chips().contains(chip)),
+        )
         .filter(|chip| config.enabled(*chip))
         .filter_map(|chip| {
             let (text, tone) =
-                text(chip, info, config, clock, home).filter(|(text, _)| !text.is_empty())?;
+                text(chip, info, config, clock, date, home).filter(|(text, _)| !text.is_empty())?;
             Some(Label {
                 chip,
-                icon: icon(chip).filter(|_| config.icons),
+                icon: icon(chip).filter(|_| icons(config, chip)),
                 text,
                 tone,
             })
         })
         .collect()
+}
+
+fn icons(config: &PromptConfig, chip: Chip) -> bool {
+    config
+        .segments
+        .get(&chip)
+        .and_then(|segment| segment.icons)
+        .unwrap_or(config.icons)
 }
 
 pub fn line(labels: &[Label]) -> String {
@@ -114,17 +147,42 @@ pub fn next_minute(since_epoch: Duration) -> Duration {
     minute - Duration::from_nanos((since_epoch.as_nanos() % minute.as_nanos()) as u64)
 }
 
-pub fn local_clock() -> Option<(u8, u8)> {
-    let now = unsafe { libc::time(std::ptr::null_mut()) };
+#[derive(Debug, Clone, Copy)]
+pub struct Calendar {
+    pub clock: (u8, u8),
+    pub date: (i32, u8, u8),
+}
+
+pub fn calendar_at(timestamp: u64) -> Option<Calendar> {
+    let time = libc::time_t::try_from(timestamp).ok()?;
     let mut tm: libc::tm = unsafe { std::mem::zeroed() };
-    let local = unsafe { libc::localtime_r(&now, &mut tm) };
-    if local.is_null() {
+    if unsafe { libc::localtime_r(&time, &mut tm) }.is_null() {
         return None;
     }
-    Some((
-        u8::try_from(tm.tm_hour).ok()?,
-        u8::try_from(tm.tm_min).ok()?,
-    ))
+    Some(Calendar {
+        clock: (
+            u8::try_from(tm.tm_hour).ok()?,
+            u8::try_from(tm.tm_min).ok()?,
+        ),
+        date: (
+            tm.tm_year + 1900,
+            u8::try_from(tm.tm_mon + 1).ok()?,
+            u8::try_from(tm.tm_mday).ok()?,
+        ),
+    })
+}
+
+fn local_calendar() -> Option<Calendar> {
+    let now = unsafe { libc::time(std::ptr::null_mut()) };
+    calendar_at(u64::try_from(now).ok()?)
+}
+
+pub fn local_clock() -> Option<(u8, u8)> {
+    Some(local_calendar()?.clock)
+}
+
+pub fn local_date() -> Option<(i32, u8, u8)> {
+    Some(local_calendar()?.date)
 }
 
 fn text(
@@ -132,6 +190,7 @@ fn text(
     info: &PromptInfo,
     config: &PromptConfig,
     clock: Option<(u8, u8)>,
+    date: Option<(i32, u8, u8)>,
     home: Option<&Path>,
 ) -> Option<(String, Tone)> {
     let plain = |text: String| {
@@ -140,7 +199,7 @@ fn text(
             Tone::Plain,
         ))
     };
-    let named = |prefix: &str, value: &str| match config.icons {
+    let named = |chip, prefix: &str, value: &str| match icons(config, chip) {
         true => value.to_owned(),
         false => format!("{prefix} {value}"),
     };
@@ -149,17 +208,30 @@ fn text(
     match chip {
         Chip::User => plain(shell?.user.clone()),
         Chip::Host => plain(shell?.host.clone()),
-        Chip::Cwd => plain(directory(info.cwd.as_deref()?, home)),
+        Chip::Cwd => plain(directory(info.cwd.as_deref()?, config.path, home)),
         Chip::GitBranch => match &repo?.head {
             Head::Branch(name) | Head::Detached(name) => plain(name.clone()),
         },
         Chip::GitAheadBehind => plain(ahead_behind(repo?.upstream?)?),
         Chip::GitChanges => plain(changes(repo?.changes?)?),
-        Chip::Venv => plain(named("venv", shell?.venv.as_deref()?)),
-        Chip::Docker => plain(named("docker", info.docker.as_deref()?)),
-        Chip::Kube => plain(named("kube", info.kube.as_deref()?)),
+        Chip::Venv => plain(named(chip, "venv", shell?.venv.as_deref()?)),
+        Chip::Docker => plain(named(chip, "docker", info.docker.as_deref()?)),
+        Chip::Kube => plain(named(chip, "kube", info.kube.as_deref()?)),
         Chip::Exit => exit(info.last?, config.duration_ms),
-        Chip::Time => clock.and_then(|(hour, minute)| plain(format!("{hour:02}:{minute:02}"))),
+        Chip::Time => clock.and_then(|(hour, minute)| {
+            plain(match config.time_format {
+                PromptTimeFormat::TwentyFour => format!("{hour:02}:{minute:02}"),
+                PromptTimeFormat::Twelve => format!(
+                    "{}:{minute:02} {}",
+                    match hour % 12 {
+                        0 => 12,
+                        hour => hour,
+                    },
+                    if hour < 12 { "AM" } else { "PM" }
+                ),
+            })
+        }),
+        Chip::Date => date.and_then(|date| plain(date_text(date, config.date_format))),
     }
 }
 
@@ -199,18 +271,57 @@ fn icon(chip: Chip) -> Option<char> {
         Chip::GitBranch => Some('\u{f418}'),
         Chip::GitChanges => Some('\u{f440}'),
         Chip::Venv => Some('\u{f487}'),
-        Chip::Docker => Some('\u{f4b7}'),
-        Chip::Kube => Some('\u{eb51}'),
+        Chip::Docker => Some('\u{f308}'),
+        Chip::Kube => Some('\u{f10fe}'),
         Chip::Time => Some('\u{f017}'),
+        Chip::Date => Some('\u{f073}'),
         Chip::GitAheadBehind | Chip::Exit => None,
     }
 }
 
-fn directory(path: &Path, home: Option<&Path>) -> String {
+fn directory(path: &Path, style: PromptPath, home: Option<&Path>) -> String {
+    match style {
+        PromptPath::Full => return path.display().to_string(),
+        PromptPath::Folder => {
+            return path.file_name().map_or_else(
+                || path.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            );
+        }
+        PromptPath::Abbreviated => {}
+    }
     match home.and_then(|home| path.strip_prefix(home).ok()) {
         Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
         Some(rest) => format!("~/{}", rest.display()),
         None => path.display().to_string(),
+    }
+}
+
+fn date_text((year, month, day): (i32, u8, u8), style: PromptDateFormat) -> String {
+    match style {
+        PromptDateFormat::Iso => format!("{year:04}-{month:02}-{day:02}"),
+        PromptDateFormat::Short => format!("{month:02}/{day:02}/{year:04}"),
+        PromptDateFormat::Long => {
+            let months = [
+                "January",
+                "February",
+                "March",
+                "April",
+                "May",
+                "June",
+                "July",
+                "August",
+                "September",
+                "October",
+                "November",
+                "December",
+            ];
+            let month = months
+                .get(usize::from(month.saturating_sub(1)))
+                .copied()
+                .unwrap_or_default();
+            format!("{month} {day}, {year}")
+        }
     }
 }
 
@@ -264,19 +375,26 @@ fn duration(ms: u64) -> String {
     }
 }
 
-pub(crate) fn band(
-    input: &ChromeInput,
-    window: &WindowLayout,
-    scene: &mut Scene,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) {
-    let Some(isles) = input.isles else {
-        return;
-    };
+pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene) {
+    let Some(isles) = input.isles else { return };
     if isles.config.band() == 0 {
         return;
     }
     for placement in &window.panes {
+        if let Some(history) = isles.mirror.history(placement.pane) {
+            for snapshot in history {
+                let calendar = calendar_at(snapshot.timestamp);
+                draw_prompt(
+                    input,
+                    placement,
+                    snapshot.row,
+                    &snapshot.info,
+                    calendar,
+                    scene,
+                );
+            }
+            continue;
+        }
         let Some(info) = isles.info.get(&placement.pane) else {
             continue;
         };
@@ -290,166 +408,236 @@ pub(crate) fn band(
         }) else {
             continue;
         };
-        let row = cell_rect(
-            input,
-            CellRect {
-                origin: CellPoint {
-                    row: placement.rect.origin.row + prompt_row,
-                    ..placement.rect.origin
-                },
-                size: GridSize {
-                    rows: 1,
-                    ..placement.rect.size
-                },
-            },
-        );
-        let height = px(CAP_HEIGHT, input.scale).min(row.h - px(LINE, input.scale) * 2.0);
-        let labels = labels(info, isles.config, isles.clock, isles.home);
-        chips(input, &labels, row, height, scene, measure);
+        let calendar = isles
+            .clock
+            .zip(isles.date)
+            .map(|(clock, date)| Calendar { clock, date });
+        draw_prompt(input, placement, prompt_row, info, calendar, scene);
     }
 }
 
-fn chips(
+fn draw_prompt(
     input: &ChromeInput,
-    labels: &[Label],
-    row: PxRect,
-    height: f32,
+    placement: &PanePlacement,
+    row: u16,
+    info: &PromptInfo,
+    calendar: Option<Calendar>,
     scene: &mut Scene,
-    measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
-    let scale = input.scale;
-    if height <= 0.0 || labels.is_empty() {
+    if row >= placement.rect.size.rows {
         return;
     }
-    let gap = px(ITEM_GAP, scale);
-    let start = (row.x + px(EDGE, scale)).round();
-    let room = row.x + row.w - px(EDGE, scale) - start;
-    let widths: Vec<(Chip, f32)> = labels
-        .iter()
-        .map(|label| {
-            let text = match label.chip {
-                Chip::Cwd => shortest(&label.text),
-                Chip::User
-                | Chip::Host
-                | Chip::GitBranch
-                | Chip::GitAheadBehind
-                | Chip::GitChanges
-                | Chip::Venv
-                | Chip::Docker
-                | Chip::Kube
-                | Chip::Exit
-                | Chip::Time => label.text.clone(),
-            };
-            (label.chip, width(input, label, &text, measure))
+    let Some(isles) = input.isles else { return };
+    let rect = cell_rect(
+        input,
+        CellRect {
+            origin: CellPoint {
+                row: placement.rect.origin.row + row,
+                ..placement.rect.origin
+            },
+            size: GridSize {
+                rows: 1,
+                ..placement.rect.size
+            },
+        },
+    );
+    let clock = calendar.map(|calendar| calendar.clock).or(isles.clock);
+    let date = calendar.map(|calendar| calendar.date).or(isles.date);
+    let labels = labels_at(info, isles.config, clock, date, isles.home);
+    let paint = Paint {
+        theme: input.theme,
+        scale: input.scale,
+        metrics: input.metrics,
+        config: isles.config,
+    };
+    paint.chips(&labels, rect, scene);
+}
+
+pub fn preview(
+    input: &OverlayInput,
+    metrics: CellMetrics,
+    config: &PromptConfig,
+    info: &PromptInfo,
+    rect: PxRect,
+    scene: &mut OverlayScene,
+) -> Vec<(Chip, PxRect)> {
+    if config.band() == 0 {
+        return Vec::new();
+    }
+    let paint = Paint {
+        theme: input.theme,
+        scale: input.scale,
+        metrics,
+        config,
+    };
+    let labels = labels_at(
+        info,
+        config,
+        Some((15, 48)),
+        Some((2026, 11, 10)),
+        Some(Path::new("/home/developer")),
+    );
+    let mut chips = Scene::default();
+    let hits = paint.chips(&labels, rect, &mut chips);
+    scene.quads.extend(chips.quads);
+    scene.text.extend(chips.text);
+    hits
+}
+
+struct Paint<'a> {
+    theme: &'a Theme,
+    scale: f32,
+    metrics: CellMetrics,
+    config: &'a PromptConfig,
+}
+
+impl Paint<'_> {
+    fn width(&self, label: &Label, text: &str) -> f32 {
+        (px(PAD * 2.0, self.scale) + self.lead(label) + text.width() as f32 * self.metrics.width)
+            .round()
+    }
+
+    fn lead(&self, label: &Label) -> f32 {
+        label.icon.map_or(0.0, |icon| {
+            icon_cells(icon) as f32 * self.metrics.width + px(ICON_GAP, self.scale)
         })
-        .collect();
-    let kept = fit(&widths, room, gap);
-    let others = labels
-        .iter()
-        .filter(|label| label.chip != Chip::Cwd && kept.contains(&label.chip))
-        .map(|label| width(input, label, &label.text, measure))
-        .sum::<f32>()
-        + gap * kept.len().saturating_sub(1) as f32;
-    let mut placed = Vec::new();
-    for label in labels.iter().filter(|label| kept.contains(&label.chip)) {
-        let text = if label.chip == Chip::Cwd {
-            let free = room - others - width(input, label, "", measure);
-            let text = cut(&label.text, |text| {
-                measure(text, false) * input.ui.small <= free
-            });
+    }
+
+    fn chips(&self, labels: &[Label], row: PxRect, scene: &mut Scene) -> Vec<(Chip, PxRect)> {
+        let height = (self.metrics.height - px(2.0, self.scale)).min(row.h - px(2.0, self.scale));
+        if height <= 0.0 || labels.is_empty() {
+            return Vec::new();
+        }
+        let gap = px(GAP, self.scale);
+        let start = (row.x + px(EDGE, self.scale)).round();
+        let room = row.x + row.w - px(EDGE, self.scale) - start;
+        let widths: Vec<_> = labels
+            .iter()
+            .map(|label| {
+                let text = if label.chip == Chip::Cwd {
+                    shortest(&label.text)
+                } else {
+                    label.text.clone()
+                };
+                (label.chip, self.width(label, &text))
+            })
+            .collect();
+        let kept = fit(&widths, room, gap);
+        let others = labels
+            .iter()
+            .filter(|label| label.chip != Chip::Cwd && kept.contains(&label.chip))
+            .map(|label| self.width(label, &label.text))
+            .sum::<f32>()
+            + gap * kept.len().saturating_sub(1) as f32;
+        let y = (row.y + (row.h - height) / 2.0).round();
+        let mut x = start;
+        let mut hits = Vec::new();
+        for label in labels.iter().filter(|label| kept.contains(&label.chip)) {
+            let text = if label.chip == Chip::Cwd {
+                let free = room - others - self.width(label, "");
+                cut(&label.text, |text| {
+                    text.width() as f32 * self.metrics.width <= free
+                })
+            } else {
+                label.text.clone()
+            };
             if text.is_empty() {
                 continue;
             }
-            text
-        } else {
-            label.text.clone()
-        };
-        let width = width(input, label, &text, measure);
-        placed.push((label, text, width));
-    }
-    let y = (row.y + (row.h - height) / 2.0).round();
-    let mut x = start;
-    for (label, text, width) in placed {
-        let rect = PxRect {
-            x,
-            y,
-            w: width,
-            h: height,
-        };
-        draw(input, label, text, rect, scene);
-        x += width + gap;
-    }
-}
-
-fn draw(input: &ChromeInput, label: &Label, text: String, rect: PxRect, scene: &mut Scene) {
-    let scale = input.scale;
-    let (fill, ink) = colours(input.theme, label);
-    scene.quads.push(Quad {
-        border: Some(Border {
-            color: opaque(fill),
-            width: px(LINE, scale),
-        }),
-        ..rounded(rect, fill, CAP_RADIUS, scale)
-    });
-    let x = rect.x + px(CAP_PAD, scale);
-    let mark = match label.tone {
-        Tone::Plain => None,
-        Tone::Ok => Some(ink),
-        Tone::Failed => Some(ink),
-    };
-    match (mark, label.icon) {
-        (Some(color), _) => {
-            let dot = px(DOT, scale);
-            let spot = PxRect {
-                x: x.round(),
-                y: (rect.y + (rect.h - dot) / 2.0).round(),
-                w: dot,
-                h: dot,
+            let width = self.width(label, &text);
+            let rect = PxRect {
+                x,
+                y,
+                w: width,
+                h: height,
             };
-            scene.quads.push(rounded(spot, color, DOT / 2.0, scale));
+            self.draw(label, text, rect, scene);
+            hits.push((label.chip, rect));
+            x += width + gap;
         }
-        (None, Some(icon)) => {
-            let ui = input.ui;
-            let label = small_text(x, rect, String::new(), ink, ui);
-            scene.text.push(TextRun {
-                x: x.round(),
-                baseline: (label.baseline - ui.cap / 2.0 - ui.icon.height / 2.0 + ui.icon.baseline)
-                    .round(),
-                text: icon.to_string(),
-                face: TextFace::Icon,
-                ..label
+        hits
+    }
+
+    fn draw(&self, label: &Label, text: String, rect: PxRect, scene: &mut Scene) {
+        let (fill, ink, border) = colours(self.theme, self.config, label);
+        if let Some(border) = border {
+            scene.quads.push(Quad {
+                border: Some(Border {
+                    color: opaque(border),
+                    width: px(LINE, self.scale),
+                }),
+                ..rounded(rect, fill, RADIUS, self.scale)
             });
         }
-        (None, None) => {}
+        let x = (rect.x + px(PAD, self.scale)).round();
+        let baseline =
+            (rect.y + (rect.h - self.metrics.height) / 2.0 + self.metrics.baseline).round();
+        if let Some(icon) = label.icon {
+            scene.text.push(TextRun {
+                x,
+                baseline,
+                text: icon.to_string(),
+                color: ink,
+                bold: false,
+                face: TextFace::Mono,
+            });
+        }
+        scene.text.push(TextRun {
+            x: (x + self.lead(label)).round(),
+            baseline,
+            text,
+            color: ink,
+            bold: false,
+            face: TextFace::Mono,
+        });
     }
-    scene.text.push(small_text(
-        (x + lead(input, label)).round(),
-        rect,
-        text,
-        ink,
-        input.ui,
-    ));
 }
 
-fn colours(theme: &Theme, label: &Label) -> (Rgb, Rgb) {
-    let index = match label.chip {
-        Chip::Cwd | Chip::Docker => 4,
-        Chip::GitBranch | Chip::Kube => 5,
-        Chip::GitChanges | Chip::GitAheadBehind | Chip::Venv | Chip::Host => 2,
-        Chip::User => 3,
-        Chip::Time => 6,
-        Chip::Exit => match label.tone {
-            Tone::Failed => 1,
-            Tone::Ok | Tone::Plain => 2,
+fn colours(theme: &Theme, config: &PromptConfig, label: &Label) -> (Rgb, Rgb, Option<Rgb>) {
+    let segment = config.segments.get(&label.chip);
+    let index = segment.and_then(|segment| segment.colour).map_or_else(
+        || match label.chip {
+            Chip::Cwd | Chip::Host | Chip::Time | Chip::Date => 6,
+            Chip::Docker | Chip::GitChanges | Chip::GitAheadBehind | Chip::Venv => 2,
+            Chip::GitBranch | Chip::Kube => 5,
+            Chip::User => 3,
+            Chip::Exit => match label.tone {
+                Tone::Failed => 1,
+                Tone::Ok | Tone::Plain => 2,
+            },
         },
+        |colour| colour.index(),
+    );
+    let hue = theme.normal[index];
+    let appearance = segment
+        .and_then(|segment| segment.appearance)
+        .unwrap_or(config.appearance);
+    let fill = match appearance {
+        PromptAppearance::Outlined => blend(theme.background, hue, 6),
+        PromptAppearance::Filled => hue,
+        PromptAppearance::Plain => theme.background,
     };
-    let fill = theme.normal[index];
-    let ink = if contrast(fill, theme.background) >= contrast(fill, theme.foreground) {
-        theme.background
-    } else {
-        theme.foreground
+    let ink = match appearance {
+        PromptAppearance::Filled => {
+            if contrast(fill, theme.background) >= contrast(fill, theme.foreground) {
+                theme.background
+            } else {
+                theme.foreground
+            }
+        }
+        PromptAppearance::Outlined | PromptAppearance::Plain => {
+            [hue, theme.bright[index], theme.foreground]
+                .into_iter()
+                .find(|colour| contrast(fill, *colour) >= 4.5)
+                .unwrap_or(theme.foreground)
+        }
     };
-    (fill, ink)
+    let border = match appearance {
+        PromptAppearance::Outlined => Some(blend(theme.background, hue, 24)),
+        PromptAppearance::Filled => Some(hue),
+        PromptAppearance::Plain => None,
+    };
+    (fill, ink, border)
 }
 
 fn contrast(a: Rgb, b: Rgb) -> f32 {
@@ -466,29 +654,6 @@ fn contrast(a: Rgb, b: Rgb) -> f32 {
     };
     let (a, b) = (luminance(a), luminance(b));
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
-}
-
-fn width(
-    input: &ChromeInput,
-    label: &Label,
-    text: &str,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) -> f32 {
-    let pad = px(CAP_PAD, input.scale);
-    (pad * 2.0 + lead(input, label) + measure(text, false) * input.ui.small).round()
-}
-
-fn lead(input: &ChromeInput, label: &Label) -> f32 {
-    let scale = input.scale;
-    match (label.tone, label.icon) {
-        (Tone::Ok | Tone::Failed, _) => px(DOT, scale) + px(ITEM_GAP, scale),
-        (Tone::Plain, Some(icon)) => icon_width(input, icon) + px(ICON_GAP, scale),
-        (Tone::Plain, None) => 0.0,
-    }
-}
-
-fn icon_width(input: &ChromeInput, icon: char) -> f32 {
-    (icon_cells(icon) as f32 * input.ui.icon.width).round()
 }
 
 fn icon_cells(icon: char) -> usize {

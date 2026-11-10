@@ -86,7 +86,12 @@ fn focus_key(page: &mut SettingsPage, key: &str) {
         .filter(|setting| setting.section == Section::ALL[section_index])
         .position(|setting| setting.key == key)
         .unwrap();
-    page.focus(offset);
+    if key.starts_with("prompt.") {
+        page.query.insert(key);
+        page.focus(0);
+    } else {
+        page.focus(offset);
+    }
 }
 
 fn entries(sheet: &SettingsSheet) -> Vec<&Entry> {
@@ -816,6 +821,13 @@ fn the_prompt_section_lists_the_style_icons_chips_then_the_duration() {
             "Exit status",
             "Time",
             "Minimum duration",
+            "Appearance",
+            "Directory format",
+            "Time format",
+            "Date format",
+            "Input separator",
+            "Segment order",
+            "Date",
         ]
     );
     assert_eq!(control(&page), Control::Choice("chips".to_owned()));
@@ -856,10 +868,10 @@ fn the_prompt_style_steps_back_from_ps1_and_saves_on_leave() {
     assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
     assert_eq!(control(&page), Control::Choice("chips".to_owned()));
     assert_eq!(
-        press(&mut page, NamedKey::Down),
+        page.click(SettingsHit::Section(0)),
         save("prompt.style", Some(Value::Text("chips".to_owned())))
     );
-    assert_eq!(page.sheet().focus, Some(1));
+    assert_eq!(page.sheet().focus, Some(0));
 }
 
 #[test]
@@ -873,20 +885,19 @@ fn escape_reverts_a_pending_prompt_style() {
 }
 
 #[test]
-fn space_flips_a_prompt_chip_and_saves_at_once() {
+fn space_flips_a_prompt_chip_in_the_draft_and_enter_saves_the_prompt() {
     let mut page = page("");
-    focus_key(&mut page, "prompt.kube");
-    assert_eq!(page.sheet().keys, toggle_keys());
-    assert_eq!(
-        page.key(&typed(' ')),
-        save("prompt.kube", Some(Value::Bool(true)))
+    section(&mut page, 4);
+    page.click(SettingsHit::PromptEditor(PromptAction::Select(
+        flair_core::isles::Chip::Kube,
+    )));
+    assert!(
+        matches!(page.key(&typed(' ')), SettingsOutcome::Preview(config) if config.prompt.kube)
     );
-    focus_key(&mut page, "prompt.icons");
-    assert_eq!(
+    assert!(matches!(
         press(&mut page, NamedKey::Enter),
-        save("prompt.icons", Some(Value::Bool(false)))
-    );
-    assert_eq!(press(&mut page, NamedKey::Right), SettingsOutcome::Pending);
+        SettingsOutcome::SavePrompt(_)
+    ));
 }
 
 #[test]

@@ -132,11 +132,12 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     };
     if let Some(window) = input.layout {
         separators(input, window, extend, &mut scene);
-        isles::band(input, window, &mut scene, &mut measure);
+        isles::band(input, window, &mut scene);
     }
     let overlay = input.overlays.and_then(|overlays| {
         overlays.layout(
             &OverlayInput {
+                metrics: input.metrics,
                 px: input.px,
                 scale,
                 ui: input.ui,

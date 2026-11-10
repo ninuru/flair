@@ -357,16 +357,11 @@ fn a_failed_read_returns_the_directory_to_idle() {
 }
 
 #[test]
-fn output_without_prompt_events_sends_no_prompt_info() {
+fn plain_output_keeps_prompt_facts_and_command_marks_update_them() {
     let (mut server, _) = chips(|_| {});
-    let last = Some(LastCommand {
-        exit: Some(3),
-        duration: Millis(1),
-    });
-    server.panes.get_mut(&PaneId(1)).unwrap().last = last;
     assert!(infos(&output(&mut server, 1, b"plain text")).is_empty());
-    let marked = output(&mut server, 2, b"\x1b]133;B\x07");
-    assert_eq!(infos(&marked)[0].2.last, last);
+    let marked = output(&mut server, 2, b"\x1b]133;C\x07\x1b]133;D;3\x07");
+    assert_eq!(infos(&marked)[0].2.last.unwrap().exit, Some(3));
 }
 
 #[test]
@@ -507,4 +502,126 @@ fn reloading_chips_sends_facts_without_reserving_a_pane_row() {
     );
     assert_eq!(infos(&out).len(), 1);
     assert_eq!(prompt_timers(&out), vec![Millis(5002)]);
+}
+
+#[test]
+fn prompt_history_keeps_each_directory_when_one_read_contains_multiple_prompts() {
+    let (mut server, initial) = chips(|_| {});
+    for effect in initial {
+        if let Effect::Send(client, ServerMsg::Frame { seq, .. }) = effect {
+            handle(
+                &mut server,
+                0,
+                Event::Client(client, ClientMsg::FrameAck { seq }),
+            );
+        }
+    }
+    let out = output(&mut server, 1, b"\x1b]7;file:///first\x07\x1b]6973;prompt\x07\r\nfirst\r\n\x1b]7;file:///second\x07\x1b]6973;prompt\x07\r\nsecond");
+    let history = out
+        .iter()
+        .find_map(|effect| {
+            if let Effect::Send(
+                ClientId(1),
+                ServerMsg::PromptHistory {
+                    pane: PaneId(1),
+                    prompts,
+                },
+            ) = effect
+            {
+                Some(prompts)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].info.cwd.as_deref(), Some(Path::new("/first")));
+    assert_eq!(history[1].info.cwd.as_deref(), Some(Path::new("/second")));
+    assert!(history.iter().all(|prompt| prompt.timestamp > 0));
+    let unchanged = output(&mut server, 2, b"x");
+    assert!(
+        !unchanged
+            .iter()
+            .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptHistory { .. })))
+    );
+    let scrolled = output(&mut server, 3, b"\r\nmore");
+    assert!(
+        !scrolled
+            .iter()
+            .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptHistory { .. })))
+    );
+    let seq = out
+        .iter()
+        .find_map(|effect| {
+            if let Effect::Send(ClientId(1), ServerMsg::Frame { seq, .. }) = effect {
+                Some(*seq)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    let acked = handle(
+        &mut server,
+        4,
+        Event::Client(ClientId(1), ClientMsg::FrameAck { seq }),
+    );
+    let history = acked
+        .iter()
+        .find_map(|effect| {
+            if let Effect::Send(
+                ClientId(1),
+                ServerMsg::PromptHistory {
+                    pane: PaneId(1),
+                    prompts,
+                },
+            ) = effect
+            {
+                Some(prompts)
+            } else {
+                None
+            }
+        })
+        .unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].row, 1);
+    assert_eq!(history[0].info.cwd.as_deref(), Some(Path::new("/second")));
+}
+
+#[test]
+fn prompt_history_waits_for_frame_credit_when_alt_screen_changes() {
+    let (mut server, _) = chips(|_| {});
+    let seq = server.clients[&ClientId(1)].awaiting_ack.unwrap();
+    handle(
+        &mut server,
+        0,
+        Event::Client(ClientId(1), ClientMsg::FrameAck { seq }),
+    );
+    let shown = output(&mut server, 1, b"\x1b]6973;prompt\x07\r\ninput");
+    assert!(shown.iter().any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptHistory { prompts, .. }) if prompts.len() == 1)));
+    let hidden = output(&mut server, 2, b"\x1b[?1049h");
+    assert!(
+        !hidden
+            .iter()
+            .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptHistory { .. })))
+    );
+    let seq = server.clients[&ClientId(1)].awaiting_ack.unwrap();
+    let hidden = handle(
+        &mut server,
+        3,
+        Event::Client(ClientId(1), ClientMsg::FrameAck { seq }),
+    );
+    assert!(hidden.iter().any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptHistory { prompts, .. }) if prompts.is_empty())));
+    let restored = output(&mut server, 4, b"\x1b[?1049l");
+    assert!(
+        !restored
+            .iter()
+            .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptHistory { .. })))
+    );
+    let seq = server.clients[&ClientId(1)].awaiting_ack.unwrap();
+    let restored = handle(
+        &mut server,
+        5,
+        Event::Client(ClientId(1), ClientMsg::FrameAck { seq }),
+    );
+    assert!(restored.iter().any(|effect| matches!(effect, Effect::Send(_, ServerMsg::PromptHistory { prompts, .. }) if prompts.len() == 1)));
 }

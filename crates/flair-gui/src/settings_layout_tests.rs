@@ -27,6 +27,11 @@ fn run(
 ) -> OverlayScene {
     let theme = Config::default().theme();
     let input = OverlayInput {
+        metrics: crate::CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
         px,
         scale,
         ui: UiMetrics {
@@ -314,7 +319,8 @@ fn six_nav_rows_fit_the_narrow_column_at_960x600() {
             | SettingsHit::Decrease(_)
             | SettingsHit::Increase(_)
             | SettingsHit::Cycle(_)
-            | SettingsHit::Edit(_) => None,
+            | SettingsHit::Edit(_)
+            | SettingsHit::PromptEditor(_) => None,
         })
         .collect();
     let expected: Vec<_> = (0..6)

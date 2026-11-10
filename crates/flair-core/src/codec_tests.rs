@@ -13,7 +13,8 @@ use crate::{
     },
     proto::{
         Cell, CellFlags, ClientKind, ClientMsg, Color, Cursor, CursorShape, ExitReason, PaneFlags,
-        PanePlacement, PaneUpdate, Separator, ServerMsg, SessionInfo, Target, WindowLayout,
+        PanePlacement, PaneUpdate, PromptSnapshot, Separator, ServerMsg, SessionInfo, Target,
+        WindowLayout,
     },
     status::{StatusLine, StatusWindow},
     time::Millis,
@@ -312,6 +313,15 @@ fn server_messages() -> Vec<ServerMsg> {
         ServerMsg::PromptInfo {
             pane: PaneId(6),
             info: PromptInfo::default(),
+        },
+        ServerMsg::PromptHistory {
+            pane: PaneId(4),
+            prompts: vec![PromptSnapshot {
+                row: 2,
+                id: 1,
+                timestamp: 1_700_000_000,
+                info: PromptInfo::default(),
+            }],
         },
     ]
 }

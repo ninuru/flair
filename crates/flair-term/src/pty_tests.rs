@@ -233,6 +233,7 @@ fn zsh_chips_loads_integration_after_user_startup_without_dotfile_changes() {
         ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
         ("HOME".into(), root.to_string_lossy().into_owned()),
         ("FLAIR_PROMPT".into(), "chips".into()),
+        ("FLAIR_PROMPT_SEPARATOR".into(), "chevron".into()),
     ]);
     let mut pty = Pty::spawn(&spawn).unwrap();
     let mut reader = pty.reader().unwrap();
@@ -309,10 +310,43 @@ fn zsh_command_execution_keeps_the_requested_startup_environment() {
     spawn.env.extend([
         ("ZDOTDIR".into(), "/tmp/flair-command-zdotdir".into()),
         ("FLAIR_PROMPT".into(), "chips".into()),
+        ("FLAIR_PROMPT_SEPARATOR".into(), "chevron".into()),
     ]);
     let mut pty = Pty::spawn(&spawn).unwrap();
     let text = read_until(&mut pty.reader().unwrap(), "\n");
     assert!(text.contains("zdot=/tmp/flair-command-zdotdir"), "{text:?}");
     assert!(!text.contains("\u{1b}]6973;"), "{text:?}");
     pty.kill();
+}
+
+#[test]
+fn zsh_default_prompt_leaves_a_plain_input_line_below_its_chip_anchor() {
+    if !std::path::Path::new("/bin/zsh").exists() {
+        eprintln!("skipping plain prompt PTY test: /bin/zsh unavailable");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("flair-zsh-plain-{}", std::process::id()));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .create(&root)
+        .unwrap();
+    let mut spawn = spec("");
+    spawn.program = "/bin/zsh".into();
+    spawn.args = vec!["-i".into()];
+    spawn.env.extend([
+        ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
+        ("HOME".into(), root.to_string_lossy().into_owned()),
+        ("FLAIR_PROMPT".into(), "chips".into()),
+    ]);
+    spawn.unset_env.push("FLAIR_PROMPT_SEPARATOR".into());
+    let mut pty = Pty::spawn(&spawn).unwrap();
+    let text = read_until(&mut pty.reader().unwrap(), "\u{1b}]133;B\u{7}");
+    assert!(!text.contains('❯'), "{text:?}");
+    let mut terminal = crate::Terminal::new(spawn.size, 100);
+    terminal.advance(text.as_bytes());
+    let frame = terminal.snapshot(flair_core::ids::PaneId(1), true).unwrap();
+    assert_eq!(frame.cursor.point.col, 0);
+    assert_eq!(frame.flags.prompt_row, Some(frame.cursor.point.row - 1));
+    pty.kill();
+    std::fs::remove_dir_all(root).unwrap();
 }

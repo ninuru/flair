@@ -22,6 +22,8 @@ use flair_core::{
 fn all_on(icons: bool) -> PromptConfig {
     PromptConfig {
         icons,
+        date: true,
+        path: flair_core::config::PromptPath::Abbreviated,
         cwd: true,
         git_branch: true,
         git_ahead_behind: true,
@@ -85,7 +87,20 @@ fn without(chip: Chip) -> PromptConfig {
             time: false,
             ..config
         },
+        Chip::Date => PromptConfig {
+            date: false,
+            ..config
+        },
     }
+}
+
+fn labels(
+    info: &PromptInfo,
+    config: &PromptConfig,
+    clock: Option<(u8, u8)>,
+    home: Option<&Path>,
+) -> Vec<Label> {
+    labels_at(info, config, clock, clock.map(|_| (2026, 11, 10)), home)
 }
 
 fn full() -> PromptInfo {
@@ -154,6 +169,7 @@ fn every_chip_on_gives_labels_in_band_order() {
             "kube prod",
             "1",
             "15:48",
+            "2026-11-10",
         ]
     );
 }
@@ -184,10 +200,11 @@ fn icons_on_put_a_terminal_glyph_before_every_chip_but_ahead_behind_and_exit() {
             (Chip::GitAheadBehind, None),
             (Chip::GitChanges, Some('\u{f440}')),
             (Chip::Venv, Some('\u{f487}')),
-            (Chip::Docker, Some('\u{f4b7}')),
-            (Chip::Kube, Some('\u{eb51}')),
+            (Chip::Docker, Some('\u{f308}')),
+            (Chip::Kube, Some('\u{f10fe}')),
             (Chip::Exit, None),
             (Chip::Time, Some('\u{f017}')),
+            (Chip::Date, Some('\u{f073}')),
         ]
     );
     assert_eq!(texts(&labels)[6..9], ["env", "colima", "prod"]);
@@ -382,6 +399,7 @@ fn line_joins_labels_with_two_spaces() {
         docker: false,
         kube: false,
         time: false,
+        date: false,
         ..all_on(true)
     };
     let labels = labels(&full(), &config, None, home());
@@ -406,7 +424,8 @@ fn span(widths: &[(Chip, f32)], kept: &[Chip], gap: f32) -> f32 {
     total + gap * kept.len().saturating_sub(1) as f32
 }
 
-const DROP_ORDER: [Chip; 10] = [
+const DROP_ORDER: [Chip; 11] = [
+    Chip::Date,
     Chip::Time,
     Chip::Host,
     Chip::User,
@@ -663,6 +682,7 @@ fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
             mirror: &mirror,
             config: &config,
             clock: None,
+            date: None,
             home: None,
         }),
     };
@@ -676,7 +696,7 @@ fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
 }
 
 #[test]
-fn icons_use_the_small_terminal_face_and_its_cell_advance() {
+fn icons_and_labels_use_the_terminal_face_and_cell_advance() {
     let info = PromptInfo {
         cwd: Some(PathBuf::from("/srv/one")),
         git: Some(GitInfo {
@@ -686,30 +706,28 @@ fn icons_use_the_small_terminal_face_and_its_cell_advance() {
         }),
         ..PromptInfo::default()
     };
+    let runs = icon_runs(info, 98);
     assert_eq!(
-        icon_runs(info, 98),
-        [
-            (18.0, 77.0, "\u{f114}".to_owned(), TextFace::Icon),
-            (29.0, 78.0, "/srv/one".to_owned(), TextFace::Small),
-            (75.0, 77.0, "\u{f418}".to_owned(), TextFace::Icon),
-            (86.0, 78.0, "main".to_owned(), TextFace::Small),
-        ]
+        runs.iter().map(|run| run.2.as_str()).collect::<Vec<_>>(),
+        ["\u{f114}", "/srv/one", "\u{f418}", "main"]
     );
+    assert!(runs.iter().all(|run| run.3 == TextFace::Mono));
+    assert_eq!(runs[1].0 - runs[0].0, 8.0 + ICON_GAP);
+    assert_eq!(runs[0].1, runs[1].1);
+    assert_eq!(runs[2].1, runs[3].1);
 }
 
 #[test]
-fn icon_baselines_centre_the_icon_line_on_the_label_caps() {
-    let info = PromptInfo {
-        cwd: Some(PathBuf::from("/srv/one")),
-        ..PromptInfo::default()
-    };
-    let runs = icon_runs(info, 98);
-    let (_, label, _, _) = runs[1];
-    let (_, icon, _, _) = runs[0];
-    let ui = icon_ui();
-    let caps = label - ui.cap / 2.0;
-    let line = icon - ui.icon.baseline + ui.icon.height / 2.0;
-    assert!((line - caps).abs() <= 0.5, "icon line {line} caps {caps}");
+fn icon_and_label_baselines_match_the_terminal_grid() {
+    let runs = icon_runs(
+        PromptInfo {
+            cwd: Some(PathBuf::from("/srv/one")),
+            ..PromptInfo::default()
+        },
+        98,
+    );
+    assert_eq!(runs[0].1, runs[1].1);
+    assert_eq!(runs[1].1, 80.0);
 }
 
 #[test]
@@ -720,14 +738,14 @@ fn a_wide_icon_takes_two_small_cells() {
 }
 
 #[test]
-fn warp_chips_use_distinct_theme_ansi_colours_with_readable_text() {
-    let mut theme = Config::default().theme();
+fn outlined_chips_use_subtle_theme_tints_and_readable_ansi_text() {
+    let theme = Config::default().theme();
+    let config = PromptConfig::default();
     for (chip, tone, index) in [
-        (Chip::Cwd, Tone::Plain, 4),
+        (Chip::Cwd, Tone::Plain, 6),
+        (Chip::Docker, Tone::Plain, 2),
         (Chip::GitBranch, Tone::Plain, 5),
-        (Chip::GitChanges, Tone::Plain, 2),
         (Chip::Exit, Tone::Failed, 1),
-        (Chip::Time, Tone::Plain, 6),
     ] {
         let label = Label {
             chip,
@@ -735,10 +753,108 @@ fn warp_chips_use_distinct_theme_ansi_colours_with_readable_text() {
             text: "test".into(),
             tone,
         };
-        theme.normal[index] = theme.bright[index];
-        let (fill, ink) = colours(&theme, &label);
-        assert_eq!(fill, theme.normal[index]);
-        assert!(ink == theme.background || ink == theme.foreground);
+        let (fill, ink, border) = colours(&theme, &config, &label);
+        assert_eq!(fill, blend(theme.background, theme.normal[index], 6));
+        assert_eq!(
+            border,
+            Some(blend(theme.background, theme.normal[index], 24))
+        );
         assert!(contrast(fill, ink) >= 4.5, "{chip:?}: {fill:?} {ink:?}");
     }
+}
+
+#[test]
+fn individual_segments_override_colour_appearance_and_icons() {
+    let theme = Config::default().theme();
+    let mut config = PromptConfig::default();
+    let label = Label {
+        chip: Chip::Cwd,
+        icon: None,
+        text: "/home/ada".into(),
+        tone: Tone::Plain,
+    };
+    config.segments.insert(
+        Chip::Cwd,
+        flair_core::config::SegmentConfig {
+            colour: Some(flair_core::config::AnsiColour::Yellow),
+            appearance: Some(flair_core::config::PromptAppearance::Filled),
+            icons: Some(false),
+        },
+    );
+    let (fill, ink, border) = colours(&theme, &config, &label);
+    assert_eq!(fill, theme.normal[3]);
+    assert_eq!(border, Some(fill));
+    assert!(contrast(fill, ink) >= 4.5);
+    config.segments.get_mut(&Chip::Cwd).unwrap().appearance =
+        Some(flair_core::config::PromptAppearance::Plain);
+    let (fill, _, border) = colours(&theme, &config, &label);
+    assert_eq!(fill, theme.background);
+    assert_eq!(border, None);
+}
+
+#[test]
+fn prompt_formats_paths_dates_and_times_from_editor_choices() {
+    let mut config = all_on(false);
+    config.path = flair_core::config::PromptPath::Full;
+    config.time_format = flair_core::config::PromptTimeFormat::Twelve;
+    config.date = true;
+    let labels = labels_at(&full(), &config, Some((0, 7)), Some((2026, 11, 10)), home());
+    let value = |chip| {
+        labels
+            .iter()
+            .find(|label| label.chip == chip)
+            .map(|label| label.text.as_str())
+    };
+    assert_eq!(value(Chip::Cwd), Some("/home/ada/src/flair"));
+    assert_eq!(value(Chip::Time), Some("12:07 AM"));
+    assert_eq!(value(Chip::Date), Some("2026-11-10"));
+    config.path = flair_core::config::PromptPath::Folder;
+    let labels = labels_at(
+        &full(),
+        &config,
+        Some((13, 7)),
+        Some((2026, 11, 10)),
+        home(),
+    );
+    assert_eq!(
+        labels
+            .iter()
+            .find(|label| label.chip == Chip::Cwd)
+            .unwrap()
+            .text,
+        "flair"
+    );
+    assert_eq!(
+        labels
+            .iter()
+            .find(|label| label.chip == Chip::Time)
+            .unwrap()
+            .text,
+        "1:07 PM"
+    );
+}
+
+#[test]
+fn prompt_segment_order_and_icon_overrides_are_applied() {
+    let mut config = all_on(true);
+    config.order = "docker,cwd,git_branch".parse().unwrap();
+    config.segments.insert(
+        Chip::Docker,
+        flair_core::config::SegmentConfig {
+            icons: Some(false),
+            ..Default::default()
+        },
+    );
+    let labels = labels_at(&full(), &config, None, None, home());
+    assert_eq!(
+        labels
+            .iter()
+            .take(3)
+            .map(|label| label.chip)
+            .collect::<Vec<_>>(),
+        [Chip::Docker, Chip::Cwd, Chip::GitBranch]
+    );
+    assert_eq!(labels[0].icon, None);
+    assert_eq!(labels[0].text, "docker colima");
+    assert_eq!(labels[1].icon, Some('\u{f114}'));
 }

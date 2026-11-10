@@ -8,7 +8,7 @@ use crate::{
     chrome_bar::fit_letters,
     notice::Notice,
     overlay_layout::OverlayHit,
-    renderer::{Border, Quad, TextFace, TextRun},
+    renderer::{Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, ChipParts, TabParts, status_parts},
     ui::{ELLIPSIS, SMALL_TEXT},
 };
@@ -897,6 +897,7 @@ fn band_layout(
             mirror: &mirror,
             config,
             clock: None,
+            date: None,
             home: None,
         }),
     };
@@ -931,9 +932,8 @@ fn plain_config() -> PromptConfig {
 }
 
 #[test]
-fn every_banded_pane_draws_its_chips_inside_its_band_row() {
+fn each_pane_uses_subtle_outlined_chips_on_its_prompt_row() {
     let theme = Config::default().theme();
-
     let separators = [Separator {
         axis: Axis::Horizontal,
         rect: cells(49, 0, 1, 34),
@@ -948,60 +948,42 @@ fn every_banded_pane_draws_its_chips_inside_its_band_row() {
         (PaneId(2), prompt("/srv/two")),
     ]);
     let layout = band_layout(&window, &info, &plain_config());
-    let chip = |x, w, index| Quad {
-        rect: rect(x, 69.0, w, 14.0),
-        color: opaque(theme.normal[index]),
-        radius: 4.0,
-        border: Some(Border {
-            color: opaque(theme.normal[index]),
-            width: 1.0,
-        }),
-    };
+    let chips = band_chips(&layout);
+    assert_eq!(chips.len(), 6);
+    for (chip, index) in chips.iter().zip([6, 5, 1, 6, 5, 1]) {
+        assert_eq!(
+            chip.color,
+            opaque(flair_core::theme::blend(
+                theme.background,
+                theme.normal[index],
+                6
+            ))
+        );
+        assert_eq!(
+            chip.border.unwrap().color,
+            opaque(flair_core::theme::blend(
+                theme.background,
+                theme.normal[index],
+                24
+            ))
+        );
+        assert_eq!(chip.rect.y, 69.0);
+        assert_eq!(chip.rect.h, 14.0);
+        assert_eq!(chip.radius, 2.0);
+    }
+    let text = band_text(&layout);
     assert_eq!(
-        band_chips(&layout),
-        [
-            chip(12.0, 40.0, 4),
-            chip(58.0, 26.0, 5),
-            chip(90.0, 28.0, 1),
-            chip(412.0, 40.0, 4),
-            chip(458.0, 26.0, 5),
-            chip(490.0, 28.0, 1),
-        ]
-    );
-    let dots: Vec<Quad> = layout
-        .chrome
-        .quads
-        .iter()
-        .filter(|quad| quad.rect.y >= chrome_bottom(1.0) && quad.rect.w == 6.0)
-        .copied()
-        .collect();
-    assert_eq!(dots.len(), 2);
-    assert_eq!(dots[0].rect, rect(96.0, 73.0, 6.0, 6.0));
-    assert_eq!(dots[0].color, opaque(theme.background));
-    assert_eq!(dots[0].radius, 3.0);
-    assert_eq!(
-        band_text(&layout),
-        [
-            (18.0, 78.0, "/srv/one", TextFace::Small),
-            (64.0, 78.0, "main", TextFace::Small),
-            (108.0, 78.0, "1", TextFace::Small),
-            (418.0, 78.0, "/srv/two", TextFace::Small),
-            (464.0, 78.0, "main", TextFace::Small),
-            (508.0, 78.0, "1", TextFace::Small),
-        ]
+        text.iter().map(|run| run.2).collect::<Vec<_>>(),
+        ["/srv/one", "main", "1", "/srv/two", "main", "1"]
     );
     assert!(
-        layout
-            .chrome
-            .text
-            .iter()
-            .filter(|run| run.baseline >= chrome_bottom(1.0))
-            .all(|run| run.color == theme.background)
+        text.iter()
+            .all(|run| run.3 == TextFace::Mono && run.1 == 80.0)
     );
 }
 
 #[test]
-fn a_successful_exit_uses_a_green_chip_and_contrasting_dot() {
+fn successful_exit_uses_a_green_outline_and_readable_text() {
     let theme = Config::default().theme();
     let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
     let info = BTreeMap::from([(
@@ -1019,36 +1001,35 @@ fn a_successful_exit_uses_a_green_chip_and_contrasting_dot() {
         ..plain_config()
     };
     let layout = band_layout(&window, &info, &config);
-    let dot = layout
-        .chrome
-        .quads
-        .iter()
-        .find(|quad| quad.rect.y >= chrome_bottom(1.0) && quad.rect.w == 6.0)
-        .expect("exit dot");
-    assert_eq!(dot.color, opaque(theme.background));
-    assert_eq!(band_text(&layout), [(30.0, 78.0, "0.42s", TextFace::Small)]);
+    let chips = band_chips(&layout);
+    assert_eq!(chips.len(), 1);
+    assert_eq!(
+        chips[0].color,
+        opaque(flair_core::theme::blend(
+            theme.background,
+            theme.normal[2],
+            6
+        ))
+    );
+    assert_eq!(band_text(&layout), [(12.0, 80.0, "0.42s", TextFace::Mono)]);
 }
 
 #[test]
-fn icons_draw_in_the_small_terminal_face_before_the_label() {
+fn prompt_icons_and_labels_use_the_same_terminal_face_and_baseline() {
     let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
     let info = BTreeMap::from([(PaneId(1), prompt("/srv/one"))]);
     let layout = band_layout(&window, &info, &PromptConfig::default());
-    let widths: Vec<(f32, f32)> = band_chips(&layout)
-        .iter()
-        .map(|quad| (quad.rect.x, quad.rect.w))
-        .collect();
-    assert_eq!(widths, [(12.0, 51.0), (69.0, 37.0), (112.0, 28.0)]);
+    let text = band_text(&layout);
     assert_eq!(
-        band_text(&layout),
-        [
-            (18.0, 77.0, "\u{f114}", TextFace::Icon),
-            (29.0, 78.0, "/srv/one", TextFace::Small),
-            (75.0, 77.0, "\u{f418}", TextFace::Icon),
-            (86.0, 78.0, "main", TextFace::Small),
-            (130.0, 78.0, "1", TextFace::Small),
-        ]
+        text.iter().map(|run| run.2).collect::<Vec<_>>(),
+        ["\u{f114}", "/srv/one", "\u{f418}", "main", "1"]
     );
+    assert!(
+        text.iter()
+            .all(|run| run.3 == TextFace::Mono && run.1 == 80.0)
+    );
+    assert_eq!(text[1].0 - text[0].0, 12.0);
+    assert_eq!(text[3].0 - text[2].0, 12.0);
 }
 
 #[test]
@@ -1062,27 +1043,16 @@ fn a_narrow_pane_shortens_the_cwd_before_dropping_chips() {
             .collect::<Vec<_>>()
     };
     assert_eq!(texts(98), ["/srv/projects/flair", "main", "1"]);
-    assert_eq!(texts(20), ["/srv/projects/flair", "main", "1"]);
-    assert_eq!(texts(19), ["…/projects/flair", "main", "1"]);
-    assert_eq!(texts(18), ["…/projects/flair", "main", "1"]);
-    assert_eq!(texts(17), ["…/flair", "main", "1"]);
-    assert_eq!(texts(14), ["…/flair", "main", "1"]);
-    assert_eq!(texts(13), ["…/flair", "main"]);
-    assert_eq!(texts(10), ["…/flair", "main"]);
-    assert_eq!(texts(9), ["…/flair"]);
-    assert_eq!(texts(6), ["…/flair"]);
-    assert_eq!(texts(5), ["…lair"]);
-    assert_eq!(texts(4), ["…ir"]);
-    assert!(texts(3).is_empty());
-    for cols in 3..=98 {
+    assert_eq!(texts(20), ["…/flair", "main", "1"]);
+    assert_eq!(texts(15), ["…/flair", "main"]);
+    assert_eq!(texts(12), ["…/flair"]);
+    assert!(texts(2).is_empty());
+    for cols in 2..=98 {
         let window = banded(&[], &[(1, cells(0, 0, cols, 34))], 1);
         let layout = band_layout(&window, &info, &plain_config());
         for chip in band_chips(&layout) {
             let right = chip.rect.x + chip.rect.w;
-            assert!(
-                right <= 8.0 + f32::from(cols) * 8.0 - 4.0,
-                "{cols}: {chip:?}"
-            );
+            assert!(right <= 8.0 + f32::from(cols) * 8.0, "{cols}: {chip:?}");
         }
     }
 }

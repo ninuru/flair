@@ -12,6 +12,11 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> PxRect {
 
 fn input(theme: &Theme, px: (u32, u32), scale: f32, hover: Option<(f32, f32)>) -> OverlayInput<'_> {
     OverlayInput {
+        metrics: crate::CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
         px,
         scale,
         ui: UiMetrics {

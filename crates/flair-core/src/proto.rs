@@ -15,7 +15,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 9;
+pub const PROTOCOL: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -86,6 +86,18 @@ pub enum ServerMsg {
         pane: PaneId,
         info: PromptInfo,
     },
+    PromptHistory {
+        pane: PaneId,
+        prompts: Vec<PromptSnapshot>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptSnapshot {
+    pub row: u16,
+    pub id: u64,
+    pub info: PromptInfo,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

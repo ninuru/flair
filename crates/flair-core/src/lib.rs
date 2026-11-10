@@ -19,3 +19,5 @@ pub mod theme;
 pub mod time;
 pub mod tree;
 pub mod view;
+
+mod prompt_config;

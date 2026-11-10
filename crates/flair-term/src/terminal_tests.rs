@@ -437,3 +437,48 @@ fn prompt_anchor_accepts_split_osc_terminators() {
         Some(1)
     );
 }
+
+#[test]
+fn prompt_history_keeps_facts_with_their_grid_rows_through_scroll_and_reflow() {
+    let mut term = Terminal::new(GridSize { cols: 24, rows: 6 }, 12);
+    term.advance(b"\x1b]6973;prompt\x07\r\nfirst\r\n");
+    term.set_prompt_info(flair_core::isles::PromptInfo {
+        cwd: Some(PathBuf::from("/first")),
+        ..Default::default()
+    });
+    term.advance(b"\x1b]6973;prompt\x07\r\nsecond");
+    term.set_prompt_info(flair_core::isles::PromptInfo {
+        cwd: Some(PathBuf::from("/second")),
+        ..Default::default()
+    });
+    let history = term.prompt_history();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].row, 0);
+    assert_eq!(history[1].row, 2);
+    assert_ne!(history[0].id, history[1].id);
+    assert_eq!(history[0].info.cwd.as_deref(), Some(Path::new("/first")));
+    assert_eq!(history[1].info.cwd.as_deref(), Some(Path::new("/second")));
+    term.advance(b"\r\nmore\r\nmore\r\nmore");
+    assert_eq!(term.prompt_history().len(), 1);
+    term.scroll(2);
+    assert_eq!(term.prompt_history().len(), 2);
+    term.resize(GridSize { cols: 12, rows: 8 });
+    let history = term.prompt_history();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].info.cwd.as_deref(), Some(Path::new("/first")));
+    let frame = term.snapshot(PaneId(1), true).unwrap();
+    assert!(
+        frame
+            .rows
+            .iter()
+            .all(|(_, cells)| cells.iter().all(|cell| cell.extra.is_none()))
+    );
+    term.select_start(CellPoint { col: 0, row: 0 }, 1);
+    term.select_update(CellPoint { col: 11, row: 7 });
+    assert!(
+        term.selection_text()
+            .is_some_and(|text| !text.contains("flair-prompt"))
+    );
+    term.advance(b"\x1b[?1049h");
+    assert!(term.prompt_history().is_empty());
+}

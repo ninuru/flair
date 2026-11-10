@@ -141,7 +141,7 @@ impl Server {
         }
     }
 
-    fn prompt_info(&self, pane: PaneId, cwd: PathBuf) -> PromptInfo {
+    pub(super) fn prompt_info(&self, pane: PaneId, cwd: PathBuf) -> PromptInfo {
         let prompt = &self.config.prompt;
         let state = &self.panes[&pane];
         let git = self
@@ -198,7 +198,7 @@ impl Server {
         })
     }
 
-    pub(super) fn flush_prompts(&mut self, out: &mut Vec<Effect>) {
+    pub(super) fn flush_prompts(&mut self, ready: &BTreeSet<ClientId>, out: &mut Vec<Effect>) {
         if !std::mem::take(&mut self.prompts_dirty) {
             return;
         }
@@ -213,6 +213,22 @@ impl Server {
                     self.want_git(cwd.clone(), out);
                 }
                 let info = self.prompt_info(*pane, cwd);
+                let state = self.panes.get_mut(pane).unwrap();
+                state.terminal.set_prompt_info(info.clone());
+                let prompts = state.terminal.prompt_history();
+                if let Some(client) = self.clients.get_mut(&id)
+                    && ready.contains(&id)
+                    && client.prompt_history.get(pane) != Some(&prompts)
+                {
+                    client.prompt_history.insert(*pane, prompts.clone());
+                    out.push(Effect::Send(
+                        id,
+                        ServerMsg::PromptHistory {
+                            pane: *pane,
+                            prompts,
+                        },
+                    ));
+                }
                 if let Some(client) = self.clients.get_mut(&id)
                     && client.prompts.get(pane) != Some(&info)
                 {
@@ -225,6 +241,7 @@ impl Server {
             }
             if let Some(client) = self.clients.get_mut(&id) {
                 client.prompts.retain(|pane, _| panes.contains(pane));
+                client.prompt_history.retain(|pane, _| panes.contains(pane));
             }
         }
     }

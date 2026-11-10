@@ -624,3 +624,43 @@ fn top_and_bottom_margins_use_the_dominant_edge_row_colour() {
     drop(renderer);
     drop(ctx);
 }
+
+#[test]
+fn mono_chrome_text_advances_wide_characters_and_overlays_combining_marks() {
+    let Some((ctx, gl)) = headless_or_skip((100, 50), "mono unicode") else {
+        return;
+    };
+    let config = Config::default();
+    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
+    let metrics = fonts.metrics();
+    let mut renderer = Renderer::new(gl, metrics).unwrap();
+    let x_glyph = fonts.rasterize('x', crate::font::Style::Regular).unwrap();
+    let text = |value: &str| TextRun {
+        x: 10.0,
+        baseline: 30.0,
+        text: value.to_owned(),
+        color: config.theme().foreground,
+        bold: false,
+        face: TextFace::Mono,
+    };
+    let vertices = renderer.text(&[text("界x")], &mut fonts);
+    let x = vertices.as_chunks::<13>().0.iter().last().unwrap()[0];
+    assert_eq!(x, 10.0 + metrics.width * 2.0 + x_glyph.left as f32);
+    if let Some(mark) = fonts
+        .rasterize('\u{301}', crate::font::Style::Regular)
+        .filter(|glyph| glyph.width > 0 && glyph.height > 0)
+    {
+        let vertices = renderer.text(&[text("a\u{301}x")], &mut fonts);
+        let positions: Vec<_> = vertices
+            .as_chunks::<13>()
+            .0
+            .iter()
+            .map(|instance| instance[0])
+            .collect();
+        assert_eq!(positions.len(), 3);
+        assert_eq!(positions[1], 10.0 + mark.left as f32);
+        assert_eq!(positions[2], 10.0 + metrics.width + x_glyph.left as f32);
+    }
+    drop(renderer);
+    drop(ctx);
+}

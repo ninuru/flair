@@ -299,3 +299,40 @@ fn contains_sees_root_table_dotted_and_inline_keys() {
         "theme"
     ));
 }
+
+#[test]
+fn nested_prompt_segment_values_write_remove_and_preserve_siblings() {
+    let text = "[prompt]\nicons = true\n[prompt.segments.cwd]\ncolour = \"cyan\"\nicons = false\n";
+    let (changed, config) = apply(
+        text,
+        "prompt.segments.cwd.appearance",
+        Some(&Value::Text("plain".into())),
+    )
+    .unwrap();
+    assert_eq!(
+        config.prompt.segments[&crate::isles::Chip::Cwd].appearance,
+        Some(crate::config::PromptAppearance::Plain)
+    );
+    assert!(changed.contains("colour = \"cyan\""));
+    let (removed, config) = apply(&changed, "prompt.segments.cwd.colour", None).unwrap();
+    assert_eq!(
+        config.prompt.segments[&crate::isles::Chip::Cwd].colour,
+        None
+    );
+    assert_eq!(
+        config.prompt.segments[&crate::isles::Chip::Cwd].icons,
+        Some(false)
+    );
+    assert!(!removed.contains("colour ="));
+}
+
+#[test]
+fn nested_prompt_segment_sources_and_wrong_parent_tables_are_detected() {
+    let source = "[prompt.segments.cwd]\ncolour = \"cyan\"\n";
+    let doc = document(source).unwrap();
+    assert!(contains(&doc, "prompt.segments.cwd.colour"));
+    assert!(!contains(&doc, "prompt.segments.cwd.icons"));
+    assert!(
+        matches!(apply("[prompt]\nsegments = false\n", "prompt.segments.cwd.colour", Some(&text("cyan"))), Err(EditError::NotATable(name)) if name == "segments")
+    );
+}

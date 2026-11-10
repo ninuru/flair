@@ -23,6 +23,7 @@ fn other_value(setting: &Setting) -> Value {
         Kind::Toggle | Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {
             setting.step(&current, 1, &builtin_themes()).unwrap()
         }
+        Kind::Text if setting.key == "prompt.order" => text("cwd, docker"),
         Kind::Text => Value::Text("C-b".to_owned()),
         Kind::Font => Value::Text("Iosevka".to_owned()),
         Kind::Words => Value::Words(vec!["-i".to_owned()]),
@@ -71,6 +72,13 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "prompt.exit",
             "prompt.time",
             "prompt.duration_ms",
+            "prompt.appearance",
+            "prompt.path",
+            "prompt.time_format",
+            "prompt.date_format",
+            "prompt.separator",
+            "prompt.order",
+            "prompt.date",
             "keys.enabled",
             "keys.key",
             "keys.timeout_ms",
@@ -335,7 +343,7 @@ fn the_prompt_section_lists_style_icons_one_toggle_per_chip_and_the_duration() {
         .iter()
         .filter(|setting| setting.section == Section::Prompt)
         .collect();
-    assert_eq!(prompt.len(), 14);
+    assert_eq!(prompt.len(), 21);
     assert_eq!(prompt[0].key, "prompt.style");
     assert_eq!(prompt[0].title, "Style");
     assert_eq!(prompt[0].kind, Kind::Choice(Choices::Of(&["chips", "ps1"])));
@@ -526,4 +534,25 @@ fn matching_looks_at_title_key_description_and_section() {
     assert!(setting("font.size").matches(""));
     assert!(!setting("font.size").matches("zzz"));
     assert!(!setting("theme").matches("padding"));
+}
+
+#[test]
+fn prompt_order_editing_validates_and_normalizes_segment_names() {
+    let order = setting("prompt.order");
+    assert_eq!(
+        order.parse(" docker,cwd, date "),
+        Ok(Some(text("docker, cwd, date")))
+    );
+    assert!(order.parse("cwd,cwd").is_err());
+    assert!(order.parse("cwd,unknown").is_err());
+    assert_eq!(order.parse(""), Ok(None));
+    assert_eq!(
+        default_value(setting("prompt.appearance")),
+        text("outlined")
+    );
+    assert_eq!(default_value(setting("prompt.path")), text("full"));
+    assert_eq!(default_value(setting("prompt.separator")), text("none"));
+    assert_eq!(default_value(setting("prompt.time_format")), text("24h"));
+    assert_eq!(default_value(setting("prompt.date_format")), text("iso"));
+    assert_eq!(default_value(setting("prompt.date")), Value::Bool(false));
 }

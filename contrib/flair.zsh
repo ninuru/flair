@@ -1,6 +1,6 @@
 [[ $TERM_PROGRAM == flair ]] || return
-[[ $_FLAIR_INTEGRATION_LOADED != 2 ]] || return
-typeset -g _FLAIR_INTEGRATION_LOADED=2
+[[ $_FLAIR_INTEGRATION_LOADED != 3 ]] || return
+typeset -g _FLAIR_INTEGRATION_LOADED=3
 
 autoload -Uz add-zsh-hook
 
@@ -31,7 +31,13 @@ _flair_precmd() {
     _flair_encode "${${VIRTUAL_ENV:t}:-$CONDA_DEFAULT_ENV}"
     printf '\e]6973;flair;u=%s;h=%s;v=%s\a' "$user" "$host" "$REPLY"
     RPS1=''
-    PS1=$'%{\e]6973;prompt\a%}\n❯ %{\e]133;B\a%}'
+    local separator=''
+    case $FLAIR_PROMPT_SEPARATOR in
+        chevron) separator='❯ ' ;;
+        dollar) separator='$ ' ;;
+        percent) separator='%% ' ;;
+    esac
+    PS1=$'%{\e]6973;prompt\a%}\n'"$separator"$'%{\e]133;B\a%}'
 }
 
 _flair_preexec() {

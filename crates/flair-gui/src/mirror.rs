@@ -2,7 +2,7 @@ use flair_core::{
     geom::GridSize,
     ids::PaneId,
     isles::PromptInfo,
-    proto::{Cell, Cursor, PaneFlags, PaneUpdate, SelectionSpan, WindowLayout},
+    proto::{Cell, Cursor, PaneFlags, PaneUpdate, PromptSnapshot, SelectionSpan, WindowLayout},
 };
 use std::collections::{BTreeMap, HashMap};
 
@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap};
 pub struct Mirror {
     panes: HashMap<PaneId, PaneMirror>,
     prompts: BTreeMap<PaneId, PromptInfo>,
+    history: BTreeMap<PaneId, Vec<PromptSnapshot>>,
 }
 
 pub struct PaneMirror {
@@ -25,6 +26,15 @@ impl Mirror {
         let present = |id: &PaneId| layout.panes.iter().any(|placement| placement.pane == *id);
         self.panes.retain(|id, _| present(id));
         self.prompts.retain(|id, _| present(id));
+        self.history.retain(|id, _| present(id));
+    }
+
+    pub fn insert_history(&mut self, pane: PaneId, prompts: Vec<PromptSnapshot>) {
+        self.history.insert(pane, prompts);
+    }
+
+    pub fn history(&self, pane: PaneId) -> Option<&[PromptSnapshot]> {
+        self.history.get(&pane).map(Vec::as_slice)
     }
 
     pub fn insert_prompt(&mut self, pane: PaneId, info: PromptInfo) {

@@ -9,9 +9,13 @@ use std::{
 use serde::{Deserialize, Deserializer, de};
 
 use crate::{
-    isles::Chip,
     keys::KeysConfig,
     theme::{BUILTIN_THEMES, Rgb, Rgba, Theme},
+};
+
+pub use crate::prompt_config::{
+    AnsiColour, PromptAppearance, PromptConfig, PromptDateFormat, PromptOrder, PromptPath,
+    PromptSeparator, PromptStyle, PromptTimeFormat, SegmentConfig,
 };
 
 const MAX_THEME_NAME: usize = 64;
@@ -83,68 +87,6 @@ pub enum CursorStyle {
 #[serde(default, deny_unknown_fields)]
 pub struct BellConfig {
     pub audible: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct PromptConfig {
-    pub style: PromptStyle,
-    pub icons: bool,
-    pub cwd: bool,
-    pub git_branch: bool,
-    pub git_ahead_behind: bool,
-    pub git_changes: bool,
-    pub exit: bool,
-    pub duration_ms: u64,
-    pub time: bool,
-    pub user: bool,
-    pub host: bool,
-    pub venv: bool,
-    pub docker: bool,
-    pub kube: bool,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PromptStyle {
-    Chips,
-    Ps1,
-}
-
-impl PromptStyle {
-    pub const NAMES: [&'static str; 2] = ["chips", "ps1"];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            PromptStyle::Chips => Self::NAMES[0],
-            PromptStyle::Ps1 => Self::NAMES[1],
-        }
-    }
-}
-
-impl PromptConfig {
-    pub fn enabled(&self, chip: Chip) -> bool {
-        match chip {
-            Chip::User => self.user,
-            Chip::Host => self.host,
-            Chip::Cwd => self.cwd,
-            Chip::GitBranch => self.git_branch,
-            Chip::GitAheadBehind => self.git_ahead_behind,
-            Chip::GitChanges => self.git_changes,
-            Chip::Venv => self.venv,
-            Chip::Docker => self.docker,
-            Chip::Kube => self.kube,
-            Chip::Exit => self.exit,
-            Chip::Time => self.time,
-        }
-    }
-
-    pub fn band(&self) -> u16 {
-        match self.style {
-            PromptStyle::Chips => 1,
-            PromptStyle::Ps1 => 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
@@ -398,27 +340,6 @@ impl Default for Config {
             bell: BellConfig::default(),
             colors: ColorsConfig::default(),
             prompt: PromptConfig::default(),
-        }
-    }
-}
-
-impl Default for PromptConfig {
-    fn default() -> PromptConfig {
-        PromptConfig {
-            style: PromptStyle::Chips,
-            icons: true,
-            cwd: true,
-            git_branch: true,
-            git_ahead_behind: true,
-            git_changes: true,
-            exit: true,
-            duration_ms: 2000,
-            time: false,
-            user: false,
-            host: false,
-            venv: false,
-            docker: false,
-            kube: false,
         }
     }
 }

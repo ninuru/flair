@@ -4,19 +4,25 @@ use alacritty_terminal::{
     grid::{Dimensions, Scroll},
     index::{Column, Line, Point, Side},
     selection::{Selection, SelectionType},
-    term::{Config as TermConfig, TermMode, cell::Flags, search::RegexSearch},
+    term::{
+        Config as TermConfig, TermMode,
+        cell::{Cell, Flags, Hyperlink},
+        search::RegexSearch,
+    },
     vte::ansi::Processor,
 };
 use flair_core::{
     geom::{CellPoint, GridSize},
-    isles::ShellFacts,
-    proto::PaneUpdate,
+    isles::{PromptInfo, ShellFacts},
+    proto::{PaneUpdate, PromptSnapshot},
     theme::Theme,
 };
 use std::{
     cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
     rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
 };
 
 pub(crate) const PROMPT_ANCHOR: Flags = Flags::from_bits_retain(0x8000);
@@ -26,6 +32,10 @@ pub struct Terminal {
     processor: Processor,
     osc: OscSniffer,
     clear: u8,
+    prompt_id: u64,
+    prompt_serial: u64,
+    prompt_editing: bool,
+    prompt_info: BTreeMap<u64, (PromptInfo, u64)>,
     pub(crate) copy_anchor: Option<Point>,
     pub(crate) search: Option<(RegexSearch, bool)>,
     events: Rc<RefCell<Vec<TermEvent>>>,
@@ -45,6 +55,7 @@ pub enum TermEvent {
     Cwd(PathBuf),
     Mark(MarkKind, Option<i32>),
     Facts(ShellFacts),
+    PromptAnchor(u64, Option<PathBuf>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,6 +109,10 @@ impl Terminal {
             processor: Processor::new(),
             osc: OscSniffer::default(),
             clear: 0,
+            prompt_id: 0,
+            prompt_serial: 0,
+            prompt_editing: false,
+            prompt_info: BTreeMap::new(),
             copy_anchor: None,
             search: None,
             events,
@@ -115,10 +130,17 @@ impl Terminal {
         for chunk in bytes.split_inclusive(|byte| matches!(byte, 7 | b'\\')) {
             self.processor.advance(&mut self.term, chunk);
             self.osc.advance(chunk);
+            let events = self.osc.take();
+            if events
+                .iter()
+                .any(|event| matches!(event, TermEvent::Mark(MarkKind::CommandStart, _)))
+            {
+                self.prompt_editing = false;
+            }
+            self.events.borrow_mut().extend(events);
             if self.osc.take_prompt() && !self.modes().alt_screen {
                 self.mark_prompt();
             }
-            self.events.borrow_mut().extend(self.osc.take());
         }
         let top = self.term.topmost_line();
         if let (Some(old_end), Some(end)) = (old_end, self.selection_end_line())
@@ -133,7 +155,8 @@ impl Terminal {
                 TermEvent::Bell
                 | TermEvent::PtyWrite(_)
                 | TermEvent::Mark(_, _)
-                | TermEvent::Facts(_) => (),
+                | TermEvent::Facts(_)
+                | TermEvent::PromptAnchor(_, _) => (),
             }
         }
         let alt_changed = old_alt != self.modes().alt_screen;
@@ -143,16 +166,87 @@ impl Terminal {
         self.force_full |= alt_changed;
     }
     fn mark_prompt(&mut self) {
-        let top = self.term.topmost_line().0;
-        for line in top..i32::from(self.size.rows) {
-            self.term.grid_mut()[Point::new(Line(line), Column(0))]
-                .flags
-                .remove(PROMPT_ANCHOR);
+        self.prompt_editing = true;
+        let point = Point::new(self.term.grid().cursor.point.line, Column(0));
+        if let Some(id) = prompt_id(&self.term.grid()[point]) {
+            self.prompt_id = id;
+            return;
         }
-        let row = self.term.grid().cursor.point.line;
-        self.term.grid_mut()[Point::new(row, Column(0))]
-            .flags
-            .insert(PROMPT_ANCHOR);
+        let retained: BTreeSet<_> = (self.term.topmost_line().0..i32::from(self.size.rows))
+            .filter_map(|line| prompt_id(&self.term.grid()[Point::new(Line(line), Column(0))]))
+            .collect();
+        self.prompt_info.retain(|id, _| retained.contains(id));
+        self.prompt_serial = self.prompt_serial.wrapping_add(1);
+        self.prompt_id = self.prompt_serial;
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        self.prompt_info
+            .insert(self.prompt_id, (PromptInfo::default(), timestamp));
+        let cell = &mut self.term.grid_mut()[point];
+        cell.flags.insert(PROMPT_ANCHOR);
+        cell.set_hyperlink(Some(Hyperlink::new(
+            Some(self.prompt_id),
+            "flair:prompt".to_owned(),
+        )));
+        let cwd = self
+            .events
+            .borrow()
+            .iter()
+            .rev()
+            .find_map(|event| match event {
+                TermEvent::Cwd(cwd) => Some(cwd.clone()),
+                TermEvent::Title(_)
+                | TermEvent::Bell
+                | TermEvent::PtyWrite(_)
+                | TermEvent::Mark(_, _)
+                | TermEvent::Facts(_)
+                | TermEvent::PromptAnchor(_, _) => None,
+            })
+            .or_else(|| self.cwd.clone());
+        self.events
+            .borrow_mut()
+            .push(TermEvent::PromptAnchor(self.prompt_id, cwd));
+    }
+    pub fn set_prompt_info(&mut self, info: PromptInfo) {
+        if self.prompt_editing {
+            self.set_prompt_info_for(self.prompt_id, info);
+        }
+    }
+    pub fn set_prompt_info_for(&mut self, id: u64, info: PromptInfo) {
+        if let Some((current, _)) = self.prompt_info.get_mut(&id) {
+            *current = info;
+        }
+    }
+    pub fn prompt_history(&self) -> Vec<PromptSnapshot> {
+        if self.modes().alt_screen {
+            return Vec::new();
+        }
+        let offset = self.term.grid().display_offset() as i32;
+        (0..self.size.rows)
+            .filter_map(|row| {
+                let id = prompt_id(
+                    &self.term.grid()[Point::new(Line(i32::from(row) - offset), Column(0))],
+                )?;
+                let (info, timestamp) = self.prompt_info.get(&id)?;
+                Some(PromptSnapshot {
+                    row,
+                    id,
+                    info: info.clone(),
+                    timestamp: *timestamp,
+                })
+            })
+            .collect()
+    }
+    pub(crate) fn current_prompt_row(&self) -> Option<u16> {
+        if self.modes().alt_screen || self.term.grid().display_offset() != 0 {
+            return None;
+        }
+        (0..self.size.rows).find(|row| {
+            prompt_id(&self.term.grid()[Point::new(Line(i32::from(*row)), Column(0))])
+                == Some(self.prompt_id)
+        })
     }
     pub fn copy_mode(&self) -> bool {
         self.term.mode().contains(TermMode::VI)
@@ -290,6 +384,13 @@ impl Dimensions for Size {
     fn columns(&self) -> usize {
         self.0.cols as usize
     }
+}
+
+fn prompt_id(cell: &Cell) -> Option<u64> {
+    cell.flags
+        .contains(PROMPT_ANCHOR)
+        .then(|| cell.hyperlink()?.id().parse().ok())
+        .flatten()
 }
 
 #[cfg(test)]

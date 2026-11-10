@@ -137,6 +137,7 @@ impl Overlays {
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Sessions(_)
             | ServerMsg::PromptInfo { .. }
+            | ServerMsg::PromptHistory { .. }
             | ServerMsg::Done
             | ServerMsg::Error(_)
             | ServerMsg::Exit(_) => return false,
@@ -269,7 +270,12 @@ impl Overlays {
         measure: &mut impl FnMut(&str, bool) -> f32,
     ) -> Option<OverlayScene> {
         if let Some(page) = &self.settings {
-            return Some(settings_layout::layout(&page.sheet(), input, measure));
+            return Some(if page.is_prompt_editor() {
+                page.prompt_editor()
+                    .layout(&page.sheet(), input, input.metrics, measure)
+            } else {
+                settings_layout::layout(&page.sheet(), input, measure)
+            });
         }
         let sheet = self.sheet()?;
         Some(overlay_layout::layout(&sheet, input, measure))
@@ -409,7 +415,8 @@ impl Overlays {
             SettingsOutcome::Pending
             | SettingsOutcome::Preview(_)
             | SettingsOutcome::Revert
-            | SettingsOutcome::Save { .. } => {}
+            | SettingsOutcome::Save { .. }
+            | SettingsOutcome::SavePrompt(_) => {}
         }
         OverlayEvent::Settings(outcome)
     }

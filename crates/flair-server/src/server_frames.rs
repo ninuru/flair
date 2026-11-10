@@ -56,7 +56,8 @@ impl Server {
         }
     }
 
-    pub(super) fn flush_frames(&mut self, out: &mut Vec<Effect>) {
+    pub(super) fn flush_frames(&mut self, out: &mut Vec<Effect>) -> BTreeSet<ClientId> {
+        let mut ready = BTreeSet::new();
         for (id, pane) in &mut self.panes {
             if pane.dirty {
                 pane.cached = pane.terminal.snapshot(*id, true);
@@ -68,6 +69,7 @@ impl Server {
             if client.awaiting_ack.is_some() {
                 continue;
             }
+            ready.insert(*id);
             let Some(layout) = self
                 .tree
                 .window(client.view.window)
@@ -127,5 +129,6 @@ impl Server {
                 },
             ));
         }
+        ready
     }
 }

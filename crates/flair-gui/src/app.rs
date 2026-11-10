@@ -252,7 +252,7 @@ impl App {
             return;
         };
         let padding = self.padding(scale);
-        let prompt = self.effective().prompt;
+        let prompt = self.effective().prompt.clone();
         let clock = prompt.time.then(local_clock).flatten();
         let Some(surface) = &mut self.surface else {
             return;
@@ -281,6 +281,7 @@ impl App {
                 mirror: &self.mirror,
                 config: &prompt,
                 clock,
+                date: crate::isles::local_date(),
                 home: self.home.as_deref(),
             }),
         };
@@ -448,6 +449,10 @@ impl ApplicationHandler<UserEvent> for App {
                     self.mirror.insert_prompt(pane, info);
                     self.request_redraw();
                 }
+                ServerMsg::PromptHistory { pane, prompts } => {
+                    self.mirror.insert_history(pane, prompts);
+                    self.request_redraw();
+                }
                 ServerMsg::Status(status) => {
                     self.status = status;
                     self.request_redraw();
@@ -511,7 +516,7 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        let prompt = self.effective().prompt;
+        let prompt = self.effective().prompt.clone();
         let since_epoch = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default();

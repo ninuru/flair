@@ -79,7 +79,7 @@ impl Server {
         if self.stopping {
             return;
         }
-        self.prompts_dirty |= !matches!(event, Event::PtyOutput(_, _));
+        self.prompts_dirty = true;
         match event {
             Event::ClientConnected(_) => {}
             Event::Client(id, message) => self.client_message(now, id, message, out),
@@ -128,9 +128,9 @@ impl Server {
         }
         if !self.stopping {
             self.reap_sessions(now, out);
-            self.flush_frames(out);
+            let ready = self.flush_frames(out);
             self.flush_status(out);
-            self.flush_prompts(out);
+            self.flush_prompts(&ready, out);
             self.arm_refresh(now, out);
         }
     }
@@ -192,6 +192,7 @@ impl Server {
                         selecting: false,
                         mouse: None,
                         prompts: BTreeMap::new(),
+                        prompt_history: BTreeMap::new(),
                     },
                 );
                 out.push(Effect::Send(id, ServerMsg::Welcome { client: id }));
@@ -349,6 +350,17 @@ impl Server {
                     if let Some(state) = self.panes.get_mut(&pane) {
                         state.shell = Some(facts);
                     }
+                }
+                TermEvent::PromptAnchor(id, cwd) => {
+                    if let Some(cwd) = cwd.or_else(|| self.pane_cwd(pane)) {
+                        let info = self.prompt_info(pane, cwd);
+                        self.panes
+                            .get_mut(&pane)
+                            .unwrap()
+                            .terminal
+                            .set_prompt_info_for(id, info);
+                    }
+                    self.prompts_dirty = true;
                 }
                 TermEvent::Cwd(_) => self.prompts_dirty = true,
             }

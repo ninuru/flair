@@ -146,6 +146,7 @@ fn prompt_defaults_to_chips_with_directory_git_and_exit() {
             venv: false,
             docker: false,
             kube: false,
+            ..PromptConfig::default()
         }
     );
     assert_eq!(prompt.band(), 1);
@@ -196,29 +197,54 @@ fn prompt_enabled_reads_exactly_the_matching_field() {
         assert!(!off.enabled(chip), "{chip:?}");
     }
     let only = |chip| match chip {
-        Chip::User => PromptConfig { user: true, ..off },
-        Chip::Host => PromptConfig { host: true, ..off },
-        Chip::Cwd => PromptConfig { cwd: true, ..off },
+        Chip::User => PromptConfig {
+            user: true,
+            ..off.clone()
+        },
+        Chip::Host => PromptConfig {
+            host: true,
+            ..off.clone()
+        },
+        Chip::Cwd => PromptConfig {
+            cwd: true,
+            ..off.clone()
+        },
         Chip::GitBranch => PromptConfig {
             git_branch: true,
-            ..off
+            ..off.clone()
         },
         Chip::GitAheadBehind => PromptConfig {
             git_ahead_behind: true,
-            ..off
+            ..off.clone()
         },
         Chip::GitChanges => PromptConfig {
             git_changes: true,
-            ..off
+            ..off.clone()
         },
-        Chip::Venv => PromptConfig { venv: true, ..off },
+        Chip::Venv => PromptConfig {
+            venv: true,
+            ..off.clone()
+        },
         Chip::Docker => PromptConfig {
             docker: true,
-            ..off
+            ..off.clone()
         },
-        Chip::Kube => PromptConfig { kube: true, ..off },
-        Chip::Exit => PromptConfig { exit: true, ..off },
-        Chip::Time => PromptConfig { time: true, ..off },
+        Chip::Kube => PromptConfig {
+            kube: true,
+            ..off.clone()
+        },
+        Chip::Exit => PromptConfig {
+            exit: true,
+            ..off.clone()
+        },
+        Chip::Time => PromptConfig {
+            time: true,
+            ..off.clone()
+        },
+        Chip::Date => PromptConfig {
+            date: true,
+            ..off.clone()
+        },
     };
     for chip in Chip::ALL {
         let config = only(chip);
@@ -599,4 +625,52 @@ fn theme_names_without_dir_lists_builtins() {
         theme_names(&dir),
         ["catppuccin-mocha", "flair-dark", "gruvbox-dark"]
     );
+}
+
+#[test]
+fn prompt_editor_configuration_reads_order_formats_and_segment_overrides() {
+    let config = Config::from_toml(
+        r#"
+[prompt]
+order = "docker, cwd, date"
+path = "folder"
+appearance = "plain"
+time_format = "12h"
+date_format = "long"
+separator = "dollar"
+date = true
+[prompt.segments.cwd]
+colour = "cyan"
+appearance = "outlined"
+icons = false
+"#,
+    )
+    .unwrap();
+    assert_eq!(
+        config.prompt.order.chips(),
+        &[Chip::Docker, Chip::Cwd, Chip::Date]
+    );
+    assert_eq!(config.prompt.path, PromptPath::Folder);
+    assert_eq!(config.prompt.time_format, PromptTimeFormat::Twelve);
+    assert_eq!(config.prompt.date_format, PromptDateFormat::Long);
+    assert_eq!(config.prompt.separator, PromptSeparator::Dollar);
+    assert!(config.prompt.enabled(Chip::Date));
+    let cwd = &config.prompt.segments[&Chip::Cwd];
+    assert_eq!(cwd.colour, Some(AnsiColour::Cyan));
+    assert_eq!(cwd.appearance, Some(PromptAppearance::Outlined));
+    assert_eq!(cwd.icons, Some(false));
+}
+
+#[test]
+fn prompt_editor_rejects_invalid_orders_and_segment_options() {
+    for text in [
+        "[prompt]\norder = \"cwd,cwd\"",
+        "[prompt]\norder = \"cwd,unknown\"",
+        "[prompt]\norder = \"\"",
+        "[prompt.segments.unknown]\nicons = false",
+        "[prompt.segments.cwd]\ncolour = \"#123456\"",
+        "[prompt.segments.cwd]\nappearance = \"neon\"",
+    ] {
+        assert!(Config::from_toml(text).is_err(), "{text}");
+    }
 }
