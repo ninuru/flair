@@ -5,6 +5,7 @@ use flair_core::{
     config_edit::apply,
     geom::GridSize,
     ids::PaneId,
+    isles::PromptInfo,
     key::{InputEvent, KeyInput},
     link::{ClientLink, channel_pair},
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
@@ -17,6 +18,7 @@ use flair_gui::{
     cellgrid::CellGrid,
     chrome_layout::{self, ChromeInput, ChromeLayout},
     compose::{compose, compose_frame, separator_glyphs},
+    isles::{Isles, labels, line, local_clock},
     mirror::Mirror,
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
@@ -28,6 +30,7 @@ use flair_gui::{
 use flair_server::{ServerConfig, runtime::spawn_in_process};
 use serde::Serialize;
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     sync::mpsc::{RecvTimeoutError, Sender, TryRecvError},
@@ -158,6 +161,8 @@ struct Capture {
     config_path: PathBuf,
     overlays: Overlays,
     pixels: Option<Pixels>,
+    prompts: BTreeMap<PaneId, PromptInfo>,
+    home: Option<PathBuf>,
 }
 impl Capture {
     fn message(&mut self, message: ServerMsg, tx: &Sender<ClientMsg>) -> Result<(), String> {
@@ -180,7 +185,6 @@ impl Capture {
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::ChooseSession { .. }
             | ServerMsg::Sessions(_)
-            | ServerMsg::PromptInfo { .. }
             | ServerMsg::ChooseWindow
             | ServerMsg::ChooseTheme
             | ServerMsg::Settings
@@ -191,8 +195,13 @@ impl Capture {
             | ServerMsg::Done => {}
             ServerMsg::Layout(layout) => {
                 self.mirror.retain_layout(&layout);
+                self.prompts
+                    .retain(|pane, _| layout.panes.iter().any(|placement| placement.pane == *pane));
                 self.pane = Some(layout.active);
                 self.layout = Some(layout);
+            }
+            ServerMsg::PromptInfo { pane, info } => {
+                self.prompts.insert(pane, info);
             }
             ServerMsg::Status(status) => {
                 self.status = status;
@@ -222,10 +231,36 @@ impl Capture {
             Some(layout) => {
                 let mut grid = compose_frame(&self.mirror, layout, self.size, &self.theme, true);
                 separator_glyphs(&mut grid, layout);
+                self.band_text(&mut grid, layout);
                 let status = status_text(&status_parts(&self.status), self.size.cols);
                 format!("{status}\n{}", lines(&grid))
             }
             None => self.screen(),
+        }
+    }
+
+    fn band_text(&self, grid: &mut CellGrid, layout: &WindowLayout) {
+        let prompt = &self.effective().prompt;
+        if prompt.band() == 0 {
+            return;
+        }
+        let clock = prompt.time.then(local_clock).flatten();
+        let cols = usize::from(grid.size.cols);
+        for placement in layout.panes.iter().filter(|placement| placement.band > 0) {
+            let Some(info) = self.prompts.get(&placement.pane) else {
+                continue;
+            };
+            let outer = placement.outer();
+            let row = usize::from(outer.origin.row);
+            let left = usize::from(outer.origin.col);
+            if row >= usize::from(grid.size.rows) {
+                continue;
+            }
+            let width = usize::from(outer.size.cols).min(cols.saturating_sub(left));
+            let text = line(&labels(info, prompt, clock, self.home.as_deref()));
+            for (offset, c) in text.chars().take(width).enumerate() {
+                grid.cells[row * cols + left + offset].c = c;
+            }
         }
     }
 
@@ -413,7 +448,12 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
-            isles: None,
+            isles: Some(Isles {
+                info: &self.prompts,
+                config: &config.prompt,
+                clock: config.prompt.time.then(local_clock).flatten(),
+                home: self.home.as_deref(),
+            }),
         };
         let ChromeLayout { overlay, .. } =
             chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
@@ -454,7 +494,12 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
-            isles: None,
+            isles: Some(Isles {
+                info: &self.prompts,
+                config: &config.prompt,
+                clock: config.prompt.time.then(local_clock).flatten(),
+                home: self.home.as_deref(),
+            }),
         };
         let ChromeLayout {
             chrome, overlay, ..
@@ -619,6 +664,8 @@ pub fn run(
         config_path,
         overlays,
         pixels,
+        prompts: BTreeMap::new(),
+        home: std::env::var_os("HOME").map(PathBuf::from),
     };
     let mut failed_step = None;
     let mut worker = None;
