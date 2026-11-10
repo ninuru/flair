@@ -1,6 +1,7 @@
 use flair_core::{
     geom::{CellPoint, GridSize},
     ids::{PaneId, SessionId, WindowId},
+    isles::PromptInfo,
     key::MouseInput,
     prefix::PrefixMachine,
     proto::{ClientKind, PaneUpdate, WindowLayout},
@@ -30,6 +31,7 @@ pub(crate) struct ClientState {
     pub last_click: Option<(Millis, CellPoint, u8)>,
     pub selecting: bool,
     pub mouse: Option<MouseCapture>,
+    pub prompts: BTreeMap<PaneId, PromptInfo>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -1,13 +1,18 @@
 use super::spawn_in_process;
-use crate::ServerConfig;
+use crate::{
+    ServerConfig,
+    git::tests::{commit, git_available, temp},
+};
 use flair_core::{
     config::{Config, PromptStyle},
     geom::GridSize,
+    isles::Head,
     key::{InputEvent, Key, KeyAction, KeyInput, Locks, Mods, NamedKey},
     link::channel_pair,
     proto::{ClientKind, ClientMsg, ExitReason, PROTOCOL, ServerMsg, Target},
 };
 use std::{
+    fs,
     path::Path,
     sync::mpsc::RecvTimeoutError,
     time::{Duration, Instant},
@@ -230,4 +235,78 @@ fn reload_reads_the_config_file_and_reaches_the_client() {
     assert_eq!(reloaded, toml);
     drop(client);
     handle.join().unwrap();
+}
+
+#[test]
+fn a_prompt_in_a_repository_reports_its_branch() {
+    if !git_available() || !Path::new("/bin/sh").exists() {
+        eprintln!("skipping prompt facts test: git or /bin/sh unavailable");
+        return;
+    }
+    let dir = temp("runtime");
+    let repo = dir.join("repo");
+    commit(&repo, "a.txt", "one\n");
+    let mut chips = Config::default();
+    chips.prompt.style = PromptStyle::Chips;
+    let mut config = ServerConfig::from_config(&chips);
+    config.program = "/bin/sh".into();
+    config.cwd = dir.clone();
+    config.args = vec![
+        "-c".into(),
+        "printf '\\033]7;file://%s\\007' \"$1\"; exec sleep 10".into(),
+        "sh".into(),
+        repo.display().to_string(),
+    ];
+    let (client, server) = channel_pair();
+    let handle = spawn_in_process(config, server).unwrap();
+    client
+        .tx
+        .send(ClientMsg::Hello {
+            protocol: PROTOCOL,
+            kind: ClientKind::Gui,
+            size: GridSize { cols: 40, rows: 6 },
+            palette: Config::default().theme(),
+            env: vec![],
+            target: Target::Main,
+        })
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let info = loop {
+        let message = client
+            .rx
+            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+            .expect("no prompt facts for the repository");
+        match message {
+            ServerMsg::Frame { seq, .. } => client.tx.send(ClientMsg::FrameAck { seq }).unwrap(),
+            ServerMsg::PromptInfo { info, .. } => {
+                if info.git.is_some() {
+                    break info;
+                }
+            }
+            ServerMsg::Error(error) => panic!("server error: {error}"),
+            ServerMsg::Exit(reason) => panic!("shell exited early: {reason:?}"),
+            ServerMsg::Welcome { .. }
+            | ServerMsg::Title(_)
+            | ServerMsg::Bell
+            | ServerMsg::SetClipboard { .. }
+            | ServerMsg::Sessionizer { .. }
+            | ServerMsg::ChooseSession { .. }
+            | ServerMsg::Sessions(_)
+            | ServerMsg::Layout(_)
+            | ServerMsg::Status(_)
+            | ServerMsg::ChooseWindow
+            | ServerMsg::ChooseTheme
+            | ServerMsg::Settings
+            | ServerMsg::PasteClipboard
+            | ServerMsg::PromptRename { .. }
+            | ServerMsg::PromptSearch { .. }
+            | ServerMsg::ReloadConfig { .. }
+            | ServerMsg::Done => {}
+        }
+    };
+    assert_eq!(info.cwd, Some(repo));
+    assert_eq!(info.git.unwrap().head, Head::Branch("main".into()));
+    drop(client);
+    handle.join().unwrap();
+    fs::remove_dir_all(dir).unwrap();
 }

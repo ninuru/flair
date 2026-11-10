@@ -637,3 +637,47 @@ fn replacing_application_button_capture_releases_previous_button() {
     );
     assert!(lost.iter().any(|effect| matches!(effect, Effect::WritePty(pane,bytes) if *pane==second && bytes==b"\x1b[<2;2;1m")));
 }
+
+#[test]
+fn a_press_on_the_band_row_selects_the_pane_without_reaching_the_app() {
+    let mut config = Config::default();
+    config.prompt.style = PromptStyle::Chips;
+    let mut server = Server::new(ServerConfig::from_config(&config));
+    let mut out = Vec::new();
+    server.handle(Millis(0), Event::Client(ClientId(1), hello()), &mut out);
+    ack(&mut server, &out);
+    let mut split = Vec::new();
+    let command = ClientMsg::Command(Command::Split(Axis::Horizontal));
+    server.handle(Millis(1), Event::Client(ClientId(1), command), &mut split);
+    ack(&mut server, &split);
+    let mut out = Vec::new();
+    server.handle(
+        Millis(3),
+        Event::PtyOutput(PaneId(1), b"\x1b[?1000h".to_vec()),
+        &mut out,
+    );
+    assert_ne!(server.client_pane(ClientId(1)), Some(PaneId(1)));
+    let placement = server
+        .tree
+        .window(WindowId(1))
+        .unwrap()
+        .geometry(server.band())
+        .panes
+        .into_iter()
+        .find(|placement| placement.pane == PaneId(1))
+        .unwrap();
+    assert_eq!(placement.band, 1);
+    let out = mouse(
+        &mut server,
+        ClientId(1),
+        placement.outer().origin,
+        MouseButton::Left,
+        MouseAction::Press,
+    );
+    assert_eq!(server.client_pane(ClientId(1)), Some(PaneId(1)));
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::WritePty(_, _)))
+    );
+    assert!(!server.clients[&ClientId(1)].selecting);
+}
