@@ -358,7 +358,7 @@ pub const SETTINGS: &[Setting] = &[
     },
     Setting {
         key: "prompt.style",
-        title: "Prompt",
+        title: "Style",
         section: Section::Prompt,
         kind: Kind::Choice(Choices::Of(&["chips", "ps1"])),
         description: "Chips draw a band above each pane; new shells get a minimal prompt.",

@@ -802,7 +802,7 @@ fn the_prompt_section_lists_the_style_icons_chips_then_the_duration() {
     assert_eq!(
         titles(&sheet),
         [
-            "Prompt",
+            "Style",
             "Icons",
             "User",
             "Host",

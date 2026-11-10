@@ -337,7 +337,7 @@ fn the_prompt_section_lists_style_icons_one_toggle_per_chip_and_the_duration() {
         .collect();
     assert_eq!(prompt.len(), 14);
     assert_eq!(prompt[0].key, "prompt.style");
-    assert_eq!(prompt[0].title, "Prompt");
+    assert_eq!(prompt[0].title, "Style");
     assert_eq!(prompt[0].kind, Kind::Choice(Choices::Of(&["chips", "ps1"])));
     assert_eq!(prompt[1].key, "prompt.icons");
     assert_eq!(prompt[1].title, "Icons");
