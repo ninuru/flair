@@ -6,11 +6,15 @@ use std::{
     process,
 };
 
-use flair_core::{config::Config, config_edit::set_theme, theme::Theme};
+use flair_core::{config::Config, config_edit::apply, settings::Value, theme::Theme};
 
 use crate::notice::Notice;
 
 pub(crate) fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
+    save(path, "theme", Some(&Value::Text(name.to_owned()))).map(|(_, config)| config)
+}
+
+pub(crate) fn save(path: &Path, key: &str, value: Option<&Value>) -> io::Result<(String, Config)> {
     let path = match fs::canonicalize(path) {
         Ok(real) => real,
         Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_owned(),
@@ -21,8 +25,7 @@ pub(crate) fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
         Err(error) if error.kind() == io::ErrorKind::NotFound => (String::new(), None),
         Err(error) => return Err(error),
     };
-    let text = set_theme(&text, name);
-    let config = Config::from_toml(&text).map_err(io::Error::other)?;
+    let (text, config) = apply(&text, key, value).map_err(io::Error::other)?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
@@ -33,7 +36,7 @@ pub(crate) fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
     if replaced.is_err() {
         let _ = fs::remove_file(&tmp);
     }
-    replaced.map(|()| config)
+    replaced.map(|()| (text, config))
 }
 
 fn replace_file(
@@ -43,6 +46,10 @@ fn replace_file(
     permissions: Option<fs::Permissions>,
 ) -> io::Result<()> {
     let mode = permissions.as_ref().map_or(0o666, |p| p.mode() & 0o7777);
+    match fs::remove_file(tmp) {
+        Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+        Ok(()) | Err(_) => {}
+    }
     let mut file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -52,6 +59,7 @@ fn replace_file(
     if let Some(permissions) = permissions {
         file.set_permissions(permissions)?;
     }
+    file.sync_all()?;
     drop(file);
     fs::rename(tmp, path)
 }

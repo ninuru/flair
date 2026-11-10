@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fs, io,
+    path::{Path, PathBuf},
+};
 
 use flair_core::{
     command::{Command, WindowRef},
@@ -6,6 +9,7 @@ use flair_core::{
     key::{Key, KeyAction, KeyInput, NamedKey},
     proto::{ClientMsg, ServerMsg},
     status::StatusLine,
+    theme::Theme,
 };
 
 use crate::{
@@ -15,6 +19,8 @@ use crate::{
     overlay_layout::{self, OverlayHit, OverlayHits, OverlayInput, OverlayScene, Sheet},
     picker::{self, Picker},
     prompt::{Outcome, Prompt},
+    settings_layout,
+    settings_page::{SettingsOutcome, SettingsPage},
     theme_picker::{ThemeOutcome, ThemePicker},
 };
 
@@ -23,6 +29,7 @@ pub struct Overlays {
     picker: Option<Picker>,
     prompt: Option<Prompt>,
     theme_picker: Option<ThemePicker>,
+    settings: Option<SettingsPage>,
     home: Option<PathBuf>,
     hits: Option<OverlayHits>,
     notice: Option<Notice>,
@@ -34,6 +41,20 @@ pub enum OverlayEvent {
     Redraw,
     Send(ClientMsg),
     Theme(ThemeOutcome),
+    Settings(SettingsOutcome),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Preview {
+    pub config: Config,
+    pub theme: Theme,
+}
+
+impl Preview {
+    pub fn resolve(config: Config, config_path: &Path) -> Preview {
+        let theme = config.load_theme(&Config::themes_dir(config_path)).0;
+        Preview { config, theme }
+    }
 }
 
 impl Overlays {
@@ -88,6 +109,23 @@ impl Overlays {
                     &config.theme,
                 ));
             }
+            ServerMsg::Settings => {
+                let text = match fs::read_to_string(config_path) {
+                    Ok(text) => text,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
+                    Err(error) => {
+                        self.notice = Some(Notice::error(format!("settings: {error}")));
+                        return true;
+                    }
+                };
+                let dir = Config::themes_dir(config_path);
+                self.settings = Some(SettingsPage::new(
+                    config,
+                    config.load_theme(&dir).0,
+                    text,
+                    theme_names(&dir),
+                ));
+            }
             ServerMsg::Welcome { .. }
             | ServerMsg::Frame { .. }
             | ServerMsg::Title(_)
@@ -119,7 +157,14 @@ impl Overlays {
     }
 
     pub fn is_open(&self) -> bool {
-        self.picker.is_some() || self.prompt.is_some() || self.theme_picker.is_some()
+        self.settings.is_some()
+            || self.picker.is_some()
+            || self.prompt.is_some()
+            || self.theme_picker.is_some()
+    }
+
+    pub fn settings_mut(&mut self) -> Option<&mut SettingsPage> {
+        self.settings.as_mut()
     }
 
     pub fn theme_picker_mut(&mut self) -> Option<&mut ThemePicker> {
@@ -142,6 +187,16 @@ impl Overlays {
         if direction != 0 && key.action == KeyAction::Press && self.panel_open() {
             let page = self.hits.as_ref().map_or(1, OverlayHits::page) as i32;
             return Some(self.wheel(direction * page));
+        }
+        if let Some(page) = &mut self.settings {
+            let outcome = match input::local_action(key) == Some(LocalAction::Paste) {
+                true => match clipboard() {
+                    Some(text) => page.insert(&text),
+                    None => return Some(OverlayEvent::Ignored),
+                },
+                false => page.key(key),
+            };
+            return Some(self.settings(outcome));
         }
         if let Some(picker) = &mut self.theme_picker {
             let outcome = picker.key(key);
@@ -190,6 +245,10 @@ impl Overlays {
     }
 
     pub fn text(&mut self, text: &str) -> Option<OverlayEvent> {
+        if let Some(page) = &mut self.settings {
+            let outcome = page.insert(text);
+            return Some(self.settings(outcome));
+        }
         if let Some(picker) = &mut self.theme_picker {
             let outcome = picker.insert(text);
             return Some(self.theme(outcome));
@@ -208,6 +267,9 @@ impl Overlays {
         input: &OverlayInput,
         measure: &mut impl FnMut(&str, bool) -> f32,
     ) -> Option<OverlayScene> {
+        if let Some(page) = &self.settings {
+            return Some(settings_layout::layout(&page.sheet(), input, measure));
+        }
         let sheet = self.sheet()?;
         Some(overlay_layout::layout(&sheet, input, measure))
     }
@@ -224,14 +286,26 @@ impl Overlays {
     }
 
     pub fn click(&mut self, hit: OverlayHit) -> OverlayEvent {
+        if let Some(page) = &mut self.settings {
+            let outcome = match hit {
+                OverlayHit::Panel | OverlayHit::Outside => return OverlayEvent::Ignored,
+                OverlayHit::Row(index) => page.focus(index),
+                OverlayHit::Settings(hit) => page.click(hit),
+            };
+            return self.settings(outcome);
+        }
         match hit {
-            OverlayHit::Panel => OverlayEvent::Ignored,
+            OverlayHit::Panel | OverlayHit::Settings(_) => OverlayEvent::Ignored,
             OverlayHit::Outside => self.dismiss(),
             OverlayHit::Row(index) => self.choose(index),
         }
     }
 
     pub fn wheel(&mut self, rows: i32) -> OverlayEvent {
+        if let Some(page) = &mut self.settings {
+            let outcome = page.wheel(rows);
+            return self.settings(outcome);
+        }
         let delta = rows as isize;
         if let Some(picker) = &mut self.theme_picker {
             let outcome = picker.step(delta);
@@ -274,12 +348,16 @@ impl Overlays {
     }
 
     fn panel_open(&self) -> bool {
-        self.theme_picker.is_some()
+        self.settings.is_some()
+            || self.theme_picker.is_some()
             || self.picker.is_some()
             || matches!(self.prompt, Some(Prompt::Choose { .. }))
     }
 
     fn dismiss(&mut self) -> OverlayEvent {
+        if self.settings.is_some() {
+            return self.settings(SettingsOutcome::Close);
+        }
         if self.theme_picker.is_some() {
             return self.theme(ThemeOutcome::Cancel);
         }
@@ -322,6 +400,17 @@ impl Overlays {
             ThemeOutcome::Pending | ThemeOutcome::Preview(_) => {}
         }
         OverlayEvent::Theme(outcome)
+    }
+
+    fn settings(&mut self, outcome: SettingsOutcome) -> OverlayEvent {
+        match outcome {
+            SettingsOutcome::Close => self.settings = None,
+            SettingsOutcome::Pending
+            | SettingsOutcome::Preview(_)
+            | SettingsOutcome::Revert
+            | SettingsOutcome::Save { .. } => {}
+        }
+        OverlayEvent::Settings(outcome)
     }
 
     fn picker_key(&mut self, key: &KeyInput) -> OverlayEvent {

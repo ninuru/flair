@@ -1,7 +1,6 @@
 use std::{env, error::Error, fmt, fs, path::PathBuf, sync::mpsc::Sender, thread, time::Instant};
 
 use flair_core::{
-    command::Command,
     config::Config,
     geom::{CellPoint, GridSize},
     ids::PaneId,
@@ -33,13 +32,15 @@ use crate::{
     mouse::{self, WheelAccumulator},
     mouse_route::{Capture, MouseRoute, bar_command, capture_after, route_mouse},
     notice::Notice,
-    overlays::{OverlayEvent, Overlays},
+    overlays::{OverlayEvent, Overlays, Preview},
     probe::Probe,
     renderer::{Renderer, WindowContext},
     status::status_parts,
-    theme_file::{resolve_theme, save_theme},
-    theme_picker::ThemeOutcome,
+    theme_file::resolve_theme,
 };
+
+#[path = "app_config.rs"]
+mod config;
 
 #[derive(Debug)]
 pub struct GuiError(pub String);
@@ -68,7 +69,7 @@ struct App {
     config: Config,
     config_path: PathBuf,
     theme: Theme,
-    preview: Option<Theme>,
+    preview: Option<Preview>,
     tx: Sender<ClientMsg>,
     surface: Option<Surface>,
     mirror: Mirror,
@@ -103,8 +104,8 @@ impl App {
     }
     fn padding(&self, scale: f64) -> (f32, f32) {
         (
-            (f32::from(self.config.window.padding_x) * scale as f32).round(),
-            (f32::from(self.config.window.padding_y) * scale as f32).round(),
+            (f32::from(self.effective().window.padding_x) * scale as f32).round(),
+            (f32::from(self.effective().window.padding_y) * scale as f32).round(),
         )
     }
     fn size(&self) -> GridSize {
@@ -180,37 +181,7 @@ impl App {
             surface.window.request_redraw();
         }
     }
-    fn theme_outcome(&mut self, outcome: ThemeOutcome, event_loop: &ActiveEventLoop) {
-        match outcome {
-            ThemeOutcome::Pending => {}
-            ThemeOutcome::Preview(name) => {
-                let dir = Config::themes_dir(&self.config_path);
-                self.preview = Some(self.config.with_theme(&name).load_theme(&dir).0);
-            }
-            ThemeOutcome::Cancel => self.preview = None,
-            ThemeOutcome::Save(name) => {
-                self.preview = None;
-                match save_theme(&self.config_path, &name) {
-                    Ok(config) => {
-                        self.overlays
-                            .set_notice(Notice::info(format!("theme saved: {name}")));
-                        self.reload(config, event_loop);
-                        self.send(ClientMsg::Command(Command::ReloadConfig));
-                    }
-                    Err(error) => {
-                        log::warn!(
-                            "could not save theme {name:?} to {}: {error}",
-                            self.config_path.display()
-                        );
-                        self.overlays
-                            .set_notice(Notice::error(format!("could not save theme: {error}")));
-                    }
-                }
-            }
-        }
-        self.request_redraw();
-    }
-    fn overlay_event(&mut self, event: OverlayEvent, event_loop: &ActiveEventLoop) {
+    fn overlay_event(&mut self, event: OverlayEvent) {
         match event {
             OverlayEvent::Ignored => {}
             OverlayEvent::Redraw => self.request_redraw(),
@@ -218,7 +189,8 @@ impl App {
                 self.send(message);
                 self.request_redraw();
             }
-            OverlayEvent::Theme(outcome) => self.theme_outcome(outcome, event_loop),
+            OverlayEvent::Theme(outcome) => self.theme_outcome(outcome),
+            OverlayEvent::Settings(outcome) => self.settings_outcome(outcome),
         }
     }
     fn set_ime(&mut self, active: bool) {
@@ -239,8 +211,9 @@ impl App {
             })
             .or(self.pane)
     }
-    fn reload(&mut self, config: Config, event_loop: &ActiveEventLoop) {
-        let fonts_changed = config.font != self.config.font;
+    fn reload(&mut self, config: Config) {
+        let fonts_changed = config.font != self.effective().font;
+        self.preview = None;
         self.config = config;
         let (theme, notice) = resolve_theme(&self.config, &self.config_path);
         if let Some(notice) = notice {
@@ -257,8 +230,9 @@ impl App {
                     surface.fonts = fonts;
                 }
                 Err(error) => {
-                    self.fail(error, event_loop);
-                    return;
+                    log::warn!("could not load the configured font: {error}");
+                    self.overlays
+                        .set_notice(Notice::error(format!("font not loaded: {error}")));
                 }
             }
         }
@@ -266,7 +240,11 @@ impl App {
         self.request_redraw();
     }
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
-        let theme = self.preview.as_ref().unwrap_or(&self.theme).clone();
+        let theme = self
+            .preview
+            .as_ref()
+            .map_or(&self.theme, |preview| &preview.theme)
+            .clone();
         let mut grid = match (&self.layout, self.pane) {
             (Some(layout), _) => compose_frame(&self.mirror, layout, self.size(), &theme, true),
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
@@ -338,14 +316,14 @@ impl App {
             });
         }
     }
-    fn text(&mut self, text: String, event_loop: &ActiveEventLoop) {
+    fn text(&mut self, text: String) {
         self.set_ime(false);
         match self.overlays.text(&text) {
-            Some(event) => self.overlay_event(event, event_loop),
+            Some(event) => self.overlay_event(event),
             None => self.send(ClientMsg::Input(InputEvent::Text(text))),
         }
     }
-    fn key(&mut self, key: KeyInput, event_loop: &ActiveEventLoop) {
+    fn key(&mut self, key: KeyInput) {
         if self.overlays.notice().is_some() {
             self.request_redraw();
         }
@@ -354,7 +332,7 @@ impl App {
             .overlays
             .key(&key, || surface.as_ref().and_then(|s| s.clipboard.load()))
         {
-            Some(event) => self.overlay_event(event, event_loop),
+            Some(event) => self.overlay_event(event),
             None => self.send(ClientMsg::Input(InputEvent::Key(key))),
         }
     }
@@ -475,7 +453,7 @@ impl ApplicationHandler<UserEvent> for App {
                             if self.overlays.notice().is_none_or(|notice| notice.error) {
                                 self.overlays.set_notice(Notice::info("config reloaded"));
                             }
-                            self.reload(config, event_loop);
+                            self.reload(config);
                         }
                         Err(error) => {
                             log::warn!("ignoring reloaded config: {error}");
@@ -484,10 +462,7 @@ impl ApplicationHandler<UserEvent> for App {
                             self.request_redraw();
                         }
                     }
-                    if let Some(picker) = self.overlays.theme_picker_mut() {
-                        let outcome = picker.refresh(&self.config.theme);
-                        self.theme_outcome(outcome, event_loop);
-                    }
+                    self.refresh_overlays(&text);
                 }
                 ServerMsg::Sessionizer { .. }
                 | ServerMsg::ChooseSession { .. }
@@ -495,6 +470,7 @@ impl ApplicationHandler<UserEvent> for App {
                 | ServerMsg::PromptRename { .. }
                 | ServerMsg::PromptSearch { .. }
                 | ServerMsg::ChooseTheme
+                | ServerMsg::Settings
                 | ServerMsg::Sessions(_)
                 | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
@@ -504,8 +480,8 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             },
             UserEvent::Disconnected => event_loop.exit(),
-            UserEvent::Drive(Drive::Key(key)) => self.key(key, event_loop),
-            UserEvent::Drive(Drive::Text(text)) => self.text(text, event_loop),
+            UserEvent::Drive(Drive::Key(key)) => self.key(key),
+            UserEvent::Drive(Drive::Text(text)) => self.text(text),
             UserEvent::Drive(Drive::Resize { width, height }) => {
                 if let Some(surface) = &self.surface {
                     let _ = surface
@@ -538,7 +514,7 @@ impl ApplicationHandler<UserEvent> for App {
                 self.send(ClientMsg::Resize(self.size()));
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                match Fonts::load(&self.config.font, scale_factor) {
+                match Fonts::load(&self.effective().font, scale_factor) {
                     Ok(fonts) => {
                         if let Some(surface) = &mut self.surface {
                             surface.renderer.set_metrics(fonts.metrics());
@@ -552,7 +528,7 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
             WindowEvent::Focused(focused) => self.send(ClientMsg::Focus(focused)),
             WindowEvent::Ime(Ime::Preedit(text, _)) => self.set_ime(!text.is_empty()),
-            WindowEvent::Ime(Ime::Commit(text)) => self.text(text, event_loop),
+            WindowEvent::Ime(Ime::Commit(text)) => self.text(text),
             WindowEvent::Ime(Ime::Disabled) => self.set_ime(false),
             WindowEvent::KeyboardInput {
                 event,
@@ -565,7 +541,7 @@ impl ApplicationHandler<UserEvent> for App {
                 let Some(key) = self.input.translate(&event, self.mods) else {
                     return;
                 };
-                self.key(key, event_loop);
+                self.key(key);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let target = |app: &App, pos: (f64, f64)| {
@@ -598,7 +574,7 @@ impl ApplicationHandler<UserEvent> for App {
                         && let Some(hit) = self.overlays.hit_test((self.pointer.x, self.pointer.y))
                     {
                         let event = self.overlays.click(hit);
-                        self.overlay_event(event, event_loop);
+                        self.overlay_event(event);
                     }
                     return;
                 }
@@ -661,7 +637,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 if self.overlays.is_open() {
                     let event = self.overlays.wheel(-lines);
-                    self.overlay_event(event, event_loop);
+                    self.overlay_event(event);
                     return;
                 }
                 let button = if lines >= 0 {
