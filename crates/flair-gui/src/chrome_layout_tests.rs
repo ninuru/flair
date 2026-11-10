@@ -1023,7 +1023,7 @@ fn icons_draw_in_the_terminal_face_before_the_label() {
 }
 
 #[test]
-fn a_narrow_pane_drops_chips_then_truncates_the_cwd_from_the_head() {
+fn a_narrow_pane_shortens_the_cwd_before_dropping_chips() {
     let info = BTreeMap::from([(PaneId(1), prompt("/srv/projects/flair"))]);
     let texts = |cols| {
         let window = banded(&[], &[(1, cells(0, 0, cols, 34))], 1);
@@ -1033,15 +1033,26 @@ fn a_narrow_pane_drops_chips_then_truncates_the_cwd_from_the_head() {
             .collect::<Vec<_>>()
     };
     assert_eq!(texts(98), ["/srv/projects/flair", "main", "1"]);
-    assert_eq!(texts(18), ["/srv/projects/flair", "main"]);
-    assert_eq!(texts(14), ["/srv/projects/flair"]);
-    assert_eq!(texts(10), ["…v/projects/flair"]);
+    assert_eq!(texts(20), ["/srv/projects/flair", "main", "1"]);
+    assert_eq!(texts(19), ["…rv/projects/flair", "main", "1"]);
+    assert_eq!(texts(16), ["…jects/flair", "main", "1"]);
+    assert_eq!(texts(14), ["…/flair", "main", "1"]);
+    assert_eq!(texts(13), ["…rojects/flair", "main"]);
+    assert_eq!(texts(10), ["…s/flair", "main"]);
+    assert_eq!(texts(9), ["…rojects/flair"]);
     assert_eq!(texts(4), ["…ir"]);
     assert!(texts(3).is_empty());
-    let window = banded(&[], &[(1, cells(0, 0, 10, 34))], 1);
-    let layout = band_layout(&window, &info, &plain_config());
-    let chip = band_chips(&layout)[0].rect;
-    assert!(chip.x + chip.w <= 8.0 + 80.0 - 4.0, "{chip:?}");
+    for cols in 3..=98 {
+        let window = banded(&[], &[(1, cells(0, 0, cols, 34))], 1);
+        let layout = band_layout(&window, &info, &plain_config());
+        for chip in band_chips(&layout) {
+            let right = chip.rect.x + chip.rect.w;
+            assert!(
+                right <= 8.0 + f32::from(cols) * 8.0 - 4.0,
+                "{cols}: {chip:?}"
+            );
+        }
+    }
 }
 
 #[test]

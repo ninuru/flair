@@ -155,6 +155,15 @@ fn text(
     }
 }
 
+fn shortest(text: &str) -> String {
+    let last = text.rsplit('/').next().unwrap_or(text);
+    let short = format!("…{last}");
+    match short.chars().count() < text.chars().count() {
+        true => short,
+        false => text.to_owned(),
+    }
+}
+
 fn icon(chip: Chip) -> Option<char> {
     match chip {
         Chip::User => Some('\u{f2c0}'),
@@ -281,13 +290,28 @@ fn chips(
     let room = row.x + row.w - px(EDGE, scale) - start;
     let widths: Vec<(Chip, f32)> = labels
         .iter()
-        .map(|label| (label.chip, width(input, label, &label.text, measure)))
+        .map(|label| {
+            let text = match label.chip {
+                Chip::Cwd => shortest(&label.text),
+                Chip::User
+                | Chip::Host
+                | Chip::GitBranch
+                | Chip::GitAheadBehind
+                | Chip::GitChanges
+                | Chip::Venv
+                | Chip::Docker
+                | Chip::Kube
+                | Chip::Exit
+                | Chip::Time => label.text.clone(),
+            };
+            (label.chip, width(input, label, &text, measure))
+        })
         .collect();
     let kept = fit(&widths, room, gap);
-    let others = widths
+    let others = labels
         .iter()
-        .filter(|(chip, _)| *chip != Chip::Cwd && kept.contains(chip))
-        .map(|(_, width)| width)
+        .filter(|label| label.chip != Chip::Cwd && kept.contains(&label.chip))
+        .map(|label| width(input, label, &label.text, measure))
         .sum::<f32>()
         + gap * kept.len().saturating_sub(1) as f32;
     let mut placed = Vec::new();
@@ -296,7 +320,7 @@ fn chips(
             let free = room - others - width(input, label, "", measure);
             let text = tail(&label.text, free / input.ui.small, false, measure);
             if text != label.text && text.chars().count() < 2 {
-                return;
+                continue;
             }
             text
         } else {

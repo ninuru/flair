@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     env,
     error::Error,
     fmt, fs,
@@ -13,7 +12,6 @@ use flair_core::{
     config::Config,
     geom::{CellPoint, GridSize},
     ids::PaneId,
-    isles::PromptInfo,
     key::{InputEvent, KeyInput, MouseAction, MouseButton, MouseInput},
     link::ClientLink,
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
@@ -100,7 +98,6 @@ struct App {
     status: StatusLine,
     hits: Vec<Hit>,
     drive: Option<(Vec<Drive>, EventLoopProxy<UserEvent>)>,
-    prompts: BTreeMap<PaneId, PromptInfo>,
     home: Option<PathBuf>,
 }
 
@@ -292,7 +289,7 @@ impl App {
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
             isles: Some(Isles {
-                info: &self.prompts,
+                info: self.mirror.prompts(),
                 config: &prompt,
                 clock,
                 home: self.home.as_deref(),
@@ -455,14 +452,11 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 ServerMsg::Layout(layout) => {
                     self.mirror.retain_layout(&layout);
-                    self.prompts.retain(|pane, _| {
-                        layout.panes.iter().any(|placement| placement.pane == *pane)
-                    });
                     self.layout = Some(layout);
                     self.request_redraw();
                 }
                 ServerMsg::PromptInfo { pane, info } => {
-                    self.prompts.insert(pane, info);
+                    self.mirror.insert_prompt(pane, info);
                     self.request_redraw();
                 }
                 ServerMsg::Status(status) => {
@@ -773,7 +767,6 @@ pub fn run_target(
         status: StatusLine::default(),
         hits: Vec::new(),
         drive,
-        prompts: BTreeMap::new(),
         home: env::var_os("HOME").map(PathBuf::from),
     };
     if let Some(notice) = notice {

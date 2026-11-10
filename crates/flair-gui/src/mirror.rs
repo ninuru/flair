@@ -1,13 +1,15 @@
 use flair_core::{
     geom::GridSize,
     ids::PaneId,
+    isles::PromptInfo,
     proto::{Cell, Cursor, PaneFlags, PaneUpdate, SelectionSpan, WindowLayout},
 };
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 #[derive(Default)]
 pub struct Mirror {
     panes: HashMap<PaneId, PaneMirror>,
+    prompts: BTreeMap<PaneId, PromptInfo>,
 }
 
 pub struct PaneMirror {
@@ -20,8 +22,17 @@ pub struct PaneMirror {
 
 impl Mirror {
     pub fn retain_layout(&mut self, layout: &WindowLayout) {
-        self.panes
-            .retain(|id, _| layout.panes.iter().any(|placement| placement.pane == *id));
+        let present = |id: &PaneId| layout.panes.iter().any(|placement| placement.pane == *id);
+        self.panes.retain(|id, _| present(id));
+        self.prompts.retain(|id, _| present(id));
+    }
+
+    pub fn insert_prompt(&mut self, pane: PaneId, info: PromptInfo) {
+        self.prompts.insert(pane, info);
+    }
+
+    pub fn prompts(&self) -> &BTreeMap<PaneId, PromptInfo> {
+        &self.prompts
     }
 
     pub fn apply(&mut self, updates: &[PaneUpdate]) -> bool {

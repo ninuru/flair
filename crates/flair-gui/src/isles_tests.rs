@@ -455,6 +455,18 @@ fn fit_never_drops_the_cwd() {
 }
 
 #[test]
+fn the_shortest_cwd_keeps_an_ellipsis_and_the_last_component() {
+    assert_eq!(shortest("/srv/projects/flair"), "…flair");
+    assert_eq!(shortest("~/src/flair"), "…flair");
+    assert_eq!(shortest("~/a"), "…a");
+    assert_eq!(shortest("~"), "~");
+    assert_eq!(shortest("/"), "/");
+    assert_eq!(shortest("/a"), "/a");
+    assert_eq!(shortest("/srv/日本"), "…日本");
+    assert_eq!(shortest(""), "");
+}
+
+#[test]
 fn the_next_minute_is_the_rest_of_the_current_one() {
     assert_eq!(
         next_minute(Duration::from_secs(120)),

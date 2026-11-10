@@ -1,11 +1,10 @@
 use crate::scenario::{Scenario, Step, client_size, key_input};
 use flair_core::{
     command::Command,
-    config::{Config, FontConfig},
+    config::{Config, FontConfig, PromptConfig},
     config_edit::apply,
     geom::GridSize,
     ids::PaneId,
-    isles::PromptInfo,
     key::{InputEvent, KeyInput},
     link::{ClientLink, channel_pair},
     proto::{ClientKind, ClientMsg, PROTOCOL, ServerMsg, Target, WindowLayout},
@@ -30,7 +29,6 @@ use flair_gui::{
 use flair_server::{ServerConfig, runtime::spawn_in_process};
 use serde::Serialize;
 use std::{
-    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
     sync::mpsc::{RecvTimeoutError, Sender, TryRecvError},
@@ -129,6 +127,15 @@ impl Pixels {
     }
 }
 
+fn isles<'a>(mirror: &'a Mirror, config: &'a PromptConfig, home: Option<&'a Path>) -> Isles<'a> {
+    Isles {
+        info: mirror.prompts(),
+        config,
+        clock: config.time.then(local_clock).flatten(),
+        home,
+    }
+}
+
 fn padding(config: &Config, scale: f64) -> (f32, f32) {
     (
         (f32::from(config.window.padding_x) * scale as f32).round(),
@@ -161,7 +168,6 @@ struct Capture {
     config_path: PathBuf,
     overlays: Overlays,
     pixels: Option<Pixels>,
-    prompts: BTreeMap<PaneId, PromptInfo>,
     home: Option<PathBuf>,
 }
 impl Capture {
@@ -195,13 +201,11 @@ impl Capture {
             | ServerMsg::Done => {}
             ServerMsg::Layout(layout) => {
                 self.mirror.retain_layout(&layout);
-                self.prompts
-                    .retain(|pane, _| layout.panes.iter().any(|placement| placement.pane == *pane));
                 self.pane = Some(layout.active);
                 self.layout = Some(layout);
             }
             ServerMsg::PromptInfo { pane, info } => {
-                self.prompts.insert(pane, info);
+                self.mirror.insert_prompt(pane, info);
             }
             ServerMsg::Status(status) => {
                 self.status = status;
@@ -247,7 +251,7 @@ impl Capture {
         let clock = prompt.time.then(local_clock).flatten();
         let cols = usize::from(grid.size.cols);
         for placement in layout.panes.iter().filter(|placement| placement.band > 0) {
-            let Some(info) = self.prompts.get(&placement.pane) else {
+            let Some(info) = self.mirror.prompts().get(&placement.pane) else {
                 continue;
             };
             let outer = placement.outer();
@@ -448,12 +452,7 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
-            isles: Some(Isles {
-                info: &self.prompts,
-                config: &config.prompt,
-                clock: config.prompt.time.then(local_clock).flatten(),
-                home: self.home.as_deref(),
-            }),
+            isles: Some(isles(&self.mirror, &config.prompt, self.home.as_deref())),
         };
         let ChromeLayout { overlay, .. } =
             chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
@@ -494,12 +493,7 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
-            isles: Some(Isles {
-                info: &self.prompts,
-                config: &config.prompt,
-                clock: config.prompt.time.then(local_clock).flatten(),
-                home: self.home.as_deref(),
-            }),
+            isles: Some(isles(&self.mirror, &config.prompt, self.home.as_deref())),
         };
         let ChromeLayout {
             chrome, overlay, ..
@@ -664,7 +658,6 @@ pub fn run(
         config_path,
         overlays,
         pixels,
-        prompts: BTreeMap::new(),
         home: std::env::var_os("HOME").map(PathBuf::from),
     };
     let mut failed_step = None;
