@@ -57,6 +57,22 @@ fn osc_cwd_and_prompt_marks_survive_chunk_boundaries() {
 }
 
 #[test]
+fn shell_facts_surface_as_events_across_advance_calls() {
+    let mut term = Terminal::new(GridSize { cols: 10, rows: 3 }, 0);
+    term.advance(b"\x1b]6973;flair;u=ada;h=b");
+    assert!(term.take_events().is_empty());
+    term.advance(b"%C3%B6x;v=env\x1b\\");
+    assert_eq!(
+        term.take_events(),
+        vec![TermEvent::Facts(ShellFacts {
+            user: "ada".to_string(),
+            host: "böx".to_string(),
+            venv: Some("env".to_string()),
+        })]
+    );
+}
+
+#[test]
 fn scrollback_forces_full_frames_and_returns_to_bottom() {
     let mut term = Terminal::new(GridSize { cols: 10, rows: 2 }, 100);
     term.advance(b"one\r\ntwo\r\nthree");

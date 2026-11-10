@@ -53,3 +53,76 @@ fn all_prompt_marks_are_reported_in_order() {
         ]
     );
 }
+
+fn facts(user: &str, host: &str, venv: Option<&str>) -> TermEvent {
+    TermEvent::Facts(ShellFacts {
+        user: user.to_string(),
+        host: host.to_string(),
+        venv: venv.map(str::to_string),
+    })
+}
+
+#[test]
+fn shell_facts_with_bel_and_st() {
+    for terminator in ["\x07", "\x1b\\"] {
+        let mut osc = OscSniffer::default();
+        osc.advance(format!("\x1b]6973;flair;u=ada;h=box;v=env{terminator}").as_bytes());
+        assert_eq!(osc.take(), vec![facts("ada", "box", Some("env"))]);
+    }
+}
+
+#[test]
+fn shell_facts_decode_percent_escapes_and_utf8_byte_by_byte() {
+    let mut osc = OscSniffer::default();
+    for byte in b"\x1b]6973;flair;u=a%3Bb%3Dc;h=h%C3%B6st;v=my%20env\x07" {
+        osc.advance(&[*byte]);
+    }
+    assert_eq!(osc.take(), vec![facts("a;b=c", "höst", Some("my env"))]);
+}
+
+#[test]
+fn shell_facts_missing_empty_and_unknown_keys() {
+    let mut osc = OscSniffer::default();
+    osc.advance(b"\x1b]6973;flair;u=ada;h=box\x07");
+    osc.advance(b"\x1b]6973;flair;u=ada;h=box;v=\x07");
+    osc.advance(b"\x1b]6973;flair;x=1;h=box;future;v=env\x07");
+    osc.advance(b"\x1b]6973;flair\x07");
+    assert_eq!(
+        osc.take(),
+        vec![
+            facts("ada", "box", None),
+            facts("ada", "box", None),
+            facts("", "box", Some("env")),
+            facts("", "", None),
+        ]
+    );
+}
+
+#[test]
+fn malformed_shell_facts_and_foreign_tags_are_ignored() {
+    let mut osc = OscSniffer::default();
+    for sequence in [
+        "\x1b]6973;flair;u=a%00b;h=box\x07",
+        "\x1b]6973;flair;u=ada;h=b%XXox\x07",
+        "\x1b]6973;flair;u=ada;h=box;v=%4\x07",
+        "\x1b]6973;flair;u=ada;h=box;v=%+1\x07",
+        "\x1b]6973;flair;u=%FF;h=box\x07",
+        "\x1b]6973;flair;u=a\0b;h=box\x07",
+        "\x1b]6973;other;u=ada;h=box\x07",
+        "\x1b]6973;flairx;u=ada\x07",
+        "\x1b]6973\x07",
+    ] {
+        osc.advance(sequence.as_bytes());
+        assert!(osc.take().is_empty(), "{sequence:?}");
+    }
+}
+
+#[test]
+fn oversized_shell_facts_are_dropped() {
+    let mut osc = OscSniffer::default();
+    let long = "a".repeat(9000);
+    osc.advance(format!("\x1b]6973;flair;u={long};h=box\x07").as_bytes());
+    assert!(osc.take().is_empty());
+    osc.advance(b"\x1b]6973;flair;u=ada;h=box\x07");
+    assert_eq!(osc.take(), vec![facts("ada", "box", None)]);
+}
