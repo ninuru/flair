@@ -85,3 +85,19 @@ fn daemon_commands_parse_and_reject_missing_targets() {
     assert!(Args::parse_from(["--standalone", "new"]).is_err());
     assert!(Args::parse_from(["ls", "-d"]).is_err());
 }
+
+#[test]
+fn open_takes_exactly_one_file_made_absolute() {
+    let cwd = std::env::current_dir().unwrap();
+    assert_eq!(
+        Args::parse_from(["open", "missing.txt"]).unwrap(),
+        Args::Open(cwd.join("missing.txt"))
+    );
+    assert_eq!(
+        Args::parse_from(["open", "/tmp/a b.txt"]).unwrap(),
+        Args::Open("/tmp/a b.txt".into())
+    );
+    assert!(Args::parse_from(["open"]).is_err());
+    assert!(Args::parse_from(["open", "a", "b"]).is_err());
+    assert!(Args::parse_from(["open", "--config", "c.toml", "a"]).is_err());
+}

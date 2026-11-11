@@ -23,6 +23,14 @@ struct Daemon {
 }
 impl Daemon {
     fn new() -> Self {
+        Self::with_config(
+            r#"[shell]
+program = "/bin/sh"
+args = ["-c", "printf 'READY:%s:%s:%s\\r\\n' $$ ${HISTFILE-absent} $FLAIR_PANE; printf 'ROUTE:%s:%s\\r\\n' ${FLAIR_SOCKET-absent} ${FLAIR_SOCKET_NAME-absent}; while IFS= read -r line; do printf 'GOT:%s\\r\\n' \"$line\"; done"]
+"#,
+        )
+    }
+    fn with_config(config_text: &str) -> Self {
         use std::os::unix::fs::PermissionsExt;
         let root = std::env::temp_dir().join(format!(
             "flair-daemon-{}-{}",
@@ -32,16 +40,14 @@ impl Daemon {
         fs::create_dir(&root).unwrap();
         fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
         let config = root.join("config.toml");
-        fs::write(&config, r#"[shell]
-program = "/bin/sh"
-args = ["-c", "printf 'READY:%s:%s:%s\\r\\n' $$ ${HISTFILE-absent} $FLAIR_PANE; printf 'ROUTE:%s:%s\\r\\n' ${FLAIR_SOCKET-absent} ${FLAIR_SOCKET_NAME-absent}; while IFS= read -r line; do printf 'GOT:%s\\r\\n' \"$line\"; done"]
-"#).unwrap();
+        fs::write(&config, config_text).unwrap();
         let child = Command::new(env!("CARGO_BIN_EXE_flair"))
             .arg("server")
             .arg("--config")
             .arg(&config)
             .env("FLAIR_SOCKET", root.join("test.sock"))
             .env("XDG_STATE_HOME", &root)
+            .env("XDG_RUNTIME_DIR", &root)
             .env("HISTFILE", "inherited-history")
             .env("FLAIR_SOCKET_NAME", "test-internal")
             .spawn()
@@ -66,6 +72,7 @@ args = ["-c", "printf 'READY:%s:%s:%s\\r\\n' $$ ${HISTFILE-absent} $FLAIR_PANE; 
             .args(args)
             .env("FLAIR_SOCKET", self.path())
             .env("XDG_STATE_HOME", &self.root)
+            .env("XDG_RUNTIME_DIR", &self.root)
             .output()
             .unwrap()
     }
@@ -480,4 +487,83 @@ fn cli_socket_override_switches_existing_gui_without_foreign_pane_filter() {
         String::from_utf8_lossy(&run.stderr)
     );
     assert_eq!(screen(&gui, "READY:").1, original_pane);
+}
+
+fn drain(link: &ClientLink) {
+    while let Ok(message) = link.rx.try_recv() {
+        if let ServerMsg::Frame { seq, .. } = message {
+            link.tx.send(ClientMsg::FrameAck { seq }).unwrap();
+        }
+    }
+}
+
+#[test]
+fn open_drops_the_file_into_the_nvim_of_the_active_gui_pane() {
+    let nvim_found = Command::new("nvim")
+        .arg("--version")
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !nvim_found {
+        eprintln!("skipping flair open test: nvim is not on PATH");
+        return;
+    }
+    let daemon = Daemon::with_config(
+        "[shell]\nprogram = \"/bin/sh\"\nargs = [\"-c\", \"printf 'READY\\\\r\\\\n'; nvim --headless --clean; printf 'DONE\\\\r\\\\n'\"]\n",
+    );
+    let file = daemon.root.join("open me.txt");
+    fs::write(&file, "hello\n").unwrap();
+    let file_arg = file.to_str().unwrap();
+    let output = daemon.cli(&["open", file_arg]);
+    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8_lossy(&output.stderr),
+        "flair open: no flair window is open\n"
+    );
+    let link = socket::connect(&daemon.path()).unwrap();
+    link.tx
+        .send(ClientMsg::Hello {
+            protocol: PROTOCOL,
+            kind: ClientKind::Gui,
+            size: GridSize { cols: 60, rows: 8 },
+            palette: Config::default().theme(),
+            env: vec![],
+            target: Target::Main,
+        })
+        .unwrap();
+    screen(&link, "READY");
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        drain(&link);
+        let output = daemon.cli(&["open", file_arg]);
+        if output.status.success() {
+            break;
+        }
+        assert_eq!(output.status.code(), Some(1));
+        assert_eq!(
+            String::from_utf8_lossy(&output.stderr),
+            "flair open: no nvim runs in the active pane\n"
+        );
+        assert!(Instant::now() < deadline, "nvim never became reachable");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let server = fs::read_dir(&daemon.root)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("nvim."))
+        })
+        .unwrap();
+    let current = Command::new("nvim")
+        .arg("--server")
+        .arg(&server)
+        .args(["--remote-expr", "expand('%:p')"])
+        .output()
+        .unwrap();
+    assert_eq!(
+        String::from_utf8_lossy(&current.stdout).trim_end(),
+        file_arg
+    );
 }

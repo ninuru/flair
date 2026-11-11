@@ -467,6 +467,7 @@ impl ApplicationHandler<UserEvent> for App {
                 | ServerMsg::ChooseTheme
                 | ServerMsg::Settings
                 | ServerMsg::Sessions(_)
+                | ServerMsg::PaneProcesses(_)
                 | ServerMsg::Done => {}
                 ServerMsg::Error(error) => self.fail(error, event_loop),
                 ServerMsg::Exit(_) => {

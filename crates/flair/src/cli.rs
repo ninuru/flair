@@ -17,6 +17,7 @@ pub enum Args {
     List,
     KillServer,
     Switch(Target),
+    Open(PathBuf),
     Create {
         config: Option<PathBuf>,
         target: Target,
@@ -48,6 +49,7 @@ impl Args {
         let mut name = None;
         let mut root = None;
         let mut target = None;
+        let mut file = None;
         while let Some(arg) = parser.next()? {
             match arg {
                 Arg::Long("help") | Arg::Short('h') => return Ok(Self::Help),
@@ -86,6 +88,7 @@ impl Args {
                         "new",
                         "attach",
                         "switch",
+                        "open",
                         "ls",
                         "kill-server",
                         "test-headless",
@@ -95,6 +98,12 @@ impl Args {
                         return Err(format!("unknown command: {value}").into());
                     }
                     command = Some(value);
+                }
+                Arg::Value(value) if command.as_deref() == Some("open") && file.is_none() => {
+                    file = Some(
+                        std::path::absolute(PathBuf::from(value))
+                            .map_err(|e| lexopt::Error::from(e.to_string()))?,
+                    );
                 }
                 Arg::Value(value) if command.as_deref() == Some("switch") && target.is_none() => {
                     let path = PathBuf::from(&value);
@@ -151,6 +160,12 @@ impl Args {
                     return Err("switch does not accept --config".into());
                 }
                 Ok(Self::Switch(target.ok_or("switch requires PATH or NAME")?))
+            }
+            Some("open") => {
+                if config.is_some() {
+                    return Err("open does not accept --config".into());
+                }
+                Ok(Self::Open(file.ok_or("open requires FILE")?))
             }
             Some("ls") | Some("kill-server") => {
                 if config.is_some() {

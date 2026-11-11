@@ -12,9 +12,9 @@ use crate::{
         NamedKey,
     },
     proto::{
-        Cell, CellFlags, ClientKind, ClientMsg, Color, Cursor, CursorShape, ExitReason, PaneFlags,
-        PanePlacement, PaneUpdate, PromptSnapshot, Separator, ServerMsg, SessionInfo, Target,
-        WindowLayout,
+        Cell, CellFlags, ClientKind, ClientMsg, Color, Control, Cursor, CursorShape, ExitReason,
+        PaneFlags, PanePlacement, PaneUpdate, PromptSnapshot, Separator, ServerMsg, SessionInfo,
+        Target, WindowLayout,
     },
     status::{StatusLine, StatusWindow},
     time::Millis,
@@ -148,6 +148,10 @@ fn client_messages() -> Vec<ClientMsg> {
             forward: false,
         })),
         ClientMsg::Detach,
+        ClientMsg::Control(Control::PaneProcesses { pane: None }),
+        ClientMsg::Control(Control::PaneProcesses {
+            pane: Some(PaneId(7)),
+        }),
     ]
 }
 
@@ -323,6 +327,8 @@ fn server_messages() -> Vec<ServerMsg> {
                 info: PromptInfo::default(),
             }],
         },
+        ServerMsg::PaneProcesses(vec![]),
+        ServerMsg::PaneProcesses(vec![1, 4242, u32::MAX]),
     ]
 }
 

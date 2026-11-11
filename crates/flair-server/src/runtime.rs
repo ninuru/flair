@@ -513,6 +513,25 @@ fn run(
                     ));
                 }
                 Effect::ReadContexts => unanswered.extend(request(&jobs, Job::Contexts)),
+                Effect::PaneProcesses { client, panes } => {
+                    let mut pids = Vec::new();
+                    for worker in panes.iter().filter_map(|pane| workers.get(pane)) {
+                        for pid in [Some(worker.pty.pid()), worker.pty.foreground()]
+                            .into_iter()
+                            .flatten()
+                        {
+                            if !pids.contains(&pid) {
+                                pids.push(pid);
+                            }
+                        }
+                    }
+                    if let Some(sender) = clients.get(&client)
+                        && (sender.try_send(ServerMsg::PaneProcesses(pids)).is_err()
+                            || sender.try_send(ServerMsg::Done).is_err())
+                    {
+                        gone.push(client);
+                    }
+                }
                 Effect::ReadConfig(path) => {
                     let result = std::fs::read_to_string(&path)
                         .map_err(|error| format!("cannot read {}: {error}", path.display()));

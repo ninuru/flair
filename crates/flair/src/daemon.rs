@@ -82,26 +82,53 @@ pub fn connect(config: Option<&Path>, start: bool) -> io::Result<ClientLink> {
 }
 
 pub fn control(link: &ClientLink, command: Control) -> io::Result<Vec<SessionInfo>> {
+    let mut sessions = Vec::new();
+    exchange(link, command, |message| match message {
+        ServerMsg::Sessions(value) => {
+            sessions = value;
+            Ok(())
+        }
+        other => Err(Box::new(other)),
+    })?;
+    Ok(sessions)
+}
+
+pub fn pane_processes(link: &ClientLink, pane: Option<PaneId>) -> io::Result<Vec<u32>> {
+    let mut pids = Vec::new();
+    exchange(
+        link,
+        Control::PaneProcesses { pane },
+        |message| match message {
+            ServerMsg::PaneProcesses(value) => {
+                pids = value;
+                Ok(())
+            }
+            other => Err(Box::new(other)),
+        },
+    )?;
+    Ok(pids)
+}
+
+fn exchange(
+    link: &ClientLink,
+    command: Control,
+    mut take: impl FnMut(ServerMsg) -> Result<(), Box<ServerMsg>>,
+) -> io::Result<()> {
     link.tx
         .send(ClientMsg::Control(command))
         .map_err(io::Error::other)?;
     let deadline = Instant::now() + Duration::from_secs(5);
-    let mut sessions = Vec::new();
     loop {
         match link
             .rx
             .recv_timeout(deadline.saturating_duration_since(Instant::now()))
             .map_err(io::Error::other)?
         {
-            ServerMsg::Sessions(value) => sessions = value,
-            ServerMsg::Done => return Ok(sessions),
+            ServerMsg::Done | ServerMsg::Exit(_) => return Ok(()),
             ServerMsg::Error(error) => return Err(io::Error::other(error)),
-            ServerMsg::Exit(_) => return Ok(sessions),
-            other => {
-                return Err(io::Error::other(format!(
-                    "unexpected control reply: {other:?}"
-                )));
-            }
+            other => take(other).map_err(|other| {
+                io::Error::other(format!("unexpected control reply: {other:?}"))
+            })?,
         }
     }
 }
