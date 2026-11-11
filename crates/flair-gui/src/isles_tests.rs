@@ -1028,7 +1028,8 @@ fn prompt_dividers_skip_the_top_of_the_pane_and_publish_chip_hits() {
     let reserved = prompt_scene(info.clone(), 98, 2, false);
     assert_eq!(lines(&reserved), 1);
     assert_eq!(lines(&prompt_scene(info.clone(), 98, 2, true)), 1);
-    assert_eq!(lines(&prompt_scene(info, 98, 0, false)), 0);
+    assert_eq!(lines(&prompt_scene(info.clone(), 98, 0, false)), 0);
+    assert_eq!(lines(&prompt_scene(info.clone(), 98, 1, false)), 0);
     assert!(reserved.hits.iter().any(|hit| hit.target
         == HitTarget::Prompt {
             pane: PaneId(1),

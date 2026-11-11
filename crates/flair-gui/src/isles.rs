@@ -5,7 +5,7 @@ use flair_core::{
     geom::{CellPoint, CellRect, GridSize},
     ids::PaneId,
     isles::{AheadBehind, Changes, Chip, Head, LastCommand, PromptInfo},
-    proto::{PanePlacement, WindowLayout},
+    proto::{PanePlacement, PromptSnapshot, WindowLayout},
     theme::{Rgb, Theme, blend},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -28,6 +28,7 @@ const GAP: f32 = 8.0;
 const RADIUS: f32 = 3.0;
 const ICON_GAP: f32 = 4.0;
 const HEADER_INK: u8 = 50;
+const STRIPE: f32 = 3.0;
 const COUNT_CAP: u32 = 1000;
 const DROP: [Chip; 11] = [
     Chip::Date,
@@ -397,13 +398,11 @@ pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene
                 } else {
                     Style::Header(next.and_then(|next| next.info.last))
                 };
-                if let Some(next) = next
-                    && next
-                        .info
-                        .last
-                        .is_some_and(|last| last.exit.is_some_and(|code| code != 0))
-                {
-                    tint_spacers(input, placement, snapshot.row, next.row, scene);
+                if index == 0 && failed(snapshot) {
+                    failed_block(input, placement, None, snapshot.row, scene);
+                }
+                if let Some(next) = next.filter(|next| failed(next)) {
+                    failed_block(input, placement, Some(snapshot.row), next.row, scene);
                 }
                 draw_prompt(
                     input,
@@ -446,10 +445,17 @@ pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene
     }
 }
 
-fn tint_spacers(
+fn failed(snapshot: &PromptSnapshot) -> bool {
+    snapshot
+        .info
+        .last
+        .is_some_and(|last| last.exit.is_some_and(|code| code != 0))
+}
+
+fn failed_block(
     input: &ChromeInput,
     placement: &PanePlacement,
-    top: u16,
+    top: Option<u16>,
     bottom: u16,
     scene: &mut Scene,
 ) {
@@ -460,16 +466,12 @@ fn tint_spacers(
         return;
     };
     let half = input.metrics.height / 2.0;
-    let colour = blend(input.theme.background, input.theme.normal[1], FAILED_TINT);
-    for (row, lower) in [(top, true), (bottom, false)] {
-        if row >= placement.rect.size.rows || !spacer(&pane.rows, usize::from(row)) {
-            continue;
-        }
-        let rect = cell_rect(
+    let row_rect = |row: u16| {
+        cell_rect(
             input,
             CellRect {
                 origin: CellPoint {
-                    row: placement.rect.origin.row + row - 1,
+                    row: placement.rect.origin.row + row,
                     ..placement.rect.origin
                 },
                 size: GridSize {
@@ -477,26 +479,65 @@ fn tint_spacers(
                     ..placement.rect.size
                 },
             },
-        );
-        let y = if lower { rect.y + half } else { rect.y };
-        let width = input.px.0 as f32;
-        let edge = input.padding.0 + input.metrics.width;
-        let x = if rect.x < edge { 0.0 } else { rect.x };
-        let right = if width - (rect.x + rect.w) < edge {
-            width
+        )
+    };
+    let edge = input.padding.0 + input.metrics.width;
+    let width = input.px.0 as f32;
+    let pane_rect = row_rect(0);
+    let left = if pane_rect.x < edge { 0.0 } else { pane_rect.x };
+    let right = if width - (pane_rect.x + pane_rect.w) < edge {
+        width
+    } else {
+        pane_rect.x + pane_rect.w
+    };
+    let spacer_at =
+        |row: u16| row < placement.rect.size.rows && spacer(&pane.rows, usize::from(row));
+    let start = |row: u16| {
+        let rect = row_rect(row);
+        if spacer_at(row) {
+            rect.y - half
         } else {
-            rect.x + rect.w
-        };
+            rect.y
+        }
+    };
+    if top.is_none() && bottom <= u16::from(spacer_at(bottom)) {
+        return;
+    }
+    let tint = blend(input.theme.background, input.theme.normal[1], FAILED_TINT);
+    let y0 = top.map_or(pane_rect.y, start).round();
+    let y1 = start(bottom).round();
+    if let Some(top) = top.filter(|top| spacer_at(*top)) {
         scene.quads.push(fill(
             PxRect {
-                x,
-                y: y.round(),
-                w: right - x,
-                h: (rect.y + if lower { rect.h } else { half }).round() - y.round(),
+                x: left,
+                y: y0,
+                w: right - left,
+                h: row_rect(top).y - y0,
             },
-            colour,
+            tint,
         ));
     }
+    if spacer_at(bottom) {
+        let y = row_rect(bottom - 1).y;
+        scene.quads.push(fill(
+            PxRect {
+                x: left,
+                y,
+                w: right - left,
+                h: y1 - y,
+            },
+            tint,
+        ));
+    }
+    scene.quads.push(fill(
+        PxRect {
+            x: left,
+            y: y0,
+            w: px(STRIPE, input.scale),
+            h: y1 - y0,
+        },
+        input.theme.normal[1],
+    ));
 }
 
 #[derive(Clone, Copy)]
@@ -544,7 +585,7 @@ fn draw_prompt(
         .mirror
         .pane(placement.pane)
         .is_some_and(|pane| spacer(&pane.rows, usize::from(row)));
-    if row > 0 {
+    if row > u16::from(gap) {
         let y = if gap {
             rect.y - input.metrics.height / 2.0
         } else {
