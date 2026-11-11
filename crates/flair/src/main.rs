@@ -1,6 +1,7 @@
 mod cli;
 mod daemon;
 mod headless;
+mod nvim;
 mod scenario;
 
 use cli::Args;
@@ -47,7 +48,7 @@ fn main() -> ExitCode {
     match args {
         Args::Help => {
             println!(
-                "flair [--config PATH] [--standalone]\nflair server [--config PATH]\nflair new [-d] [-s NAME] [-c DIR]\nflair attach -t NAME\nflair switch PATH|NAME\nflair ls\nflair kill-server\nflair test-headless --scenario PATH --output DIR [--timeout-ms 5000] [--config PATH] [--pixels WxH] [--scale S]"
+                "flair [--config PATH] [--standalone]\nflair server [--config PATH]\nflair new [-d] [-s NAME] [-c DIR]\nflair attach -t NAME\nflair switch PATH|NAME\nflair open FILE\nflair ls\nflair kill-server\nflair test-headless --scenario PATH --output DIR [--timeout-ms 5000] [--config PATH] [--pixels WxH] [--scale S]"
             );
             ExitCode::SUCCESS
         }
@@ -131,6 +132,13 @@ fn main() -> ExitCode {
             }
             Ok(())
         })()),
+        Args::Open(file) => match open(&file) {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("flair open: {error}");
+                ExitCode::FAILURE
+            }
+        },
         Args::Switch(target) => finish((|| {
             let link = daemon::connect(None, true)?;
             let pane = daemon::pane_for_socket(&flair_server::socket::socket_path()?);
@@ -254,6 +262,18 @@ fn ui_script(path: &Path) -> Result<Vec<Drive>, String> {
         }
     }
     Ok(drive)
+}
+
+fn open(file: &Path) -> std::io::Result<()> {
+    let socket = flair_server::socket::socket_path()?;
+    let link = daemon::connect(None, false).map_err(|error| match error.kind() {
+        std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused => {
+            std::io::Error::other("no flair window is open")
+        }
+        _ => error,
+    })?;
+    let pids = daemon::pane_processes(&link, daemon::pane_for_socket(&socket))?;
+    nvim::open(Path::new("/proc"), &pids, file)
 }
 
 fn finish(result: std::io::Result<()>) -> ExitCode {

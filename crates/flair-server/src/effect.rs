@@ -25,5 +25,9 @@ pub enum Effect {
         panes: Vec<PaneId>,
     },
     ReadContexts,
+    PaneProcesses {
+        client: ClientId,
+        panes: Vec<PaneId>,
+    },
     Shutdown,
 }

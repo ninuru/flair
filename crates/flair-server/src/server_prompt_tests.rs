@@ -63,6 +63,7 @@ fn infos(out: &[Effect]) -> Vec<(ClientId, PaneId, PromptInfo)> {
             | Effect::ReadConfig(_)
             | Effect::ReadGit { .. }
             | Effect::ReadContexts
+            | Effect::PaneProcesses { .. }
             | Effect::Shutdown => None,
         })
         .collect()
@@ -81,6 +82,7 @@ fn git_jobs(out: &[Effect]) -> Vec<(PathBuf, bool)> {
             | Effect::SetTimer(_, _)
             | Effect::ReadConfig(_)
             | Effect::ReadContexts
+            | Effect::PaneProcesses { .. }
             | Effect::Shutdown => None,
         })
         .collect()
@@ -99,6 +101,7 @@ fn git_panes(out: &[Effect]) -> Vec<Vec<PaneId>> {
             | Effect::SetTimer(_, _)
             | Effect::ReadConfig(_)
             | Effect::ReadContexts
+            | Effect::PaneProcesses { .. }
             | Effect::Shutdown => None,
         })
         .collect()
@@ -118,6 +121,7 @@ fn prompt_timers(out: &[Effect]) -> Vec<Millis> {
             | Effect::ReadConfig(_)
             | Effect::ReadGit { .. }
             | Effect::ReadContexts
+            | Effect::PaneProcesses { .. }
             | Effect::Shutdown => None,
         })
         .collect()
@@ -461,6 +465,7 @@ fn new_windows_use_the_full_pane_size_for_the_shell_prompt() {
                 | Effect::ReadConfig(_)
                 | Effect::ReadGit { .. }
                 | Effect::ReadContexts
+                | Effect::PaneProcesses { .. }
                 | Effect::Shutdown => None,
             })
             .unwrap();

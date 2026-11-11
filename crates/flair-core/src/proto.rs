@@ -15,7 +15,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 10;
+pub const PROTOCOL: u32 = 11;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -90,6 +90,7 @@ pub enum ServerMsg {
         pane: PaneId,
         prompts: Vec<PromptSnapshot>,
     },
+    PaneProcesses(Vec<u32>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -248,6 +249,9 @@ pub enum Control {
         target: Target,
         pane: Option<PaneId>,
         env: Vec<(String, String)>,
+    },
+    PaneProcesses {
+        pane: Option<PaneId>,
     },
 }
 

@@ -329,6 +329,7 @@ fn no_history_windows_and_splits_preserve_environment_policy() {
                 | Effect::ReadConfig(_)
                 | Effect::ReadGit { .. }
                 | Effect::ReadContexts
+                | Effect::PaneProcesses { .. }
                 | Effect::Shutdown => None,
             })
             .unwrap();
@@ -466,6 +467,7 @@ fn exited_pane_reaps_after_staggered_clients_acknowledge_its_final_snapshot() {
                 | Effect::ReadConfig(_)
                 | Effect::ReadGit { .. }
                 | Effect::ReadContexts
+                | Effect::PaneProcesses { .. }
                 | Effect::Shutdown => None,
             })
             .unwrap()
@@ -649,4 +651,82 @@ fn prefix_percent_places_panes_left_and_right() {
     };
     assert_eq!(divider.rect.size.cols, 1);
     assert_eq!(divider.rect.size.rows, left.rect.size.rows);
+}
+
+fn pane_processes(server: &mut Server, pane: Option<PaneId>) -> Vec<Effect> {
+    let mut out = Vec::new();
+    server.handle(
+        Millis(20),
+        Event::Client(
+            ClientId(99),
+            ClientMsg::Control(Control::PaneProcesses { pane }),
+        ),
+        &mut out,
+    );
+    out
+}
+
+#[test]
+fn pane_processes_lists_the_active_pane_first_then_its_window_in_layout_order() {
+    let (mut server, _) = setup();
+    run(&mut server, ClientId(1), Command::Split(Axis::Horizontal));
+    run(
+        &mut server,
+        ClientId(1),
+        Command::SelectPane(PaneRef::Id(PaneId(1))),
+    );
+    run(&mut server, ClientId(1), Command::Split(Axis::Vertical));
+    run(&mut server, ClientId(1), Command::NewWindow);
+    run(&mut server, ClientId(1), Command::PreviousWindow);
+    let active = server.client_pane(ClientId(1)).unwrap();
+    assert_eq!(active, PaneId(3));
+    let out = pane_processes(&mut server, None);
+    assert!(matches!(
+        out.as_slice(),
+        [Effect::PaneProcesses { client: ClientId(99), panes }]
+            if panes == &[PaneId(3), PaneId(1), PaneId(2)]
+    ));
+}
+
+#[test]
+fn pane_processes_follows_the_calling_pane_and_errors_without_a_window() {
+    let (mut server, _) = setup();
+    let mut out = Vec::new();
+    server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
+    run(&mut server, ClientId(2), Command::NewWindow);
+    server.handle(
+        Millis(2),
+        Event::Client(ClientId(1), ClientMsg::Focus(true)),
+        &mut out,
+    );
+    let other = server.client_pane(ClientId(2)).unwrap();
+    let out = pane_processes(&mut server, Some(other));
+    assert!(matches!(
+        out.as_slice(),
+        [Effect::PaneProcesses { client: ClientId(99), panes }] if panes == &[other]
+    ));
+    let out = pane_processes(&mut server, None);
+    assert!(matches!(
+        out.as_slice(),
+        [Effect::PaneProcesses { panes, .. }] if panes == &[PaneId(1)]
+    ));
+    let out = pane_processes(&mut server, Some(PaneId(999)));
+    assert!(matches!(
+        out.as_slice(),
+        [Effect::Send(ClientId(99), ServerMsg::Error(error))] if error == "no flair window is open"
+    ));
+    let mut empty = Server::new(ServerConfig::from_config(&Config::default()));
+    let mut out = Vec::new();
+    empty.handle(
+        Millis(0),
+        Event::Client(
+            ClientId(99),
+            ClientMsg::Control(Control::PaneProcesses { pane: None }),
+        ),
+        &mut out,
+    );
+    assert!(matches!(
+        out.as_slice(),
+        [Effect::Send(ClientId(99), ServerMsg::Error(_))]
+    ));
 }

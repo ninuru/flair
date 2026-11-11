@@ -182,15 +182,7 @@ impl Server {
                 }
             }
             Control::Switch { target, pane, env } => {
-                let chosen = self
-                    .clients
-                    .iter()
-                    .filter(|(client, state)| {
-                        state.kind == ClientKind::Gui
-                            && pane.is_none_or(|pane| self.client_pane(**client) == Some(pane))
-                    })
-                    .max_by_key(|(_, state)| (state.focused, state.activity))
-                    .map(|(client, _)| *client);
+                let chosen = self.chosen_gui(pane);
                 let size = chosen
                     .map(|client| self.clients[&client].size)
                     .unwrap_or(GridSize { cols: 80, rows: 24 });
@@ -211,6 +203,43 @@ impl Server {
                     Err(error) => out.push(Effect::Send(id, ServerMsg::Error(error))),
                 }
             }
+            Control::PaneProcesses { pane } => {
+                let window = self
+                    .chosen_gui(pane)
+                    .and_then(|client| self.tree.window(self.clients[&client].view.window));
+                match window {
+                    Some(window) => {
+                        let active = window.active_pane;
+                        let panes = std::iter::once(active)
+                            .chain(
+                                window
+                                    .layout
+                                    .geometry(window.area(), 0)
+                                    .panes
+                                    .into_iter()
+                                    .map(|placement| placement.pane)
+                                    .filter(|pane| *pane != active),
+                            )
+                            .collect();
+                        out.push(Effect::PaneProcesses { client: id, panes });
+                    }
+                    None => out.push(Effect::Send(
+                        id,
+                        ServerMsg::Error("no flair window is open".into()),
+                    )),
+                }
+            }
         }
+    }
+
+    fn chosen_gui(&self, pane: Option<PaneId>) -> Option<ClientId> {
+        self.clients
+            .iter()
+            .filter(|(client, state)| {
+                state.kind == ClientKind::Gui
+                    && pane.is_none_or(|pane| self.client_pane(**client) == Some(pane))
+            })
+            .max_by_key(|(_, state)| (state.focused, state.activity))
+            .map(|(client, _)| *client)
     }
 }

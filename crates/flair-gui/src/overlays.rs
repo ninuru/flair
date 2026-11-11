@@ -142,6 +142,7 @@ impl Overlays {
             | ServerMsg::Sessions(_)
             | ServerMsg::PromptInfo { .. }
             | ServerMsg::PromptHistory { .. }
+            | ServerMsg::PaneProcesses(_)
             | ServerMsg::Done
             | ServerMsg::Error(_)
             | ServerMsg::Exit(_) => return false,

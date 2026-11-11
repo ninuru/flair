@@ -200,6 +200,7 @@ impl Capture {
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }
             | ServerMsg::ReloadConfig { .. }
+            | ServerMsg::PaneProcesses(_)
             | ServerMsg::Done => {}
             ServerMsg::Layout(layout) => {
                 self.mirror.retain_layout(&layout);
