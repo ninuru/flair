@@ -1,6 +1,6 @@
 [[ $TERM_PROGRAM == flair ]] || return
-[[ $_FLAIR_INTEGRATION_LOADED != 5 ]] || return
-typeset -g _FLAIR_INTEGRATION_LOADED=5
+[[ $_FLAIR_INTEGRATION_LOADED != 6 ]] || return
+typeset -g _FLAIR_INTEGRATION_LOADED=6
 
 autoload -Uz add-zsh-hook
 
@@ -37,7 +37,7 @@ _flair_precmd() {
         dollar) separator='$ ' ;;
         percent) separator='%% ' ;;
     esac
-    PS1=$'%{\e]6973;prompt\a%}\n'"$separator"$'%{\e]133;B\a%}'
+    PS1=$'\n%{\e]6973;prompt\a%}\n'"$separator"$'%{\e]133;B\a%}'
 }
 
 _flair_preexec() {

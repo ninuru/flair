@@ -110,7 +110,7 @@ fn failed_command_blocks_get_a_red_tint_up_to_the_next_prompt() {
     mirror.insert_history(PaneId(1), vec![prompt(1, None), prompt(5, Some(1))]);
     assert_eq!(
         tinted(&mirror),
-        [false, true, true, true, true, false, false]
+        [false, true, true, true, false, false, false]
     );
     mirror.insert_history(PaneId(1), vec![prompt(1, None), prompt(5, Some(0))]);
     assert_eq!(tinted(&mirror), [false; 7]);

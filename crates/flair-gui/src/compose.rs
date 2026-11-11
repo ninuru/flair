@@ -5,11 +5,11 @@ use crate::{
 use flair_core::{
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::PaneId,
-    proto::{CellFlags, PromptSnapshot, WindowLayout},
+    proto::{Cell, CellFlags, PromptSnapshot, WindowLayout},
     theme::{Rgb, Theme, blend},
 };
 
-const FAILED_TINT: u8 = 12;
+pub(crate) const FAILED_TINT: u8 = 12;
 
 pub fn compose(mirror: &Mirror, id: PaneId, theme: &Theme, cursor_visible: bool) -> CellGrid {
     let Some(pane) = mirror.pane(id) else {
@@ -19,7 +19,11 @@ pub fn compose(mirror: &Mirror, id: PaneId, theme: &Theme, cursor_visible: bool)
             cursor: None,
         };
     };
-    let failed = failed_rows(pane.size.rows, mirror.history(id).unwrap_or_default());
+    let failed = failed_rows(
+        pane.size.rows,
+        &pane.rows,
+        mirror.history(id).unwrap_or_default(),
+    );
     let cells = pane
         .rows
         .iter()
@@ -87,21 +91,31 @@ pub fn compose(mirror: &Mirror, id: PaneId, theme: &Theme, cursor_visible: bool)
     }
 }
 
-fn failed_rows(rows: u16, history: &[PromptSnapshot]) -> Vec<bool> {
+fn failed_rows(rows: u16, cells: &[Vec<Cell>], history: &[PromptSnapshot]) -> Vec<bool> {
     let mut failed = vec![false; usize::from(rows)];
     let mut start = 0;
     for snapshot in history {
         let row = usize::from(snapshot.row).min(failed.len());
+        let end = if spacer(cells, row) { row - 1 } else { row };
         if snapshot
             .info
             .last
             .is_some_and(|last| last.exit.is_some_and(|code| code != 0))
         {
-            failed[start.min(row)..row].fill(true);
+            failed[start.min(end)..end].fill(true);
         }
         start = row;
     }
     failed
+}
+
+pub(crate) fn spacer(cells: &[Vec<Cell>], prompt_row: usize) -> bool {
+    prompt_row > 0
+        && cells.get(prompt_row - 1).is_some_and(|cells| {
+            cells
+                .iter()
+                .all(|cell| cell.c == ' ' && cell.extra.is_none())
+        })
 }
 
 pub fn compose_frame(

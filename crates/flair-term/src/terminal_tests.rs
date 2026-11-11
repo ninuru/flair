@@ -482,3 +482,21 @@ fn prompt_history_keeps_facts_with_their_grid_rows_through_scroll_and_reflow() {
     term.advance(b"\x1b[?1049h");
     assert!(term.prompt_history().is_empty());
 }
+
+#[test]
+fn a_finished_command_keeps_its_prompt_info_until_the_next_prompt() {
+    let mut term = Terminal::new(GridSize { cols: 24, rows: 6 }, 12);
+    let info = |cwd: &str| flair_core::isles::PromptInfo {
+        cwd: Some(PathBuf::from(cwd)),
+        ..Default::default()
+    };
+    term.advance(b"\x1b]6973;prompt\x07\r\n");
+    term.set_prompt_info(info("/first"));
+    term.advance(b"\x1b]133;D;127\x07");
+    term.set_prompt_info(info("/late"));
+    term.advance(b"\x1b]6973;prompt\x07\r\n");
+    term.set_prompt_info(info("/second"));
+    let history = term.prompt_history();
+    assert_eq!(history[0].info.cwd.as_deref(), Some(Path::new("/first")));
+    assert_eq!(history[1].info.cwd.as_deref(), Some(Path::new("/second")));
+}

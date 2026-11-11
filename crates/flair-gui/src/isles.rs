@@ -14,6 +14,7 @@ use crate::{
     CellMetrics,
     chrome_bar::{Scene, fill, opaque, rounded},
     chrome_layout::{ChromeInput, Hit, HitTarget, cell_rect},
+    compose::{FAILED_TINT, spacer},
     font::PROMPT_ICON_SCALE,
     mirror::Mirror,
     overlay_layout::{OverlayInput, OverlayScene},
@@ -390,11 +391,20 @@ pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene
                 .and_then(|pane| pane.flags.prompt_row);
             for (index, snapshot) in history.iter().enumerate() {
                 let calendar = calendar_at(snapshot.timestamp);
+                let next = history.get(index + 1);
                 let style = if Some(snapshot.row) == live {
                     Style::Chips
                 } else {
-                    Style::Header(history.get(index + 1).and_then(|next| next.info.last))
+                    Style::Header(next.and_then(|next| next.info.last))
                 };
+                if let Some(next) = next
+                    && next
+                        .info
+                        .last
+                        .is_some_and(|last| last.exit.is_some_and(|code| code != 0))
+                {
+                    tint_spacers(input, placement, snapshot.row, next.row, scene);
+                }
                 draw_prompt(
                     input,
                     placement,
@@ -433,6 +443,59 @@ pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene
             Style::Chips,
             scene,
         );
+    }
+}
+
+fn tint_spacers(
+    input: &ChromeInput,
+    placement: &PanePlacement,
+    top: u16,
+    bottom: u16,
+    scene: &mut Scene,
+) {
+    let Some(pane) = input
+        .isles
+        .and_then(|isles| isles.mirror.pane(placement.pane))
+    else {
+        return;
+    };
+    let half = input.metrics.height / 2.0;
+    let colour = blend(input.theme.background, input.theme.normal[1], FAILED_TINT);
+    for (row, lower) in [(top, true), (bottom, false)] {
+        if row >= placement.rect.size.rows || !spacer(&pane.rows, usize::from(row)) {
+            continue;
+        }
+        let rect = cell_rect(
+            input,
+            CellRect {
+                origin: CellPoint {
+                    row: placement.rect.origin.row + row - 1,
+                    ..placement.rect.origin
+                },
+                size: GridSize {
+                    rows: 1,
+                    ..placement.rect.size
+                },
+            },
+        );
+        let y = if lower { rect.y + half } else { rect.y };
+        let width = input.px.0 as f32;
+        let edge = input.padding.0 + input.metrics.width;
+        let x = if rect.x < edge { 0.0 } else { rect.x };
+        let right = if width - (rect.x + rect.w) < edge {
+            width
+        } else {
+            rect.x + rect.w
+        };
+        scene.quads.push(fill(
+            PxRect {
+                x,
+                y: y.round(),
+                w: right - x,
+                h: (rect.y + if lower { rect.h } else { half }).round() - y.round(),
+            },
+            colour,
+        ));
     }
 }
 
@@ -477,8 +540,19 @@ fn draw_prompt(
         metrics: input.metrics,
         config: isles.config,
     };
+    let gap = isles
+        .mirror
+        .pane(placement.pane)
+        .is_some_and(|pane| spacer(&pane.rows, usize::from(row)));
     if row > 0 {
-        scene.quads.push(divider(rect, input.scale, input.theme));
+        let y = if gap {
+            rect.y - input.metrics.height / 2.0
+        } else {
+            rect.y
+        };
+        scene
+            .quads
+            .push(divider(PxRect { y, ..rect }, input.scale, input.theme));
     }
     let hits = match style {
         Style::Chips => paint.chips(&labels, rect, scene),

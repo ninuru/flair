@@ -131,10 +131,12 @@ impl Terminal {
             self.processor.advance(&mut self.term, chunk);
             self.osc.advance(chunk);
             let events = self.osc.take();
-            if events
-                .iter()
-                .any(|event| matches!(event, TermEvent::Mark(MarkKind::CommandStart, _)))
-            {
+            if events.iter().any(|event| {
+                matches!(
+                    event,
+                    TermEvent::Mark(MarkKind::CommandStart | MarkKind::CommandEnd, _)
+                )
+            }) {
                 self.prompt_editing = false;
             }
             self.events.borrow_mut().extend(events);
@@ -263,7 +265,13 @@ impl Terminal {
             })
     }
     pub(crate) fn chrome_line(&self, line: Line) -> bool {
-        prompt_id(&self.term.grid()[Point::new(line, Column(0))]).is_some()
+        let grid = self.term.grid();
+        let anchor = |line: Line| prompt_id(&grid[Point::new(line, Column(0))]).is_some();
+        anchor(line)
+            || (line < self.term.bottommost_line()
+                && anchor(line + 1)
+                && (0..self.size.cols)
+                    .all(|col| grid[Point::new(line, Column(usize::from(col)))].c == ' '))
     }
     pub fn copy_mode(&self) -> bool {
         self.term.mode().contains(TermMode::VI)
