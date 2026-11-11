@@ -696,7 +696,7 @@ fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
 }
 
 #[test]
-fn icons_and_labels_use_the_terminal_face_and_cell_advance() {
+fn icons_use_a_larger_regular_face_with_optical_spacing() {
     let info = PromptInfo {
         cwd: Some(PathBuf::from("/srv/one")),
         git: Some(GitInfo {
@@ -711,14 +711,16 @@ fn icons_and_labels_use_the_terminal_face_and_cell_advance() {
         runs.iter().map(|run| run.2.as_str()).collect::<Vec<_>>(),
         ["\u{f114}", "/srv/one", "\u{f418}", "main"]
     );
-    assert!(runs.iter().all(|run| run.3 == TextFace::Mono));
-    assert_eq!(runs[1].0 - runs[0].0, 8.0 + ICON_GAP);
-    assert_eq!(runs[0].1, runs[1].1);
-    assert_eq!(runs[2].1, runs[3].1);
+    for pair in runs.as_chunks::<2>().0 {
+        assert_eq!(pair[0].3, TextFace::PromptIcon);
+        assert_eq!(pair[1].3, TextFace::Mono);
+        assert_eq!(pair[1].0 - pair[0].0, 11.0 + ICON_GAP);
+        assert_eq!(pair[0].1, pair[1].1 + 2.0);
+    }
 }
 
 #[test]
-fn icon_and_label_baselines_match_the_terminal_grid() {
+fn icons_are_optically_centered_beside_grid_aligned_labels() {
     let runs = icon_runs(
         PromptInfo {
             cwd: Some(PathBuf::from("/srv/one")),
@@ -726,7 +728,7 @@ fn icon_and_label_baselines_match_the_terminal_grid() {
         },
         98,
     );
-    assert_eq!(runs[0].1, runs[1].1);
+    assert_eq!(runs[0].1, 82.0);
     assert_eq!(runs[1].1, 80.0);
 }
 
@@ -738,7 +740,7 @@ fn a_wide_icon_takes_two_small_cells() {
 }
 
 #[test]
-fn outlined_chips_use_subtle_theme_tints_and_readable_ansi_text() {
+fn outlined_chips_use_neutral_surfaces_and_readable_ansi_text() {
     let theme = Config::default().theme();
     let config = PromptConfig::default();
     for (chip, tone, index) in [
@@ -754,11 +756,23 @@ fn outlined_chips_use_subtle_theme_tints_and_readable_ansi_text() {
             tone,
         };
         let (fill, ink, border) = colours(&theme, &config, &label);
-        assert_eq!(fill, blend(theme.background, theme.normal[index], 6));
-        assert_eq!(
-            border,
-            Some(blend(theme.background, theme.normal[index], 24))
-        );
+        assert_eq!(fill, blend(theme.background, theme.foreground, 4));
+        let expected = match chip {
+            Chip::Cwd => theme.bright[6],
+            Chip::Docker => blend(theme.bright[2], theme.bright[6], 50),
+            Chip::User
+            | Chip::Host
+            | Chip::GitBranch
+            | Chip::GitAheadBehind
+            | Chip::GitChanges
+            | Chip::Venv
+            | Chip::Kube
+            | Chip::Exit
+            | Chip::Time
+            | Chip::Date => theme.normal[index],
+        };
+        assert_eq!(ink, expected);
+        assert_eq!(border, Some(blend(theme.background, theme.foreground, 12)));
         assert!(contrast(fill, ink) >= 4.5, "{chip:?}: {fill:?} {ink:?}");
     }
 }
@@ -857,4 +871,97 @@ fn prompt_segment_order_and_icon_overrides_are_applied() {
     assert_eq!(labels[0].icon, None);
     assert_eq!(labels[0].text, "docker colima");
     assert_eq!(labels[1].icon, Some('\u{f114}'));
+}
+
+#[test]
+fn outlined_chip_surfaces_stay_neutral_across_segment_colours() {
+    let theme = Config::default().theme();
+    let config = PromptConfig::default();
+    let make = |chip| Label {
+        chip,
+        icon: None,
+        text: "example".into(),
+        tone: Tone::Plain,
+    };
+    let (directory, _, directory_border) = colours(&theme, &config, &make(Chip::Cwd));
+    let (docker, _, docker_border) = colours(&theme, &config, &make(Chip::Docker));
+    assert_eq!(directory, docker);
+    assert_eq!(directory_border, docker_border);
+    assert_eq!(directory, blend(theme.background, theme.foreground, 4));
+    assert_eq!(
+        directory_border,
+        Some(blend(theme.background, theme.foreground, 12))
+    );
+}
+
+#[test]
+fn prompt_labels_are_strong_while_the_icons_keep_their_outline_weight() {
+    let theme = Config::default().theme();
+    let config = PromptConfig::default();
+    let paint = Paint {
+        theme: &theme,
+        scale: 1.0,
+        metrics: CellMetrics {
+            width: 10.0,
+            height: 24.0,
+            baseline: 18.0,
+        },
+        config: &config,
+    };
+    let labels = [
+        Label {
+            chip: Chip::Cwd,
+            icon: Some('\u{f114}'),
+            text: "~".into(),
+            tone: Tone::Plain,
+        },
+        Label {
+            chip: Chip::Docker,
+            icon: Some('\u{f308}'),
+            text: "skynetx-prod".into(),
+            tone: Tone::Plain,
+        },
+    ];
+    let mut scene = Scene::default();
+    let hits = paint.chips(
+        &labels,
+        PxRect {
+            x: 0.0,
+            y: 0.0,
+            w: 400.0,
+            h: 24.0,
+        },
+        &mut scene,
+    );
+    assert!(
+        scene
+            .text
+            .iter()
+            .filter(|run| ["~", "skynetx-prod"].contains(&run.text.as_str()))
+            .all(|run| run.bold)
+    );
+    assert!(
+        scene
+            .text
+            .iter()
+            .filter(|run| !["~", "skynetx-prod"].contains(&run.text.as_str()))
+            .all(|run| !run.bold)
+    );
+    assert_eq!(hits[0].1.w, 40.0);
+    assert_eq!(hits[1].1.x - hits[0].1.x - hits[0].1.w, 8.0);
+}
+
+#[test]
+fn home_is_compact_by_default_and_full_path_remains_an_explicit_choice() {
+    let info = PromptInfo {
+        cwd: Some(PathBuf::from("/home/ada")),
+        ..PromptInfo::default()
+    };
+    let mut config = PromptConfig::default();
+    assert_eq!(text_of(&info, &config, Chip::Cwd).as_deref(), Some("~"));
+    config.path = flair_core::config::PromptPath::Full;
+    assert_eq!(
+        text_of(&info, &config, Chip::Cwd).as_deref(),
+        Some("/home/ada")
+    );
 }

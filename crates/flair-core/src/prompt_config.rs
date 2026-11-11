@@ -80,7 +80,7 @@ impl Default for PromptConfig {
         PromptConfig {
             style: PromptStyle::Chips,
             order: PromptOrder::default(),
-            path: PromptPath::Full,
+            path: PromptPath::Abbreviated,
             appearance: PromptAppearance::Outlined,
             time_format: PromptTimeFormat::TwentyFour,
             date_format: PromptDateFormat::Iso,

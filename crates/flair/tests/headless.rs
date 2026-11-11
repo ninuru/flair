@@ -704,7 +704,7 @@ name = "changes"
         "{}",
         String::from_utf8_lossy(&run.stderr)
     );
-    let cwd = repo.to_str().unwrap();
+    let cwd = "~/repo";
     let band = fs::read_to_string(output.0.join("band.txt")).unwrap();
     assert_eq!(band_labels(&band), [cwd, "main", "1"], "{band}");
     let content: Vec<&str> = band.lines().map(str::trim_end).collect();

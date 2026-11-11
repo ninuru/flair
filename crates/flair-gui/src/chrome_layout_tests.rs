@@ -950,26 +950,26 @@ fn each_pane_uses_subtle_outlined_chips_on_its_prompt_row() {
     let layout = band_layout(&window, &info, &plain_config());
     let chips = band_chips(&layout);
     assert_eq!(chips.len(), 6);
-    for (chip, index) in chips.iter().zip([6, 5, 1, 6, 5, 1]) {
+    for chip in &chips {
         assert_eq!(
             chip.color,
             opaque(flair_core::theme::blend(
                 theme.background,
-                theme.normal[index],
-                6
+                theme.foreground,
+                4
             ))
         );
         assert_eq!(
             chip.border.unwrap().color,
             opaque(flair_core::theme::blend(
                 theme.background,
-                theme.normal[index],
-                24
+                theme.foreground,
+                12
             ))
         );
-        assert_eq!(chip.rect.y, 69.0);
-        assert_eq!(chip.rect.h, 14.0);
-        assert_eq!(chip.radius, 2.0);
+        assert_eq!(chip.rect.y, 68.0);
+        assert_eq!(chip.rect.h, 16.0);
+        assert_eq!(chip.radius, 3.0);
     }
     let text = band_text(&layout);
     assert_eq!(
@@ -983,7 +983,7 @@ fn each_pane_uses_subtle_outlined_chips_on_its_prompt_row() {
 }
 
 #[test]
-fn successful_exit_uses_a_green_outline_and_readable_text() {
+fn successful_exit_uses_neutral_chrome_and_readable_status_text() {
     let theme = Config::default().theme();
     let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
     let info = BTreeMap::from([(
@@ -1007,15 +1007,15 @@ fn successful_exit_uses_a_green_outline_and_readable_text() {
         chips[0].color,
         opaque(flair_core::theme::blend(
             theme.background,
-            theme.normal[2],
-            6
+            theme.foreground,
+            4
         ))
     );
-    assert_eq!(band_text(&layout), [(12.0, 80.0, "0.42s", TextFace::Mono)]);
+    assert_eq!(band_text(&layout), [(14.0, 80.0, "0.42s", TextFace::Mono)]);
 }
 
 #[test]
-fn prompt_icons_and_labels_use_the_same_terminal_face_and_baseline() {
+fn prompt_icons_are_centered_beside_terminal_labels() {
     let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
     let info = BTreeMap::from([(PaneId(1), prompt("/srv/one"))]);
     let layout = band_layout(&window, &info, &PromptConfig::default());
@@ -1024,12 +1024,20 @@ fn prompt_icons_and_labels_use_the_same_terminal_face_and_baseline() {
         text.iter().map(|run| run.2).collect::<Vec<_>>(),
         ["\u{f114}", "/srv/one", "\u{f418}", "main", "1"]
     );
-    assert!(
-        text.iter()
-            .all(|run| run.3 == TextFace::Mono && run.1 == 80.0)
-    );
-    assert_eq!(text[1].0 - text[0].0, 12.0);
-    assert_eq!(text[3].0 - text[2].0, 12.0);
+    for (index, run) in text.iter().enumerate() {
+        let icon = index == 0 || index == 2;
+        assert_eq!(
+            run.3,
+            if icon {
+                TextFace::PromptIcon
+            } else {
+                TextFace::Mono
+            }
+        );
+        assert_eq!(run.1, if icon { 82.0 } else { 80.0 });
+    }
+    assert_eq!(text[1].0 - text[0].0, 15.0);
+    assert_eq!(text[3].0 - text[2].0, 15.0);
 }
 
 #[test]
@@ -1081,7 +1089,7 @@ fn chips_centre_on_the_shell_prompt_row_in_stacked_panes() {
     let lower = chips[3].rect;
     assert_eq!(lower.h, upper.h);
     let row = top + 18.0 * 16.0;
-    assert_eq!(lower.y, row + 1.0);
+    assert_eq!(lower.y, row);
     assert_eq!(lower.y + lower.h / 2.0, row + 8.0);
 }
 

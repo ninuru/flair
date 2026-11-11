@@ -87,10 +87,12 @@ fn editor_actions_reach_the_settings_save_and_cancel_flow() {
 
 #[test]
 fn compact_editor_keeps_save_visible_and_scrolls_to_every_option() {
-    let config = Config::default();
+    let mut config = Config::default();
+    config.prompt.path = flair_core::config::PromptPath::Full;
     let mut page = SettingsPage::new(&config, config.theme(), String::new(), Vec::new());
     page.click(SettingsHit::Section(4));
     page.click(SettingsHit::PromptEditor(PromptAction::Path));
+    page.click(SettingsHit::PromptEditor(PromptAction::Colour));
     let theme = config.theme();
     let metrics = CellMetrics {
         width: 8.0,

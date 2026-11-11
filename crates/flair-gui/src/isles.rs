@@ -14,6 +14,7 @@ use crate::{
     CellMetrics,
     chrome_bar::{Scene, opaque, rounded},
     chrome_layout::{ChromeInput, cell_rect},
+    font::PROMPT_ICON_SCALE,
     mirror::Mirror,
     overlay_layout::{OverlayInput, OverlayScene},
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
@@ -21,9 +22,9 @@ use crate::{
 };
 
 const EDGE: f32 = 0.0;
-const PAD: f32 = 4.0;
-const GAP: f32 = 4.0;
-const RADIUS: f32 = 2.0;
+const PAD: f32 = 6.0;
+const GAP: f32 = 8.0;
+const RADIUS: f32 = 3.0;
 const ICON_GAP: f32 = 4.0;
 const COUNT_CAP: u32 = 1000;
 const DROP: [Chip; 11] = [
@@ -493,18 +494,30 @@ struct Paint<'a> {
 
 impl Paint<'_> {
     fn width(&self, label: &Label, text: &str) -> f32 {
-        (px(PAD * 2.0, self.scale) + self.lead(label) + text.width() as f32 * self.metrics.width)
+        (self.pad(label) * 2.0 + self.lead(label) + text.width() as f32 * self.metrics.width)
             .round()
+    }
+
+    fn pad(&self, label: &Label) -> f32 {
+        px(
+            if label.icon.is_some() && label.chip != Chip::Cwd {
+                4.0
+            } else {
+                PAD
+            },
+            self.scale,
+        )
     }
 
     fn lead(&self, label: &Label) -> f32 {
         label.icon.map_or(0.0, |icon| {
-            icon_cells(icon) as f32 * self.metrics.width + px(ICON_GAP, self.scale)
+            (icon_cells(icon) as f32 * self.metrics.width * PROMPT_ICON_SCALE).round()
+                + px(ICON_GAP, self.scale)
         })
     }
 
     fn chips(&self, labels: &[Label], row: PxRect, scene: &mut Scene) -> Vec<(Chip, PxRect)> {
-        let height = (self.metrics.height - px(2.0, self.scale)).min(row.h - px(2.0, self.scale));
+        let height = self.metrics.height.min(row.h);
         if height <= 0.0 || labels.is_empty() {
             return Vec::new();
         }
@@ -569,17 +582,20 @@ impl Paint<'_> {
                 ..rounded(rect, fill, RADIUS, self.scale)
             });
         }
-        let x = (rect.x + px(PAD, self.scale)).round();
+        let x = (rect.x + self.pad(label)).round();
         let baseline =
             (rect.y + (rect.h - self.metrics.height) / 2.0 + self.metrics.baseline).round();
         if let Some(icon) = label.icon {
             scene.text.push(TextRun {
                 x,
-                baseline,
+                baseline: (rect.y
+                    + (rect.h - self.metrics.height * PROMPT_ICON_SCALE) / 2.0
+                    + self.metrics.baseline * PROMPT_ICON_SCALE)
+                    .round(),
                 text: icon.to_string(),
                 color: ink,
                 bold: false,
-                face: TextFace::Mono,
+                face: TextFace::PromptIcon,
             });
         }
         scene.text.push(TextRun {
@@ -587,7 +603,7 @@ impl Paint<'_> {
             baseline,
             text,
             color: ink,
-            bold: false,
+            bold: true,
             face: TextFace::Mono,
         });
     }
@@ -608,12 +624,29 @@ fn colours(theme: &Theme, config: &PromptConfig, label: &Label) -> (Rgb, Rgb, Op
         },
         |colour| colour.index(),
     );
-    let hue = theme.normal[index];
+    let hue = if segment.and_then(|segment| segment.colour).is_some() {
+        theme.normal[index]
+    } else {
+        match label.chip {
+            Chip::Cwd => theme.bright[6],
+            Chip::Docker => blend(theme.bright[2], theme.bright[6], 50),
+            Chip::User
+            | Chip::Host
+            | Chip::GitBranch
+            | Chip::GitAheadBehind
+            | Chip::GitChanges
+            | Chip::Venv
+            | Chip::Kube
+            | Chip::Exit
+            | Chip::Time
+            | Chip::Date => theme.normal[index],
+        }
+    };
     let appearance = segment
         .and_then(|segment| segment.appearance)
         .unwrap_or(config.appearance);
     let fill = match appearance {
-        PromptAppearance::Outlined => blend(theme.background, hue, 6),
+        PromptAppearance::Outlined => blend(theme.background, theme.foreground, 4),
         PromptAppearance::Filled => hue,
         PromptAppearance::Plain => theme.background,
     };
@@ -633,7 +666,7 @@ fn colours(theme: &Theme, config: &PromptConfig, label: &Label) -> (Rgb, Rgb, Op
         }
     };
     let border = match appearance {
-        PromptAppearance::Outlined => Some(blend(theme.background, hue, 24)),
+        PromptAppearance::Outlined => Some(blend(theme.background, theme.foreground, 12)),
         PromptAppearance::Filled => Some(hue),
         PromptAppearance::Plain => None,
     };

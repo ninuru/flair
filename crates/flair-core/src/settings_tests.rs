@@ -550,7 +550,7 @@ fn prompt_order_editing_validates_and_normalizes_segment_names() {
         default_value(setting("prompt.appearance")),
         text("outlined")
     );
-    assert_eq!(default_value(setting("prompt.path")), text("full"));
+    assert_eq!(default_value(setting("prompt.path")), text("abbreviated"));
     assert_eq!(default_value(setting("prompt.separator")), text("none"));
     assert_eq!(default_value(setting("prompt.time_format")), text("24h"));
     assert_eq!(default_value(setting("prompt.date_format")), text("iso"));

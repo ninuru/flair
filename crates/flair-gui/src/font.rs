@@ -5,6 +5,8 @@ use flair_core::config::FontConfig;
 
 use crate::ui::SMALL_TEXT;
 
+pub(crate) const PROMPT_ICON_SCALE: f32 = 1.4;
+
 pub struct Fonts {
     rasterizer: crossfont::Rasterizer,
     faces: [crossfont::FontKey; 4],
@@ -186,6 +188,14 @@ impl Fonts {
         self.raster(key)
     }
 
+    pub fn rasterize_prompt_icon(&mut self, c: char) -> Option<RasterGlyph> {
+        self.raster(crossfont::GlyphKey {
+            character: c,
+            font_key: self.faces[0],
+            size: crossfont::Size::from_px(self.size.as_px() * PROMPT_ICON_SCALE),
+        })
+    }
+
     pub fn rasterize_icon(&mut self, c: char) -> Option<RasterGlyph> {
         self.raster(crossfont::GlyphKey {
             character: c,
@@ -295,3 +305,7 @@ fn cell_metrics(raw: &crossfont::Metrics, line_height: f32) -> CellMetrics {
         baseline: height + raw.descent - (height - raw.line_height as f32) / 2.0,
     }
 }
+
+#[cfg(test)]
+#[path = "font_tests.rs"]
+mod tests;
