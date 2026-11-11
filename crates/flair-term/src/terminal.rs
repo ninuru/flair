@@ -263,13 +263,7 @@ impl Terminal {
             })
     }
     pub(crate) fn chrome_line(&self, line: Line) -> bool {
-        let grid = self.term.grid();
-        let anchor = |line: Line| prompt_id(&grid[Point::new(line, Column(0))]).is_some();
-        anchor(line)
-            || (line < self.term.bottommost_line()
-                && anchor(line + 1)
-                && (0..self.size.cols)
-                    .all(|col| grid[Point::new(line, Column(usize::from(col)))].c == ' '))
+        prompt_id(&self.term.grid()[Point::new(line, Column(0))]).is_some()
     }
     pub fn copy_mode(&self) -> bool {
         self.term.mode().contains(TermMode::VI)

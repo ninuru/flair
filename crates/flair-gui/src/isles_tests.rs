@@ -988,23 +988,18 @@ fn home_is_compact_by_default_and_full_path_remains_an_explicit_choice() {
 #[test]
 fn prompt_dividers_stay_inside_the_pane_and_above_the_chip_row() {
     let theme = Config::default().theme();
-    let metrics = CellMetrics {
-        width: 10.0,
-        height: 24.0,
-        baseline: 18.0,
-    };
     let rect = PxRect {
         x: 480.0,
         y: 120.0,
         w: 320.0,
         h: 24.0,
     };
-    let quad = divider(rect, metrics, 1.5, &theme);
+    let quad = divider(rect, 1.5, &theme);
     assert_eq!(
         quad.rect,
         PxRect {
             x: 480.0,
-            y: 108.0,
+            y: 120.0,
             w: 320.0,
             h: 2.0
         }
@@ -1017,7 +1012,7 @@ fn prompt_dividers_stay_inside_the_pane_and_above_the_chip_row() {
 }
 
 #[test]
-fn prompt_dividers_respect_output_and_top_of_pane_and_publish_chip_hits() {
+fn prompt_dividers_skip_the_top_of_the_pane_and_publish_chip_hits() {
     let info = PromptInfo {
         cwd: Some(PathBuf::from("/srv/one")),
         ..Default::default()
@@ -1032,7 +1027,7 @@ fn prompt_dividers_respect_output_and_top_of_pane_and_publish_chip_hits() {
     };
     let reserved = prompt_scene(info.clone(), 98, 2, false);
     assert_eq!(lines(&reserved), 1);
-    assert_eq!(lines(&prompt_scene(info.clone(), 98, 2, true)), 0);
+    assert_eq!(lines(&prompt_scene(info.clone(), 98, 2, true)), 1);
     assert_eq!(lines(&prompt_scene(info, 98, 0, false)), 0);
     assert!(reserved.hits.iter().any(|hit| hit.target
         == HitTarget::Prompt {

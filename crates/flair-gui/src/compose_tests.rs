@@ -62,7 +62,7 @@ fn compose_resolves_inverse_and_cursor() {
 }
 
 #[test]
-fn failed_command_blocks_get_a_red_tint_up_to_the_next_divider() {
+fn failed_command_blocks_get_a_red_tint_up_to_the_next_prompt() {
     let theme = Config::default().theme();
     let text = |c| {
         vec![Cell {
@@ -110,7 +110,7 @@ fn failed_command_blocks_get_a_red_tint_up_to_the_next_divider() {
     mirror.insert_history(PaneId(1), vec![prompt(1, None), prompt(5, Some(1))]);
     assert_eq!(
         tinted(&mirror),
-        [false, true, true, true, false, false, false]
+        [false, true, true, true, true, false, false]
     );
     mirror.insert_history(PaneId(1), vec![prompt(1, None), prompt(5, Some(0))]);
     assert_eq!(tinted(&mirror), [false; 7]);

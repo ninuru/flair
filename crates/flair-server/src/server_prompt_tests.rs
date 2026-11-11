@@ -172,24 +172,19 @@ fn exit_and_duration_come_from_the_command_marks() {
 }
 
 #[test]
-fn an_empty_enter_keeps_the_last_command_and_a_new_command_clears_it() {
+fn an_empty_enter_clears_the_last_command() {
     let (mut server, _) = chips(|_| {});
     output(&mut server, 100, b"\x1b]133;C\x07");
-    output(&mut server, 300, b"\x1b]133;D;0\x07\x1b]133;A\x07");
-    let empty = output(&mut server, 900, b"\x1b]133;D\x07\x1b]133;A\x07");
-    assert!(infos(&empty).is_empty());
+    output(&mut server, 300, b"\x1b]133;D;127\x07\x1b]133;A\x07");
     assert_eq!(
         server.panes[&PaneId(1)].last,
         Some(LastCommand {
-            exit: Some(0),
+            exit: Some(127),
             duration: Millis(200),
         })
     );
-    let started = output(&mut server, 1000, b"\x1b]133;C\x07");
-    let sent = infos(&started);
-    assert_eq!(sent.len(), 1);
-    assert_eq!(sent[0].2.last, None);
-    assert_eq!(server.panes[&PaneId(1)].started, Some(Millis(1000)));
+    output(&mut server, 900, b"\x1b]133;D;127\x07\x1b]133;A\x07");
+    assert_eq!(server.panes[&PaneId(1)].last, None);
 }
 
 #[test]

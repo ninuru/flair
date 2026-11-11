@@ -26,6 +26,7 @@ const PAD: f32 = 6.0;
 const GAP: f32 = 8.0;
 const RADIUS: f32 = 3.0;
 const ICON_GAP: f32 = 4.0;
+const HEADER_INK: u8 = 50;
 const COUNT_CAP: u32 = 1000;
 const DROP: [Chip; 11] = [
     Chip::Date,
@@ -383,14 +384,24 @@ pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene
     }
     for placement in &window.panes {
         if let Some(history) = isles.mirror.history(placement.pane) {
-            for snapshot in history {
+            let live = isles
+                .mirror
+                .pane(placement.pane)
+                .and_then(|pane| pane.flags.prompt_row);
+            for (index, snapshot) in history.iter().enumerate() {
                 let calendar = calendar_at(snapshot.timestamp);
+                let style = if Some(snapshot.row) == live {
+                    Style::Chips
+                } else {
+                    Style::Header(history.get(index + 1).and_then(|next| next.info.last))
+                };
                 draw_prompt(
                     input,
                     placement,
                     snapshot.row,
                     &snapshot.info,
                     calendar,
+                    style,
                     scene,
                 );
             }
@@ -413,8 +424,22 @@ pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene
             .clock
             .zip(isles.date)
             .map(|(clock, date)| Calendar { clock, date });
-        draw_prompt(input, placement, prompt_row, info, calendar, scene);
+        draw_prompt(
+            input,
+            placement,
+            prompt_row,
+            info,
+            calendar,
+            Style::Chips,
+            scene,
+        );
     }
+}
+
+#[derive(Clone, Copy)]
+enum Style {
+    Chips,
+    Header(Option<LastCommand>),
 }
 
 fn draw_prompt(
@@ -423,6 +448,7 @@ fn draw_prompt(
     row: u16,
     info: &PromptInfo,
     calendar: Option<Calendar>,
+    style: Style,
     scene: &mut Scene,
 ) {
     if row >= placement.rect.size.rows {
@@ -451,20 +477,13 @@ fn draw_prompt(
         metrics: input.metrics,
         config: isles.config,
     };
-    if row > 0
-        && isles.mirror.pane(placement.pane).is_some_and(|pane| {
-            pane.rows.get(usize::from(row - 1)).is_some_and(|cells| {
-                cells
-                    .iter()
-                    .all(|cell| cell.c == ' ' && cell.extra.is_none())
-            })
-        })
-    {
-        scene
-            .quads
-            .push(divider(rect, input.metrics, input.scale, input.theme));
+    if row > 0 {
+        scene.quads.push(divider(rect, input.scale, input.theme));
     }
-    let hits = paint.chips(&labels, rect, scene);
+    let hits = match style {
+        Style::Chips => paint.chips(&labels, rect, scene),
+        Style::Header(last) => paint.header(&labels, last, rect, scene),
+    };
     scene.hits.extend(hits.into_iter().map(|(chip, rect)| Hit {
         rect,
         target: HitTarget::Prompt {
@@ -475,11 +494,11 @@ fn draw_prompt(
     }));
 }
 
-fn divider(rect: PxRect, metrics: CellMetrics, scale: f32, theme: &Theme) -> Quad {
+fn divider(rect: PxRect, scale: f32, theme: &Theme) -> Quad {
     fill(
         PxRect {
             x: rect.x,
-            y: (rect.y - metrics.height / 2.0).round(),
+            y: rect.y.round(),
             w: rect.w,
             h: px(LINE, scale),
         },
@@ -600,6 +619,54 @@ impl Paint<'_> {
             self.draw(label, text, rect, scene);
             hits.push((label.chip, rect));
             x += width + gap;
+        }
+        hits
+    }
+
+    fn header(
+        &self,
+        labels: &[Label],
+        last: Option<LastCommand>,
+        row: PxRect,
+        scene: &mut Scene,
+    ) -> Vec<(Chip, PxRect)> {
+        let ink = blend(self.theme.background, self.theme.foreground, HEADER_INK);
+        let baseline =
+            (row.y + (row.h - self.metrics.height) / 2.0 + self.metrics.baseline).round();
+        let right = row.x + row.w;
+        let mut x = row.x.round();
+        let mut hits = Vec::new();
+        let mut push = |chip, text: String, scene: &mut Scene| {
+            let width = text.width() as f32 * self.metrics.width;
+            if x + width > right {
+                return false;
+            }
+            let rect = PxRect {
+                x,
+                y: row.y,
+                w: width,
+                h: row.h,
+            };
+            scene.text.push(TextRun {
+                x,
+                baseline,
+                text,
+                color: ink,
+                bold: false,
+                face: TextFace::Mono,
+            });
+            if let Some(chip) = chip {
+                hits.push((chip, rect));
+            }
+            x = (x + width + self.metrics.width).round();
+            true
+        };
+        let fitted = labels
+            .iter()
+            .filter(|label| label.chip != Chip::Exit)
+            .all(|label| push(Some(label.chip), label.text.clone(), scene));
+        if fitted && let Some(last) = last {
+            push(None, format!("({})", duration(last.duration.0)), scene);
         }
         hits
     }

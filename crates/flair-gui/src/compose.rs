@@ -5,7 +5,7 @@ use crate::{
 use flair_core::{
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::PaneId,
-    proto::{Cell, CellFlags, PromptSnapshot, WindowLayout},
+    proto::{CellFlags, PromptSnapshot, WindowLayout},
     theme::{Rgb, Theme, blend},
 };
 
@@ -19,11 +19,7 @@ pub fn compose(mirror: &Mirror, id: PaneId, theme: &Theme, cursor_visible: bool)
             cursor: None,
         };
     };
-    let failed = failed_rows(
-        pane.size.rows,
-        &pane.rows,
-        mirror.history(id).unwrap_or_default(),
-    );
+    let failed = failed_rows(pane.size.rows, mirror.history(id).unwrap_or_default());
     let cells = pane
         .rows
         .iter()
@@ -91,24 +87,17 @@ pub fn compose(mirror: &Mirror, id: PaneId, theme: &Theme, cursor_visible: bool)
     }
 }
 
-fn failed_rows(rows: u16, cells: &[Vec<Cell>], history: &[PromptSnapshot]) -> Vec<bool> {
+fn failed_rows(rows: u16, history: &[PromptSnapshot]) -> Vec<bool> {
     let mut failed = vec![false; usize::from(rows)];
     let mut start = 0;
     for snapshot in history {
         let row = usize::from(snapshot.row).min(failed.len());
-        let divider = row > 0
-            && cells.get(row - 1).is_some_and(|cells| {
-                cells
-                    .iter()
-                    .all(|cell| cell.c == ' ' && cell.extra.is_none())
-            });
-        let end = if divider { row - 1 } else { row };
         if snapshot
             .info
             .last
             .is_some_and(|last| last.exit.is_some_and(|code| code != 0))
         {
-            failed[start.min(end)..end].fill(true);
+            failed[start.min(row)..row].fill(true);
         }
         start = row;
     }
