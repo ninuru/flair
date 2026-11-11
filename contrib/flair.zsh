@@ -1,6 +1,6 @@
 [[ $TERM_PROGRAM == flair ]] || return
-[[ $_FLAIR_INTEGRATION_LOADED != 7 ]] || return
-typeset -g _FLAIR_INTEGRATION_LOADED=7
+[[ $_FLAIR_INTEGRATION_LOADED != 8 ]] || return
+typeset -g _FLAIR_INTEGRATION_LOADED=8
 
 autoload -Uz add-zsh-hook
 
@@ -44,13 +44,24 @@ _flair_preexec() {
     printf '\e]133;C\a'
 }
 
+_flair_accept_line() {
+    if [[ -n $BUFFER || $CONTEXT != start ]]; then
+        zle accept-line
+    fi
+}
+
 autoload -Uz edit-command-line
 zle -N edit-command-line
+zle -N _flair_accept_line
 for _flair_keymap in emacs viins vicmd; do
     [[ $(bindkey -M $_flair_keymap '^X^E') == *undefined-key ]] \
         && bindkey -M $_flair_keymap '^X^E' edit-command-line
+    for _flair_key in '^M' '^J'; do
+        [[ $(bindkey -M $_flair_keymap $_flair_key) == *' accept-line' ]] \
+            && bindkey -M $_flair_keymap $_flair_key _flair_accept_line
+    done
 done
-unset _flair_keymap
+unset _flair_keymap _flair_key
 
 add-zsh-hook precmd _flair_precmd
 add-zsh-hook preexec _flair_preexec
