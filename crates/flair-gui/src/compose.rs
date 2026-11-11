@@ -5,18 +5,25 @@ use crate::{
 use flair_core::{
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::PaneId,
-    proto::{CellFlags, WindowLayout},
-    theme::{Rgb, Theme},
+    proto::{Cell, CellFlags, PromptSnapshot, WindowLayout},
+    theme::{Rgb, Theme, blend},
 };
 
-pub fn compose(mirror: &Mirror, pane: PaneId, theme: &Theme, cursor_visible: bool) -> CellGrid {
-    let Some(pane) = mirror.pane(pane) else {
+const FAILED_TINT: u8 = 12;
+
+pub fn compose(mirror: &Mirror, id: PaneId, theme: &Theme, cursor_visible: bool) -> CellGrid {
+    let Some(pane) = mirror.pane(id) else {
         return CellGrid {
             size: GridSize { cols: 0, rows: 0 },
             cells: vec![],
             cursor: None,
         };
     };
+    let failed = failed_rows(
+        pane.size.rows,
+        &pane.rows,
+        mirror.history(id).unwrap_or_default(),
+    );
     let cells = pane
         .rows
         .iter()
@@ -35,6 +42,9 @@ pub fn compose(mirror: &Mirror, pane: PaneId, theme: &Theme, cursor_visible: boo
             }
             let row = (index / usize::from(pane.size.cols)) as u16;
             let col = (index % usize::from(pane.size.cols)) as u16;
+            if failed[usize::from(row)] {
+                bg = blend(bg, theme.normal[1], FAILED_TINT);
+            }
             if pane
                 .selection
                 .iter()
@@ -79,6 +89,30 @@ pub fn compose(mirror: &Mirror, pane: PaneId, theme: &Theme, cursor_visible: boo
         cells,
         cursor,
     }
+}
+
+fn failed_rows(rows: u16, cells: &[Vec<Cell>], history: &[PromptSnapshot]) -> Vec<bool> {
+    let mut failed = vec![false; usize::from(rows)];
+    let mut start = 0;
+    for snapshot in history {
+        let row = usize::from(snapshot.row).min(failed.len());
+        let divider = row > 0
+            && cells.get(row - 1).is_some_and(|cells| {
+                cells
+                    .iter()
+                    .all(|cell| cell.c == ' ' && cell.extra.is_none())
+            });
+        let end = if divider { row - 1 } else { row };
+        if snapshot
+            .info
+            .last
+            .is_some_and(|last| last.exit.is_some_and(|code| code != 0))
+        {
+            failed[start.min(end)..end].fill(true);
+        }
+        start = row;
+    }
+    failed
 }
 
 pub fn compose_frame(
