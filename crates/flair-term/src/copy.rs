@@ -31,11 +31,29 @@ impl Terminal {
             CopyMotion::MiddleLine => ViMotion::Middle,
             CopyMotion::BottomLine => ViMotion::Low,
             CopyMotion::HistoryTop => return self.jump_to_line(self.term.topmost_line()),
-            CopyMotion::HistoryBottom => return self.jump_to_line(self.term.bottommost_line()),
+            CopyMotion::HistoryBottom => {
+                let bottom = self.term.bottommost_line();
+                let line = self.live_prompt_line().map_or(bottom, |prompt| {
+                    Line(prompt.0 - 1).clamp(self.term.topmost_line(), bottom)
+                });
+                return self.jump_to_line(line);
+            }
             CopyMotion::HalfPageUp => return self.half_page(1),
             CopyMotion::HalfPageDown => return self.half_page(-1),
         };
         self.term.vi_motion(vi);
+        self.clamp_copy_cursor();
+    }
+
+    pub(crate) fn clamp_copy_cursor(&mut self) {
+        let Some(prompt) = self.live_prompt_line() else {
+            return;
+        };
+        let point = self.term.vi_mode_cursor.point;
+        if point.line >= prompt && prompt > self.term.topmost_line() {
+            self.term
+                .vi_goto_point(Point::new(prompt - 1, point.column));
+        }
     }
 
     fn jump_to_line(&mut self, line: Line) {
@@ -48,6 +66,7 @@ impl Terminal {
         let target = self.term.vi_mode_cursor.scroll(&self.term, lines);
         self.term.scroll_display(Scroll::Delta(lines));
         self.term.vi_goto_point(target.point);
+        self.clamp_copy_cursor();
     }
 
     pub fn copy_select(&mut self, kind: SelectionKind) {
@@ -163,6 +182,7 @@ impl Terminal {
     }
 
     fn search_from_cursor(&mut self, forward: bool) {
+        let prompt = self.live_prompt_line();
         let Some((regex, _)) = &mut self.search else {
             return;
         };
@@ -172,11 +192,26 @@ impl Terminal {
         } else {
             (Direction::Left, point.sub(&self.term, Boundary::None, 1))
         };
-        if let Some(found) = self
+        let allowed = |point: Point| prompt.is_none_or(|prompt| point.line < prompt);
+        let mut found = self
             .term
             .search_next(regex, origin, direction, Side::Left, None)
+            .map(|found| *found.start());
+        if let Some(prompt) = prompt
+            && found.is_some_and(|point| !allowed(point))
         {
-            self.term.vi_goto_point(*found.start());
+            let restart = if forward {
+                Point::new(self.term.topmost_line(), Column(0))
+            } else {
+                Point::new(prompt - 1, self.term.last_column())
+            };
+            found = self
+                .term
+                .search_next(regex, restart, direction, Side::Left, None)
+                .map(|found| *found.start());
+        }
+        if let Some(point) = found.filter(|point| allowed(*point)) {
+            self.term.vi_goto_point(point);
         }
     }
 }
