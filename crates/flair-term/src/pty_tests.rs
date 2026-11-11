@@ -354,3 +354,58 @@ fn zsh_default_prompt_leaves_a_plain_input_line_below_its_chip_anchor() {
     pty.kill();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn zsh_ctrl_x_ctrl_e_edits_the_command_line_in_editor_with_the_pane_cwd_and_env() {
+    if !std::path::Path::new("/bin/zsh").exists() {
+        eprintln!("skipping edit-command-line PTY test: /bin/zsh unavailable");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("flair-zsh-edit-{}", std::process::id()));
+    let work = root.join("project");
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .recursive(true)
+        .create(&work)
+        .unwrap();
+    let editor = root.join("editor");
+    std::fs::write(
+        &editor,
+        "#!/bin/sh\nprintf 'echo edited:%s:%s:%s\\n' \"$(sed 's/ /_/g' \"$1\")\" \"${PWD##*/}\" \"$FLAIR_EDIT_ENV\" > \"$1\"\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&editor, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut spawn = spec("");
+    spawn.program = "/bin/zsh".into();
+    spawn.args = vec!["-i".into()];
+    spawn.cwd = work.clone();
+    spawn.env.extend([
+        ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
+        ("HOME".into(), root.to_string_lossy().into_owned()),
+        ("FLAIR_PROMPT".into(), "chips".into()),
+        ("FLAIR_PROMPT_SEPARATOR".into(), "chevron".into()),
+        ("FLAIR_EDIT_ENV".into(), "pane-env".into()),
+        ("EDITOR".into(), editor.to_string_lossy().into_owned()),
+    ]);
+    spawn.unset_env.push("VISUAL".into());
+    let mut pty = Pty::spawn(&spawn).unwrap();
+    let mut reader = pty.reader().unwrap();
+    read_until(&mut reader, "❯ ");
+    let mut writer = pty.writer().unwrap();
+    writer.write_all(b"echo original").unwrap();
+    read_until(&mut reader, "original");
+    writer.write_all(b"\x18\x05").unwrap();
+    let text = read_until(&mut reader, "pane-env");
+    assert!(
+        text.contains("edited:echo_original:project:pane-env"),
+        "{text:?}"
+    );
+    writer.write_all(b"\r").unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    assert!(
+        text.contains("\u{1b}]133;C\u{7}edited:echo_original:project:pane-env\r\n"),
+        "{text:?}"
+    );
+    pty.kill();
+    std::fs::remove_dir_all(root).unwrap();
+}
