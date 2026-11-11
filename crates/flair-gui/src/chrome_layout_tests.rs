@@ -122,6 +122,7 @@ fn run_layout(scale: f32, width: u32, window: Option<&WindowLayout>) -> ChromeLa
         px: (width * scale as u32, 600 * scale as u32),
         scale,
         padding: (8.0 * scale, 4.0 * scale),
+        zen: false,
         metrics: metrics(scale),
         ui: ui(scale),
         theme: &theme,
@@ -142,23 +143,23 @@ fn grid_starts_below_bar_and_border() {
     assert_eq!(bar_height(2.0), 68.0);
     assert_eq!(bar_height(1.5), 51.0);
     assert_eq!(
-        grid_origin((800, 600), (8.0, 4.0), 1.0, metrics(1.0)),
+        grid_origin((800, 600), (8.0, 4.0), 1.0, false, metrics(1.0)),
         (8.0, 52.0)
     );
     assert_eq!(
-        grid_origin((1600, 1200), (16.0, 8.0), 2.0, metrics(2.0)),
+        grid_origin((1600, 1200), (16.0, 8.0), 2.0, false, metrics(2.0)),
         (16.0, 104.0)
     );
     assert_eq!(
-        grid_size((800, 600), (8.0, 4.0), 1.0, metrics(1.0)),
+        grid_size((800, 600), (8.0, 4.0), 1.0, false, metrics(1.0)),
         GridSize { cols: 98, rows: 34 }
     );
     assert_eq!(
-        grid_size((1600, 1200), (16.0, 8.0), 2.0, metrics(2.0)),
+        grid_size((1600, 1200), (16.0, 8.0), 2.0, false, metrics(2.0)),
         GridSize { cols: 98, rows: 34 }
     );
     assert_eq!(
-        grid_size((10, 20), (8.0, 4.0), 1.0, metrics(1.0)),
+        grid_size((10, 20), (8.0, 4.0), 1.0, false, metrics(1.0)),
         GridSize { cols: 1, rows: 1 }
     );
     let layout = run_layout(1.0, 800, None);
@@ -176,9 +177,12 @@ fn grid_origin_centres_columns_and_puts_the_last_row_on_the_bottom_edge() {
     for (scale, width, origin) in [(1.0, 803, (9.0, 52.0)), (2.0, 803, (19.0, 104.0))] {
         let px = (width * scale as u32, 600 * scale as u32);
         let padding = (8.0 * scale, 4.0 * scale);
-        let size = grid_size(px, padding, scale, metrics(scale));
+        let size = grid_size(px, padding, scale, false, metrics(scale));
         assert_eq!(size, GridSize { cols: 98, rows: 34 });
-        assert_eq!(grid_origin(px, padding, scale, metrics(scale)), origin);
+        assert_eq!(
+            grid_origin(px, padding, scale, false, metrics(scale)),
+            origin
+        );
         let right = px.0 as f32 - origin.0 - f32::from(size.cols) * metrics(scale).width;
         let bottom = px.1 as f32 - origin.1 - f32::from(size.rows) * metrics(scale).height;
         assert!(
@@ -201,7 +205,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
     for (scale, width) in [(1.0, 803), (2.0, 803)] {
         let px = (width * scale as u32, 600 * scale as u32);
         let cell = metrics(scale);
-        let size = grid_size(px, (0.0, 0.0), scale, cell);
+        let size = grid_size(px, (0.0, 0.0), scale, false, cell);
         let top = 35.0 * scale;
         let leftover = (
             px.0 as f32 - f32::from(size.cols) * cell.width,
@@ -209,7 +213,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
         );
         assert!(leftover.0 >= 0.0 && leftover.1 >= 0.0, "{leftover:?}");
         assert_eq!(
-            grid_origin(px, (0.0, 0.0), scale, cell),
+            grid_origin(px, (0.0, 0.0), scale, false, cell),
             ((leftover.0 / 2.0).floor(), top + leftover.1.floor())
         );
         let theme = Config::default().theme();
@@ -218,6 +222,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
             px,
             scale,
             padding: (0.0, 0.0),
+            zen: false,
             metrics: cell,
             ui: ui(scale),
             theme: &theme,
@@ -231,7 +236,10 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
         };
         let chrome = layout(&input, measure).chrome;
         let full = rect(0.0, top, px.0 as f32, px.1 as f32 - top);
-        assert_eq!(chrome.origin, grid_origin(px, (0.0, 0.0), scale, cell));
+        assert_eq!(
+            chrome.origin,
+            grid_origin(px, (0.0, 0.0), scale, false, cell)
+        );
         assert_eq!(chrome.clip, full);
         assert_eq!(chrome.extend, full);
     }
@@ -504,6 +512,7 @@ fn scaled_layout(
         px: (1203, 757),
         scale,
         padding: ((8.0 * scale).round(), (4.0 * scale).round()),
+        zen: false,
         metrics: CellMetrics {
             width: 8.4 * scale,
             height: 17.0 * scale,
@@ -651,6 +660,7 @@ fn bar_layout(width: u32, status: &StatusParts) -> ChromeLayout {
         px: (width, 600),
         scale: 1.0,
         padding: (8.0, 4.0),
+        zen: false,
         metrics: metrics(1.0),
         ui: ui(1.0),
         theme: &theme,
@@ -780,6 +790,7 @@ fn monogram_letters_at_the_small_size_fit_inside_the_square() {
             px: (800, 600),
             scale: 1.0,
             padding: (8.0, 4.0),
+            zen: false,
             metrics: metrics(1.0),
             ui: UiMetrics { small, ..ui(1.0) },
             theme: &theme,
@@ -883,6 +894,7 @@ fn band_layout(
         px: (800, 600),
         scale: 1.0,
         padding: (8.0, 4.0),
+        zen: false,
         metrics: metrics(1.0),
         ui: ui(1.0),
         theme: &theme,
@@ -1077,7 +1089,7 @@ fn chips_centre_on_the_shell_prompt_row_in_stacked_panes() {
         1,
     );
     let layout = band_layout(&window, &info, &plain_config());
-    let (_, top) = grid_origin((800, 600), (8.0, 4.0), 1.0, metrics(1.0));
+    let (_, top) = grid_origin((800, 600), (8.0, 4.0), 1.0, false, metrics(1.0));
     let prompt_top = top + 16.0;
     let chips = band_chips(&layout);
     assert_eq!(chips.len(), 6);
@@ -1171,5 +1183,111 @@ fn the_active_accent_covers_the_band_row_of_a_banded_pane() {
             (upper, accent),
             (horizontal, accent),
         ]
+    );
+}
+
+fn zen_layout(zen: bool, notice: Option<&Notice>, window: Option<&WindowLayout>) -> ChromeLayout {
+    let theme = Config::default().theme();
+    let status = parts();
+    let config = WindowConfig {
+        padding_x: 8,
+        padding_y: 4,
+    };
+    let input = ChromeInput {
+        px: (800, 600),
+        scale: 1.0,
+        padding: padding(&config, 1.0, zen),
+        zen,
+        metrics: metrics(1.0),
+        ui: ui(1.0),
+        theme: &theme,
+        status: &status,
+        prompt: None,
+        layout: window,
+        hover: None,
+        overlays: None,
+        notice,
+        isles: None,
+    };
+    layout(&input, measure)
+}
+
+#[test]
+fn zen_drops_the_bar_and_the_padding_and_grows_the_grid() {
+    let config = WindowConfig {
+        padding_x: 8,
+        padding_y: 4,
+    };
+    assert_eq!(padding(&config, 1.0, false), (8.0, 4.0));
+    assert_eq!(padding(&config, 2.0, false), (16.0, 8.0));
+    assert_eq!(padding(&config, 2.0, true), (0.0, 0.0));
+    assert_eq!(chrome_top(1.0, false), chrome_bottom(1.0));
+    assert_eq!(chrome_top(2.0, true), 0.0);
+    let size = |zen| {
+        grid_size(
+            (800, 600),
+            padding(&config, 1.0, zen),
+            1.0,
+            zen,
+            metrics(1.0),
+        )
+    };
+    assert_eq!(size(false), GridSize { cols: 98, rows: 34 });
+    assert_eq!(
+        size(true),
+        GridSize {
+            cols: 100,
+            rows: 37
+        }
+    );
+    let zen = zen_layout(true, None, None);
+    assert!(zen.chrome.quads.is_empty(), "{:?}", zen.chrome.quads);
+    assert!(zen.chrome.text.is_empty());
+    assert!(zen.hits.is_empty());
+    assert_eq!(zen.chrome.origin, (0.0, 8.0));
+    assert_eq!(zen.chrome.clip, rect(0.0, 0.0, 800.0, 600.0));
+    assert_eq!(zen.chrome.extend, rect(0.0, 0.0, 800.0, 600.0));
+    assert_eq!(hit_test(&zen.hits, (20.0, 10.0)), None);
+}
+
+#[test]
+fn zen_off_matches_the_default_layout_and_toggling_twice_restores_it() {
+    let original = run_layout(1.0, 800, None);
+    let off = zen_layout(false, None, None);
+    assert_eq!(off, original);
+    let on = zen_layout(true, None, None);
+    assert_ne!(on, original);
+    let twice = (0..2).fold(false, |zen, _| !zen);
+    assert_eq!(zen_layout(twice, None, None), original);
+}
+
+#[test]
+fn zen_keeps_separators_and_shows_notices_over_the_grid() {
+    let separators = [Separator {
+        axis: Axis::Horizontal,
+        rect: cells(50, 0, 1, 37),
+    }];
+    let panes = [(1, cells(0, 0, 50, 37)), (2, cells(51, 0, 49, 37))];
+    let window = window(&separators, &panes, 2);
+    let layout = zen_layout(true, None, Some(&window));
+    let lines: Vec<_> = layout.chrome.quads.iter().map(|quad| quad.rect).collect();
+    assert_eq!(lines, [rect(404.0, 0.0, 1.0, 600.0); 2]);
+    let notice = Notice::info("config reloaded");
+    let shown = zen_layout(true, Some(&notice), None);
+    assert_eq!(shown.chrome.origin, layout.chrome.origin);
+    assert_eq!(shown.chrome.clip, layout.chrome.clip);
+    assert!(
+        shown
+            .chrome
+            .text
+            .iter()
+            .any(|run| run.text.contains("config reloaded"))
+    );
+    assert!(
+        shown
+            .chrome
+            .quads
+            .iter()
+            .any(|quad| quad.rect.y == 0.0 && quad.rect.w == 800.0)
     );
 }

@@ -389,6 +389,47 @@ fn prefix_shift_s_opens_settings_and_s_still_chooses_a_session() {
 }
 
 #[test]
+fn prefix_shift_z_toggles_zen_and_z_still_zooms() {
+    let config = KeysConfig::default();
+    assert_eq!(
+        config.binding(&with_mods(Key::Char('Z'), false, true), true),
+        Some(Command::ToggleZen)
+    );
+    assert_eq!(
+        config.binding(&plain(Key::Char('z')), true),
+        Some(Command::ToggleZoom)
+    );
+    assert_eq!(parse_command("toggle-zen"), Some(Command::ToggleZen));
+    assert!(
+        KeysConfig::default()
+            .bindings()
+            .iter()
+            .any(|b| b.chord == "Z" && b.command.as_deref() == Some("toggle-zen"))
+    );
+}
+
+#[test]
+fn toggle_zen_is_rebindable() {
+    let config = KeysConfig {
+        prefix: [
+            ("Z".to_owned(), "none".to_owned()),
+            ("g".to_owned(), "toggle-zen".to_owned()),
+        ]
+        .into(),
+        ..KeysConfig::default()
+    };
+    assert!(config.validate().is_ok());
+    assert_eq!(
+        config.binding(&plain(Key::Char('g')), true),
+        Some(Command::ToggleZen)
+    );
+    assert_eq!(
+        config.binding(&with_mods(Key::Char('Z'), false, true), true),
+        None
+    );
+}
+
+#[test]
 fn default_bindings_list_every_table_in_order() {
     let bindings = KeysConfig::default().bindings();
     let count = |table| bindings.iter().filter(|b| b.table == table).count();

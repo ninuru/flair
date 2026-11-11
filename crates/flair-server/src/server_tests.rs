@@ -490,6 +490,64 @@ fn prefix_is_per_client_and_literal_prefix_reaches_pty() {
 }
 
 #[test]
+fn prefix_shift_z_toggles_zen_only_for_the_issuing_client() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut second = Vec::new();
+    server.handle(Millis(2), Event::Client(ClientId(2), hello()), &mut second);
+    ack(&mut server, &second);
+    let views = |server: &Server| {
+        [ClientId(1), ClientId(2)].map(|id| {
+            let state = &server.clients[&id];
+            (state.size, state.view.session, state.view.window)
+        })
+    };
+    let before = views(&server);
+    let mut out = Vec::new();
+    server.handle(
+        Millis(3),
+        Event::Client(ClientId(1), key('a', true)),
+        &mut out,
+    );
+    out.clear();
+    let shift_z = ClientMsg::Input(InputEvent::Key(KeyInput {
+        key: Key::Char('Z'),
+        mods: Mods {
+            shift: true,
+            ..Mods::default()
+        },
+        text: Some("Z".into()),
+        repeat: false,
+        keypad: false,
+        action: KeyAction::Press,
+        unshifted: None,
+        shifted: None,
+        base: None,
+        locks: Locks::default(),
+    }));
+    server.handle(Millis(4), Event::Client(ClientId(1), shift_z), &mut out);
+    let zen: Vec<_> = out
+        .iter()
+        .filter_map(|effect| {
+            if let Effect::Send(client, ServerMsg::ToggleZen) = effect {
+                Some(*client)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(zen, [ClientId(1)]);
+    assert!(!out.iter().any(|effect| matches!(
+        effect,
+        Effect::Send(_, ServerMsg::Layout(_))
+            | Effect::ResizePty(..)
+            | Effect::WritePty(..)
+            | Effect::Send(ClientId(2), _)
+    )));
+    assert_eq!(views(&server), before);
+}
+
+#[test]
 fn prefix_sessionizer_reports_current_and_last_session() {
     let (mut server, _) = setup();
     let mut out = Vec::new();

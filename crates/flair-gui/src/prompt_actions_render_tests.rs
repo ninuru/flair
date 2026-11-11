@@ -41,7 +41,7 @@ fn gpu_prompt_menu_is_anchored_bounded_and_does_not_dim_the_terminal() {
         let mut fonts = Fonts::load(&config.font, f64::from(scale)).unwrap();
         let metrics = fonts.metrics();
         let padding = (8.0 * scale, 4.0 * scale);
-        let size = chrome_layout::grid_size((width, height), padding, scale, metrics);
+        let size = chrome_layout::grid_size((width, height), padding, scale, false, metrics);
         let row = if width == 360 {
             size.rows.saturating_sub(4)
         } else {
@@ -106,6 +106,7 @@ fn gpu_prompt_menu_is_anchored_bounded_and_does_not_dim_the_terminal() {
             px: (width, height),
             scale,
             padding,
+            zen: false,
             metrics,
             ui: fonts.ui_metrics(),
             theme: &theme,

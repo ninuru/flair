@@ -225,7 +225,7 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
     );
-    let size = grid_size((W, H), padding, 1.0, metrics);
+    let size = grid_size((W, H), padding, 1.0, false, metrics);
     let mut mirror = Mirror::default();
     mirror.apply(&[PaneUpdate {
         pane: PaneId(1),
@@ -268,6 +268,7 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
         px: (W, H),
         scale: 1.0,
         padding,
+        zen: false,
         metrics,
         ui: fonts.ui_metrics(),
         theme: &theme,

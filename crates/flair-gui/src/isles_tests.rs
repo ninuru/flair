@@ -679,6 +679,7 @@ fn prompt_scene(
         px: (800, 600),
         scale: 1.0,
         padding: (8.0, 4.0),
+        zen: false,
         metrics: CellMetrics {
             width: 8.0,
             height: 16.0,

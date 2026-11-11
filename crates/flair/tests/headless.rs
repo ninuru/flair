@@ -594,6 +594,82 @@ name = "text"
     );
 }
 
+#[test]
+fn prefix_shift_z_grows_the_pane_into_zen_and_restores_it() {
+    let output = OutputDir::new();
+    let scenario = output.0.join("zen.toml");
+    let toggle = r#"[[steps]]
+action = "key"
+key = "a"
+ctrl = true
+[[steps]]
+action = "key"
+key = "Z"
+shift = true
+[[steps]]
+action = "sleep"
+ms = 300
+"#;
+    let report = |marker: &str| {
+        format!(
+            "[[steps]]\naction = \"text\"\ntext = \"{marker}\"\n[[steps]]\naction = \"key\"\nkey = \"Enter\"\n[[steps]]\naction = \"wait\"\ntext = \"{marker}=\"\n"
+        )
+    };
+    let program = r#"program = "/bin/sh"
+args = ["-c", "printf 'start=%s|' \"$(stty size)\"; while read x; do printf '%s=%s|' \"$x\" \"$(stty size)\"; done"]
+[[steps]]
+action = "wait"
+text = "start="
+"#;
+    fs::write(
+        &scenario,
+        format!(
+            "{program}{toggle}{}{toggle}{}",
+            report("on"),
+            report("back")
+        ),
+    )
+    .unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "60s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--pixels",
+            "960x300",
+            "--scale",
+            "1",
+            "--timeout-ms",
+            "30000",
+            "--scenario",
+        ])
+        .arg(scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let screen = fs::read_to_string(output.0.join("screen.txt")).unwrap();
+    let size = |marker: &str| -> (u16, u16) {
+        let rest = screen
+            .split(&format!("{marker}="))
+            .nth(1)
+            .and_then(|rest| rest.split('|').next())
+            .unwrap_or_else(|| panic!("{marker} missing in {screen}"));
+        let mut numbers = rest.split_whitespace().map(|n| n.parse().unwrap());
+        (numbers.next().unwrap(), numbers.next().unwrap())
+    };
+    let (start, on, back) = (size("start"), size("on"), size("back"));
+    assert!(on.0 > start.0 && on.1 > start.1, "{start:?} {on:?}");
+    assert_eq!(back, start);
+}
+
 fn git(repo: &Path, args: &[&str]) -> bool {
     Command::new("git")
         .args(["-c", "user.name=flair", "-c", "user.email=flair@invalid"])

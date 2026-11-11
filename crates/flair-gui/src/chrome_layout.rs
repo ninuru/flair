@@ -1,4 +1,5 @@
 use flair_core::{
+    config::WindowConfig,
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::{PaneId, WindowId},
     isles::Chip,
@@ -29,6 +30,7 @@ pub struct ChromeInput<'a> {
     pub px: (u32, u32),
     pub scale: f32,
     pub padding: (f32, f32),
+    pub zen: bool,
     pub metrics: CellMetrics,
     pub ui: UiMetrics,
     pub theme: &'a Theme,
@@ -65,14 +67,32 @@ pub fn bar_height(scale: f32) -> f32 {
     px(BAR, scale)
 }
 
+pub fn chrome_top(scale: f32, zen: bool) -> f32 {
+    match zen {
+        true => 0.0,
+        false => chrome_bottom(scale),
+    }
+}
+
+pub fn padding(window: &WindowConfig, scale: f64, zen: bool) -> (f32, f32) {
+    match zen {
+        true => (0.0, 0.0),
+        false => (
+            (f32::from(window.padding_x) * scale as f32).round(),
+            (f32::from(window.padding_y) * scale as f32).round(),
+        ),
+    }
+}
+
 pub fn grid_origin(
     px: (u32, u32),
     padding: (f32, f32),
     scale: f32,
+    zen: bool,
     metrics: CellMetrics,
 ) -> (f32, f32) {
-    let size = grid_size(px, padding, scale, metrics);
-    let top = chrome_bottom(scale) + padding.1;
+    let size = grid_size(px, padding, scale, zen, metrics);
+    let top = chrome_top(scale, zen) + padding.1;
     let width = px.0 as f32 - padding.0 * 2.0 - f32::from(size.cols) * metrics.width;
     let height = px.1 as f32 - top - padding.1 - f32::from(size.rows) * metrics.height;
     (
@@ -85,10 +105,11 @@ pub fn grid_size(
     px: (u32, u32),
     padding: (f32, f32),
     scale: f32,
+    zen: bool,
     metrics: CellMetrics,
 ) -> GridSize {
     let width = px.0 as f32 - padding.0 * 2.0;
-    let height = px.1 as f32 - chrome_bottom(scale) - padding.1 * 2.0;
+    let height = px.1 as f32 - chrome_top(scale, zen) - padding.1 * 2.0;
     GridSize {
         cols: cells(width, metrics.width),
         rows: cells(height, metrics.height),
@@ -117,9 +138,12 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
         hover: input.hover.filter(|_| !open),
         ..*input
     };
-    chrome_bar::bar(&bar_input, &mut scene, &mut measure);
-    let origin = grid_origin(input.px, input.padding, scale, input.metrics);
-    let top = chrome_bottom(scale) + input.padding.1;
+    if !input.zen {
+        chrome_bar::bar(&bar_input, &mut scene, &mut measure);
+    }
+    let chrome = chrome_top(scale, input.zen);
+    let origin = grid_origin(input.px, input.padding, scale, input.zen, input.metrics);
+    let top = chrome + input.padding.1;
     let clip = PxRect {
         x: input.padding.0,
         y: top,
@@ -128,13 +152,16 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     };
     let extend = PxRect {
         x: 0.0,
-        y: chrome_bottom(scale),
+        y: chrome,
         w: width,
-        h: (height - chrome_bottom(scale)).max(0.0),
+        h: (height - chrome).max(0.0),
     };
     if let Some(window) = input.layout {
         separators(input, window, extend, &mut scene);
         isles::band(input, window, &mut scene);
+    }
+    if input.zen && (input.prompt.is_some() || input.notice.is_some()) {
+        chrome_bar::bar(&bar_input, &mut scene, &mut measure);
     }
     let overlay = input.overlays.and_then(|overlays| {
         overlays.layout(
@@ -262,7 +289,13 @@ fn adjacent(separator: &Separator, pane: CellRect) -> Option<CellRect> {
 
 fn separator_rect(input: &ChromeInput, axis: Axis, rect: CellRect, bounds: PxRect) -> PxRect {
     let gap = cell_rect(input, rect);
-    let grid = grid_size(input.px, input.padding, input.scale, input.metrics);
+    let grid = grid_size(
+        input.px,
+        input.padding,
+        input.scale,
+        input.zen,
+        input.metrics,
+    );
     let metrics = input.metrics;
     let line = px(LINE, input.scale);
     let centre = |start: f32, length: f32| (start + (length - line) / 2.0).round();
@@ -303,7 +336,13 @@ fn separator_rect(input: &ChromeInput, axis: Axis, rect: CellRect, bounds: PxRec
 }
 
 pub(crate) fn cell_rect(input: &ChromeInput, rect: CellRect) -> PxRect {
-    let origin = grid_origin(input.px, input.padding, input.scale, input.metrics);
+    let origin = grid_origin(
+        input.px,
+        input.padding,
+        input.scale,
+        input.zen,
+        input.metrics,
+    );
     let metrics = input.metrics;
     PxRect {
         x: origin.0 + f32::from(rect.origin.col) * metrics.width,

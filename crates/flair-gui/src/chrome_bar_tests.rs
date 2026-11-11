@@ -96,6 +96,7 @@ impl<'a> Case<'a> {
             px: (self.width * scale as u32, 600 * scale as u32),
             scale,
             padding: (8.0 * scale, 4.0 * scale),
+            zen: false,
             metrics: CellMetrics {
                 width: 8.0 * scale,
                 height: 16.0 * scale,
