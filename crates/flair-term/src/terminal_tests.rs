@@ -381,6 +381,25 @@ fn prompt_anchor_tracks_the_reserved_row_without_leaking_text() {
 }
 
 #[test]
+fn a_running_command_has_no_live_prompt_row_until_the_next_prompt() {
+    let mut term = Terminal::new(GridSize { cols: 20, rows: 6 }, 100);
+    term.advance(b"\x1b]6973;prompt\x07\r\n> sleep 5");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        Some(0)
+    );
+    term.advance(b"\r\n\x1b]133;C\x07");
+    let running = term.snapshot(PaneId(1), true).unwrap();
+    assert_eq!(running.flags.prompt_row, None);
+    assert_eq!(term.prompt_history().len(), 1);
+    term.advance(b"done\r\n\x1b]133;D;0\x07\x1b]133;A\x07\x1b]6973;prompt\x07\r\n> ");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        Some(3)
+    );
+}
+
+#[test]
 fn prompt_anchor_moves_with_scroll_and_never_revives_old_prompts() {
     let mut term = Terminal::new(GridSize { cols: 20, rows: 4 }, 100);
     term.advance(b"\x1b]6973;prompt\x07\r\n> first\r\n\x1b]6973;prompt\x07\r\n> second");
