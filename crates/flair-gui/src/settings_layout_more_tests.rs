@@ -1,4 +1,6 @@
 use super::*;
+use crate::CellMetrics;
+use flair_core::settings::{Kind, SETTINGS, Section};
 
 #[test]
 fn long_text_values_ellipsize_inside_the_chip() {
@@ -217,4 +219,160 @@ fn a_disabled_binding_list_mutes_commands_and_marks_the_heading_off() {
 
     let scene = run(&keys(2), (1920, 1200), 1.0, None);
     assert!(text(&scene, " off").is_none());
+}
+
+fn prompt() -> SettingsSheet {
+    let entries = SETTINGS
+        .iter()
+        .filter(|setting| setting.section == Section::Prompt)
+        .map(|setting| Entry::Setting {
+            title: setting.title,
+            description: setting.description,
+            source: "default",
+            control: match setting.kind {
+                Kind::Toggle => Control::Toggle(true),
+                Kind::Integer { .. } | Kind::Float { .. } => Control::Number("2000".into()),
+                Kind::Choice(_) => Control::Choice("chips".into()),
+                Kind::Text | Kind::Font | Kind::Words => Control::Text("x".into()),
+                Kind::Color { .. } => Control::Color("#000000".into()),
+            },
+            error: None,
+            pending: false,
+        })
+        .collect();
+    let mut sheet = sheet(
+        4,
+        "Prompt",
+        vec![Group {
+            heading: None,
+            disabled: false,
+            entries,
+        }],
+    );
+    sheet.keys = vec![
+        ("←→", "step".into()),
+        ("esc", "close".into()),
+        ("/", "search".into()),
+    ];
+    sheet
+}
+
+fn wide(text: &str, _: bool) -> f32 {
+    text.chars().count() as f32 * 12.0
+}
+
+#[test]
+fn the_prompt_page_fits_at_960x600_with_whole_descriptions_beside_the_source() {
+    let theme = theme();
+    let input = OverlayInput {
+        metrics: crate::CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
+        px: (960, 600),
+        scale: 1.0,
+        ui: UiMetrics {
+            height: 14.0,
+            ascent: 11.0,
+            small: 0.5,
+            cap: 8.0,
+            icon: CellMetrics {
+                width: 7.0,
+                height: 12.0,
+                baseline: 9.0,
+            },
+        },
+        theme: &theme,
+        hover: None,
+    };
+    let sheet = prompt();
+    assert_eq!(sheet.groups[0].entries.len(), 21);
+    let scene = layout(&sheet, &input, &mut wide);
+    assert_inside(&scene, (960, 600));
+    assert_eq!(scene.hits.rows.len(), 6);
+    assert_eq!(
+        control(&scene, SettingsHit::Cycle(0)),
+        rect(624.0, 175.0, 280.0, 24.0)
+    );
+    assert_eq!(
+        control(&scene, SettingsHit::Toggle(1)),
+        rect(876.0, 235.0, 28.0, 16.0)
+    );
+    let label = scene
+        .text
+        .iter()
+        .find(|run| run.text == "default" && run.baseline > 159.0 && run.baseline < 215.0)
+        .unwrap();
+    for description in [
+        SETTINGS
+            .iter()
+            .find(|setting| setting.key == "prompt.style")
+            .unwrap()
+            .description,
+        "Shows an icon in each chip. Needs a Nerd Font.",
+    ] {
+        let run = text(&scene, description).unwrap();
+        let end = run.x + wide(&run.text, false) * 0.5;
+        assert!(end <= label.x - 12.0, "{end} {}", label.x);
+    }
+    assert!(text(&scene, "+15 more").is_some());
+}
+
+#[test]
+fn dropdown_options_override_underlying_hits_and_stay_on_screen() {
+    for (size, scale) in [((960, 600), 1.0), ((640, 400), 1.0), ((1440, 900), 1.5)] {
+        let mut sheet = appearance();
+        sheet.dropdown = Some(ChoiceMenu {
+            item: 0,
+            options: (0..100).map(|index| format!("Theme {index}")).collect(),
+            selected: 99,
+        });
+        let scene = run(&sheet, size, scale, None);
+        let options: Vec<_> = scene
+            .hits
+            .controls
+            .iter()
+            .filter_map(|(hit, rect)| {
+                if let SettingsHit::Choose(index) = hit {
+                    Some((*index, *rect))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert!(!options.is_empty());
+        assert!(options.len() <= 10);
+        assert!(options.iter().any(|(index, _)| *index == 99));
+        for (index, rect) in options {
+            assert!(rect.y >= 0.0 && rect.y + rect.h <= size.1 as f32);
+            assert!(rect.x >= 0.0 && rect.x + rect.w <= size.0 as f32);
+            assert_hit(&scene, SettingsHit::Choose(index), rect);
+        }
+        assert_eq!(
+            scene.hits.hit_test((20.0, 60.0)),
+            OverlayHit::Settings(SettingsHit::DismissDropdown)
+        );
+        assert!(scene.hits.rows.is_empty());
+    }
+}
+
+#[test]
+fn dropdown_occludes_the_top_of_text_whose_baseline_is_below_the_menu() {
+    let mut sheet = appearance();
+    sheet.dropdown = Some(ChoiceMenu {
+        item: 0,
+        options: vec!["one".into(), "two".into(), "three".into()],
+        selected: 0,
+    });
+    let scene = run(&sheet, (1100, 600), 1.0, None);
+    let last = control(&scene, SettingsHit::Choose(2));
+    let bottom = last.y + last.h + 4.0;
+    assert!(
+        scene
+            .text
+            .iter()
+            .filter(|run| run.text == "#d4d4d4")
+            .all(|run| run.baseline - 11.0 >= bottom)
+    );
 }

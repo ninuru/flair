@@ -14,7 +14,7 @@ impl Server {
                         .filter(|client| {
                             self.tree.window(client.view.window).is_some_and(|window| {
                                 window
-                                    .geometry()
+                                    .geometry(0)
                                     .panes
                                     .iter()
                                     .any(|placement| placement.pane == **pane_id)
@@ -56,7 +56,7 @@ impl Server {
             .iter()
             .find(|session| window.is_some_and(|(id, _)| session.last_window == id))
             .map(|session| session.id);
-        self.set_running(pane, false);
+        self.set_started(pane, None);
         if self.panes.remove(&pane).is_none() {
             return;
         }

@@ -25,7 +25,7 @@ impl Server {
                 self.cancel_mouse(id, out);
             }
         }
-        let Some(geometry) = self.tree.window(window).map(|window| window.geometry()) else {
+        let Some(geometry) = self.tree.window(window).map(|window| window.geometry(0)) else {
             return;
         };
         let mut resized = false;
@@ -56,21 +56,24 @@ impl Server {
         }
     }
 
-    pub(super) fn flush_frames(&mut self, out: &mut Vec<Effect>) {
+    pub(super) fn flush_frames(&mut self, out: &mut Vec<Effect>) -> BTreeSet<ClientId> {
+        let mut ready = BTreeSet::new();
         for (id, pane) in &mut self.panes {
             if pane.dirty {
                 pane.cached = pane.terminal.snapshot(*id, true);
                 pane.dirty = false;
             }
         }
+        let band = 0;
         for (id, client) in &mut self.clients {
             if client.awaiting_ack.is_some() {
                 continue;
             }
+            ready.insert(*id);
             let Some(layout) = self
                 .tree
                 .window(client.view.window)
-                .map(|window| window.geometry())
+                .map(|window| window.geometry(band))
             else {
                 continue;
             };
@@ -126,5 +129,6 @@ impl Server {
                 },
             ));
         }
+        ready
     }
 }

@@ -41,7 +41,7 @@ impl Layout {
             return false;
         }
         let Some(placement) = self
-            .geometry(area)
+            .geometry(area, 0)
             .panes
             .into_iter()
             .find(|item| item.pane == pane)
@@ -97,14 +97,14 @@ impl Layout {
         }
     }
 
-    pub fn geometry(&self, area: CellRect) -> Geometry {
+    pub fn geometry(&self, area: CellRect, band: u16) -> Geometry {
         let mut geometry = Geometry::default();
-        self.place(area, &mut geometry);
+        self.place(area, band, &mut geometry);
         geometry
     }
 
     pub fn hit_test(&self, area: CellRect, point: CellPoint) -> Option<PaneId> {
-        self.geometry(area)
+        self.geometry(area, 0)
             .panes
             .into_iter()
             .find(|placement| placement.rect.contains(point))
@@ -197,12 +197,9 @@ impl Layout {
         true
     }
 
-    fn place(&self, area: CellRect, geometry: &mut Geometry) {
+    fn place(&self, area: CellRect, band: u16, geometry: &mut Geometry) {
         match self {
-            Self::Leaf(pane) => geometry.panes.push(PanePlacement {
-                pane: *pane,
-                rect: area,
-            }),
+            Self::Leaf(pane) => geometry.panes.push(leaf(*pane, area, band)),
             Self::Split {
                 axis,
                 ratio,
@@ -216,12 +213,12 @@ impl Layout {
                     first.minimum_size(),
                     second.minimum_size(),
                 );
-                first.place(first_area, geometry);
+                first.place(first_area, band, geometry);
                 geometry.separators.push(Separator {
                     axis: *axis,
                     rect: separator,
                 });
-                second.place(second_area, geometry);
+                second.place(second_area, band, geometry);
             }
         }
     }
@@ -252,7 +249,7 @@ impl Layout {
     }
 
     pub fn neighbor(&self, pane: PaneId, direction: Direction, area: CellRect) -> Option<PaneId> {
-        let geometry = self.geometry(area);
+        let geometry = self.geometry(area, 0);
         let source = geometry.panes.iter().find(|item| item.pane == pane)?.rect;
         geometry
             .panes
@@ -264,6 +261,30 @@ impl Layout {
             })
             .min_by_key(|(score, _)| *score)
             .map(|(_, pane)| pane)
+    }
+}
+
+pub(crate) fn leaf(pane: PaneId, area: CellRect, band: u16) -> PanePlacement {
+    if area.size.rows <= band {
+        return PanePlacement {
+            pane,
+            rect: area,
+            band: 0,
+        };
+    }
+    PanePlacement {
+        pane,
+        rect: CellRect {
+            origin: CellPoint {
+                row: area.origin.row.saturating_add(band),
+                ..area.origin
+            },
+            size: GridSize {
+                rows: area.size.rows - band,
+                ..area.size
+            },
+        },
+        band,
     }
 }
 

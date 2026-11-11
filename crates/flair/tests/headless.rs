@@ -1,6 +1,7 @@
 use std::{
     fs,
-    path::PathBuf,
+    os::unix::fs::PermissionsExt,
+    path::{Path, PathBuf},
     process::Command,
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -591,4 +592,135 @@ name = "text"
             .unwrap()
             .contains("captured")
     );
+}
+
+fn git(repo: &Path, args: &[&str]) -> bool {
+    Command::new("git")
+        .args(["-c", "user.name=flair", "-c", "user.email=flair@invalid"])
+        .args(args)
+        .current_dir(repo)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("HOME", repo)
+        .output()
+        .is_ok_and(|run| run.status.success())
+}
+
+fn band_labels(capture: &str) -> Vec<String> {
+    let rows: Vec<_> = capture.lines().collect();
+    let input = rows.iter().rposition(|row| row.trim_end() == "❯").unwrap();
+    rows[input - 1]
+        .trim_end()
+        .split("  ")
+        .map(str::to_owned)
+        .collect()
+}
+
+#[test]
+fn prompt_band_shows_directory_branch_changes_and_exit() {
+    if !Path::new("/bin/zsh").exists() {
+        eprintln!("skipped prompt band e2e: /bin/zsh missing");
+        return;
+    }
+    let output = OutputDir::new();
+    fs::set_permissions(&output.0, fs::Permissions::from_mode(0o700)).unwrap();
+    let repo = output.0.join("repo");
+    let zdotdir = output.0.join("zdot");
+    fs::create_dir(&repo).unwrap();
+    fs::create_dir(&zdotdir).unwrap();
+    if !git(&repo, &["init", "-q", "-b", "main"])
+        || !git(&repo, &["commit", "-q", "--allow-empty", "-m", "init"])
+    {
+        eprintln!("skipped prompt band e2e: git unavailable");
+        return;
+    }
+    fs::write(zdotdir.join(".zshrc"), "PS1='user-theme> '\n").unwrap();
+    let scenario = output.0.join("band.toml");
+    fs::write(
+        &scenario,
+        format!(
+            r#"program = "/bin/zsh"
+args = ["-i"]
+cwd = "{repo}"
+cols = 120
+rows = 8
+[env]
+FLAIR_PROMPT_SEPARATOR = "chevron"
+ZDOTDIR = "{zdotdir}"
+HOME = "{home}"
+[[steps]]
+action = "wait"
+text = "❯ "
+[[steps]]
+action = "text"
+text = "stty size\r"
+[[steps]]
+action = "wait"
+text = "8 120"
+[[steps]]
+action = "text"
+text = "false\r"
+[[steps]]
+action = "wait"
+text = "❯ false"
+[[steps]]
+action = "sleep"
+ms = 200
+[[steps]]
+action = "capture"
+name = "band"
+[[steps]]
+action = "text"
+text = "touch x y\r"
+[[steps]]
+action = "sleep"
+ms = 1000
+[[steps]]
+action = "capture"
+name = "changes"
+"#,
+            repo = repo.display(),
+            zdotdir = zdotdir.display(),
+            home = output.0.display(),
+        ),
+    )
+    .unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "20s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--scenario",
+        ])
+        .arg(&scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let cwd = "~/repo";
+    let band = fs::read_to_string(output.0.join("band.txt")).unwrap();
+    assert_eq!(band_labels(&band), [cwd, "main", "1"], "{band}");
+    let content: Vec<&str> = band.lines().map(str::trim_end).collect();
+    let command = content
+        .iter()
+        .position(|row| *row == "❯ stty size")
+        .unwrap();
+    let result = content.iter().position(|row| *row == "8 120").unwrap();
+    let failed = content.iter().position(|row| *row == "❯ false").unwrap();
+    let prompt = content.iter().rposition(|row| *row == "❯").unwrap();
+    assert!(
+        command < result && result < failed && failed < prompt - 1,
+        "{band}"
+    );
+    assert!(content[prompt - 1].starts_with(cwd), "{band}");
+    assert!(!band.contains("user-theme> "), "{band}");
+    let changes = fs::read_to_string(output.0.join("changes.txt")).unwrap();
+    assert_eq!(band_labels(&changes), [cwd, "main", "2"], "{changes}");
 }

@@ -19,6 +19,7 @@ use crate::{
     overlay_layout::{self, OverlayHit, OverlayHits, OverlayInput, OverlayScene, Sheet},
     picker::{self, Picker},
     prompt::{Outcome, Prompt},
+    prompt_actions::{MenuOutcome, PromptAction, PromptMenu},
     settings_layout,
     settings_page::{SettingsOutcome, SettingsPage},
     theme_picker::{ThemeOutcome, ThemePicker},
@@ -26,6 +27,8 @@ use crate::{
 
 #[derive(Default)]
 pub struct Overlays {
+    prompt_menu: Option<PromptMenu>,
+    prompt_generation: u64,
     picker: Option<Picker>,
     prompt: Option<Prompt>,
     theme_picker: Option<ThemePicker>,
@@ -42,6 +45,7 @@ pub enum OverlayEvent {
     Send(ClientMsg),
     Theme(ThemeOutcome),
     Settings(SettingsOutcome),
+    Prompt(PromptAction),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -136,6 +140,8 @@ impl Overlays {
             | ServerMsg::PasteClipboard
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::Sessions(_)
+            | ServerMsg::PromptInfo { .. }
+            | ServerMsg::PromptHistory { .. }
             | ServerMsg::Done
             | ServerMsg::Error(_)
             | ServerMsg::Exit(_) => return false,
@@ -157,10 +163,46 @@ impl Overlays {
     }
 
     pub fn is_open(&self) -> bool {
-        self.settings.is_some()
+        self.prompt_menu.is_some()
+            || self.settings.is_some()
             || self.picker.is_some()
             || self.prompt.is_some()
             || self.theme_picker.is_some()
+    }
+
+    pub fn open_prompt(&mut self, menu: PromptMenu) -> u64 {
+        self.prompt_generation = self.prompt_generation.wrapping_add(1);
+        self.prompt_menu = Some(menu);
+        self.prompt_generation
+    }
+
+    pub fn prompt_contexts(
+        &mut self,
+        generation: u64,
+        result: Result<Vec<String>, String>,
+    ) -> bool {
+        if generation != self.prompt_generation {
+            return false;
+        }
+        let Some(menu) = &mut self.prompt_menu else {
+            return false;
+        };
+        menu.contexts(result);
+        true
+    }
+
+    fn prompt_outcome(&mut self, outcome: MenuOutcome) -> OverlayEvent {
+        match outcome {
+            MenuOutcome::Pending => OverlayEvent::Redraw,
+            MenuOutcome::Close => {
+                self.prompt_menu = None;
+                OverlayEvent::Redraw
+            }
+            MenuOutcome::Action(action) => {
+                self.prompt_menu = None;
+                OverlayEvent::Prompt(action)
+            }
+        }
     }
 
     pub fn settings_mut(&mut self) -> Option<&mut SettingsPage> {
@@ -178,6 +220,16 @@ impl Overlays {
     ) -> Option<OverlayEvent> {
         if key.action == KeyAction::Press {
             self.notice = None;
+        }
+        if let Some(menu) = &mut self.prompt_menu {
+            if input::local_action(key) == Some(LocalAction::Paste) {
+                if let Some(text) = clipboard() {
+                    menu.insert(&text);
+                }
+                return Some(OverlayEvent::Redraw);
+            }
+            let outcome = menu.key(key);
+            return Some(self.prompt_outcome(outcome));
         }
         let direction = match key.key {
             Key::Named(NamedKey::PageUp) => -1,
@@ -245,6 +297,10 @@ impl Overlays {
     }
 
     pub fn text(&mut self, text: &str) -> Option<OverlayEvent> {
+        if let Some(menu) = &mut self.prompt_menu {
+            menu.insert(text);
+            return Some(OverlayEvent::Redraw);
+        }
         if let Some(page) = &mut self.settings {
             let outcome = page.insert(text);
             return Some(self.settings(outcome));
@@ -267,14 +323,27 @@ impl Overlays {
         input: &OverlayInput,
         measure: &mut impl FnMut(&str, bool) -> f32,
     ) -> Option<OverlayScene> {
+        if let Some(menu) = &self.prompt_menu {
+            return Some(menu.layout(input, measure));
+        }
         if let Some(page) = &self.settings {
-            return Some(settings_layout::layout(&page.sheet(), input, measure));
+            return Some(if page.is_prompt_editor() {
+                page.prompt_editor()
+                    .layout(&page.sheet(), input, input.metrics, measure)
+            } else {
+                settings_layout::layout(&page.sheet(), input, measure)
+            });
         }
         let sheet = self.sheet()?;
         Some(overlay_layout::layout(&sheet, input, measure))
     }
 
     pub fn place(&mut self, hits: Option<OverlayHits>) {
+        if let Some(page) = &mut self.settings
+            && let Some(limit) = hits.as_ref().and_then(|hits| hits.prompt_scroll_limit)
+        {
+            page.set_prompt_scroll_limit(limit);
+        }
         self.hits = hits;
     }
 
@@ -286,9 +355,23 @@ impl Overlays {
     }
 
     pub fn click(&mut self, hit: OverlayHit) -> OverlayEvent {
+        if let Some(menu) = &self.prompt_menu {
+            let outcome = match hit {
+                OverlayHit::Row(index) => menu.choose(index),
+                OverlayHit::Outside => MenuOutcome::Close,
+                OverlayHit::Panel | OverlayHit::Settings(_) => MenuOutcome::Pending,
+            };
+            return self.prompt_outcome(outcome);
+        }
         if let Some(page) = &mut self.settings {
             let outcome = match hit {
-                OverlayHit::Panel | OverlayHit::Outside => return OverlayEvent::Ignored,
+                OverlayHit::Panel | OverlayHit::Outside => {
+                    return if page.dismiss_dropdown() {
+                        OverlayEvent::Redraw
+                    } else {
+                        OverlayEvent::Ignored
+                    };
+                }
                 OverlayHit::Row(index) => page.focus(index),
                 OverlayHit::Settings(hit) => page.click(hit),
             };
@@ -302,6 +385,10 @@ impl Overlays {
     }
 
     pub fn wheel(&mut self, rows: i32) -> OverlayEvent {
+        if let Some(menu) = &mut self.prompt_menu {
+            menu.step(rows);
+            return OverlayEvent::Redraw;
+        }
         if let Some(page) = &mut self.settings {
             let outcome = page.wheel(rows);
             return self.settings(outcome);
@@ -348,7 +435,8 @@ impl Overlays {
     }
 
     fn panel_open(&self) -> bool {
-        self.settings.is_some()
+        self.prompt_menu.is_some()
+            || self.settings.is_some()
             || self.theme_picker.is_some()
             || self.picker.is_some()
             || matches!(self.prompt, Some(Prompt::Choose { .. }))
@@ -408,7 +496,8 @@ impl Overlays {
             SettingsOutcome::Pending
             | SettingsOutcome::Preview(_)
             | SettingsOutcome::Revert
-            | SettingsOutcome::Save { .. } => {}
+            | SettingsOutcome::Save { .. }
+            | SettingsOutcome::SavePrompt(_) => {}
         }
         OverlayEvent::Settings(outcome)
     }

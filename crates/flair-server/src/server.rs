@@ -13,7 +13,15 @@ use flair_core::{
 };
 use flair_term::{MarkKind, TermEvent, encode::encode_focus};
 
-use crate::{client::ClientState, config::ServerConfig, effect::Effect, event::Event, pane::Pane};
+use crate::{
+    client::ClientState,
+    config::ServerConfig,
+    effect::Effect,
+    event::{Event, Timer},
+    facts::Contexts,
+    pane::Pane,
+};
+use std::path::PathBuf;
 
 #[path = "server_copy.rs"]
 mod copy;
@@ -25,6 +33,8 @@ mod input;
 mod lifecycle;
 #[path = "server_mouse.rs"]
 mod mouse;
+#[path = "server_prompt.rs"]
+mod prompt;
 #[path = "server_sessions.rs"]
 mod sessions;
 #[path = "server_status.rs"]
@@ -41,6 +51,10 @@ pub struct Server {
     next_id: u32,
     activity: u64,
     stopping: bool,
+    git: BTreeMap<PathBuf, prompt::GitEntry>,
+    contexts: (Contexts, prompt::Pending),
+    refresh_armed: bool,
+    prompts_dirty: bool,
 }
 
 impl Server {
@@ -54,6 +68,10 @@ impl Server {
             next_id: 1,
             activity: 0,
             stopping: false,
+            git: BTreeMap::new(),
+            contexts: (Contexts::default(), prompt::Pending::Idle),
+            refresh_armed: false,
+            prompts_dirty: true,
         }
     }
 
@@ -61,6 +79,7 @@ impl Server {
         if self.stopping {
             return;
         }
+        self.prompts_dirty = true;
         match event {
             Event::ClientConnected(_) => {}
             Event::Client(id, message) => self.client_message(now, id, message, out),
@@ -68,10 +87,11 @@ impl Server {
                 self.remove_client(id, out);
             }
             Event::PtyOutput(id, bytes) => {
+                let before = self.pane_cwd(id);
                 if let Some(pane) = self.panes.get_mut(&id) {
                     pane.terminal.advance(&bytes);
                     pane.dirty = true;
-                    self.terminal_events(id, out);
+                    self.terminal_events(now, id, before, out);
                 }
             }
             Event::PtySpawnFailed(id) => {
@@ -90,21 +110,28 @@ impl Server {
                     pane.dirty = false;
                     pane.cached = None;
                 }
-                self.set_running(id, false);
+                self.set_started(id, None);
             }
             Event::PtyExited(id) => {
                 if let Some(pane) = self.panes.get_mut(&id) {
                     pane.exited = true;
                 }
-                self.set_running(id, false);
+                self.set_started(id, None);
             }
-            Event::Timer(timer) => self.prefix_timer(now, timer, out),
+            Event::Timer(Timer::Prefix { client, generation }) => {
+                self.prefix_timer(now, client, generation, out);
+            }
+            Event::Timer(Timer::Prompt) => self.prompt_timer(out),
+            Event::GitRead(cwd, info) => self.git_read(cwd, info, out),
+            Event::ContextsRead(contexts) => self.contexts_read(contexts, out),
             Event::ConfigRead(result) => self.config_read(result, out),
         }
         if !self.stopping {
             self.reap_sessions(now, out);
-            self.flush_frames(out);
+            let ready = self.flush_frames(out);
             self.flush_status(out);
+            self.flush_prompts(&ready, out);
+            self.arm_refresh(now, out);
         }
     }
 
@@ -164,6 +191,8 @@ impl Server {
                         last_click: None,
                         selecting: false,
                         mouse: None,
+                        prompts: BTreeMap::new(),
+                        prompt_history: BTreeMap::new(),
                     },
                 );
                 out.push(Effect::Send(id, ServerMsg::Welcome { client: id }));
@@ -278,8 +307,15 @@ impl Server {
             .and_then(|client| self.tree.active_pane(client.view.window))
     }
 
-    fn terminal_events(&mut self, pane: PaneId, out: &mut Vec<Effect>) {
+    fn terminal_events(
+        &mut self,
+        now: Millis,
+        pane: PaneId,
+        before: Option<PathBuf>,
+        out: &mut Vec<Effect>,
+    ) {
         let events = self.panes.get_mut(&pane).unwrap().terminal.take_events();
+        let mut refresh = false;
         for event in events {
             match event {
                 TermEvent::PtyWrite(bytes) => out.push(Effect::WritePty(pane, bytes)),
@@ -304,12 +340,37 @@ impl Server {
                         out.push(Effect::Send(id, ServerMsg::Bell));
                     }
                 }
-                TermEvent::Mark(MarkKind::CommandStart, _) => self.set_running(pane, true),
-                TermEvent::Mark(MarkKind::CommandEnd | MarkKind::PromptStart, _) => {
-                    self.set_running(pane, false);
+                TermEvent::Mark(kind, code) => {
+                    refresh |= kind == MarkKind::PromptStart;
+                    self.prompts_dirty = true;
+                    self.prompt_marks(now, pane, kind, code);
                 }
-                TermEvent::Cwd(_) | TermEvent::Mark(MarkKind::PromptEnd, _) => {}
+                TermEvent::Facts(facts) => {
+                    self.prompts_dirty = true;
+                    if let Some(state) = self.panes.get_mut(&pane) {
+                        state.shell = Some(facts);
+                    }
+                }
+                TermEvent::PromptAnchor(id, cwd) => {
+                    if let Some(cwd) = cwd.or_else(|| self.pane_cwd(pane)) {
+                        let info = self.prompt_info(pane, cwd);
+                        self.panes
+                            .get_mut(&pane)
+                            .unwrap()
+                            .terminal
+                            .set_prompt_info_for(id, info);
+                    }
+                    self.prompts_dirty = true;
+                }
+                TermEvent::Cwd(_) => self.prompts_dirty = true,
             }
+        }
+        if let Some(cwd) = self.pane_cwd(pane)
+            && (refresh || before.as_ref() != Some(&cwd))
+        {
+            self.prompts_dirty = true;
+            self.want_git(cwd, out);
+            self.want_contexts(out);
         }
     }
 

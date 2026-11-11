@@ -1,7 +1,7 @@
 use crate::scenario::{Scenario, Step, client_size, key_input};
 use flair_core::{
     command::Command,
-    config::{Config, FontConfig},
+    config::{Config, FontConfig, PromptConfig},
     config_edit::apply,
     geom::GridSize,
     ids::PaneId,
@@ -17,6 +17,7 @@ use flair_gui::{
     cellgrid::CellGrid,
     chrome_layout::{self, ChromeInput, ChromeLayout},
     compose::{compose, compose_frame, separator_glyphs},
+    isles::{Isles, calendar_at, labels_at, line, local_clock, local_date},
     mirror::Mirror,
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
@@ -126,6 +127,17 @@ impl Pixels {
     }
 }
 
+fn isles<'a>(mirror: &'a Mirror, config: &'a PromptConfig, home: Option<&'a Path>) -> Isles<'a> {
+    Isles {
+        info: mirror.prompts(),
+        mirror,
+        config,
+        clock: config.time.then(local_clock).flatten(),
+        date: flair_gui::isles::local_date(),
+        home,
+    }
+}
+
 fn padding(config: &Config, scale: f64) -> (f32, f32) {
     (
         (f32::from(config.window.padding_x) * scale as f32).round(),
@@ -158,6 +170,7 @@ struct Capture {
     config_path: PathBuf,
     overlays: Overlays,
     pixels: Option<Pixels>,
+    home: Option<PathBuf>,
 }
 impl Capture {
     fn message(&mut self, message: ServerMsg, tx: &Sender<ClientMsg>) -> Result<(), String> {
@@ -193,6 +206,12 @@ impl Capture {
                 self.pane = Some(layout.active);
                 self.layout = Some(layout);
             }
+            ServerMsg::PromptInfo { pane, info } => {
+                self.mirror.insert_prompt(pane, info);
+            }
+            ServerMsg::PromptHistory { pane, prompts } => {
+                self.mirror.insert_history(pane, prompts);
+            }
             ServerMsg::Status(status) => {
                 self.status = status;
             }
@@ -221,10 +240,64 @@ impl Capture {
             Some(layout) => {
                 let mut grid = compose_frame(&self.mirror, layout, self.size, &self.theme, true);
                 separator_glyphs(&mut grid, layout);
+                self.band_text(&mut grid, layout);
                 let status = status_text(&status_parts(&self.status), self.size.cols);
                 format!("{status}\n{}", lines(&grid))
             }
             None => self.screen(),
+        }
+    }
+
+    fn band_text(&self, grid: &mut CellGrid, layout: &WindowLayout) {
+        let prompt = &self.effective().prompt;
+        if prompt.band() == 0 {
+            return;
+        }
+        let cols = usize::from(grid.size.cols);
+        for placement in &layout.panes {
+            let Some(pane) = self
+                .mirror
+                .pane(placement.pane)
+                .filter(|pane| !pane.flags.alt_screen)
+            else {
+                continue;
+            };
+            let rows: Vec<_> = if let Some(history) = self.mirror.history(placement.pane) {
+                history
+                    .iter()
+                    .map(|snapshot| {
+                        let calendar = calendar_at(snapshot.timestamp);
+                        (
+                            snapshot.row,
+                            &snapshot.info,
+                            calendar.map(|value| value.clock),
+                            calendar.map(|value| value.date),
+                        )
+                    })
+                    .collect()
+            } else {
+                pane.flags
+                    .prompt_row
+                    .zip(self.mirror.prompts().get(&placement.pane))
+                    .into_iter()
+                    .map(|(row, info)| (row, info, local_clock(), local_date()))
+                    .collect()
+            };
+            for (prompt_row, info, clock, date) in rows {
+                if prompt_row >= placement.rect.size.rows {
+                    continue;
+                }
+                let row = usize::from(placement.rect.origin.row + prompt_row);
+                let left = usize::from(placement.rect.origin.col);
+                if row >= usize::from(grid.size.rows) {
+                    continue;
+                }
+                let width = usize::from(placement.rect.size.cols).min(cols.saturating_sub(left));
+                let text = line(&labels_at(info, prompt, clock, date, self.home.as_deref()));
+                for (offset, c) in text.chars().take(width).enumerate() {
+                    grid.cells[row * cols + left + offset].c = c;
+                }
+            }
         }
     }
 
@@ -267,6 +340,7 @@ impl Capture {
             Some(OverlayEvent::Send(message)) => Ok(vec![message]),
             Some(OverlayEvent::Theme(outcome)) => Ok(self.theme_outcome(outcome)),
             Some(OverlayEvent::Settings(outcome)) => self.settings(outcome),
+            Some(OverlayEvent::Prompt(_)) => Err("Prompt actions require the native client".into()),
         }
     }
 
@@ -305,6 +379,22 @@ impl Capture {
             }
             SettingsOutcome::Revert | SettingsOutcome::Close => self.preview = None,
             SettingsOutcome::Save { key, value } => return self.save(key, value.as_ref()),
+            SettingsOutcome::SavePrompt(changes) => {
+                let mut text = self.config_text.clone();
+                for (key, value) in &changes {
+                    text = apply(&text, key, value.as_ref())
+                        .map_err(|error| error.to_string())?
+                        .0;
+                }
+                self.config_text = text;
+                let style = Config::from_toml(&self.config_text)
+                    .map_err(|error| error.to_string())?
+                    .prompt
+                    .style
+                    .name()
+                    .to_owned();
+                return self.save("prompt.style", Some(&Value::Text(style)));
+            }
         }
         Ok(self.refit()?.into_iter().collect())
     }
@@ -412,6 +502,7 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
+            isles: Some(isles(&self.mirror, &config.prompt, self.home.as_deref())),
         };
         let ChromeLayout { overlay, .. } =
             chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
@@ -452,6 +543,7 @@ impl Capture {
             hover: None,
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
+            isles: Some(isles(&self.mirror, &config.prompt, self.home.as_deref())),
         };
         let ChromeLayout {
             chrome, overlay, ..
@@ -586,6 +678,12 @@ pub fn run(
         ("ZDOTDIR".into(), home.0.to_string_lossy().into_owned()),
     ]);
     server_config.env.extend(scenario.env.clone());
+    let shell_home = server_config
+        .env
+        .iter()
+        .rev()
+        .find(|(key, _)| key == "HOME")
+        .map(|(_, value)| PathBuf::from(value));
     let mut isolated_args = vec![
         "-i".to_owned(),
         "PATH=/usr/bin:/bin".to_owned(),
@@ -616,6 +714,7 @@ pub fn run(
         config_path,
         overlays,
         pixels,
+        home: shell_home,
     };
     let mut failed_step = None;
     let mut worker = None;

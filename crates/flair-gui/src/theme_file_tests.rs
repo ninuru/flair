@@ -201,3 +201,35 @@ fn a_stale_temporary_file_does_not_block_a_save() {
     assert_eq!(entries(&dir), ["flair.toml"]);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn prompt_changes_save_together_or_leave_the_original_file_intact() {
+    let dir = private_dir("prompt-atomic");
+    let path = dir.join("flair.toml");
+    let original = "[font]\nsize=14.0\n";
+    fs::write(&path, original).unwrap();
+    let invalid = vec![
+        ("prompt.path".into(), Some(Value::Text("folder".into()))),
+        (
+            "prompt.segments.cwd.colour".into(),
+            Some(Value::Text("invalid-colour".into())),
+        ),
+    ];
+    assert!(save_many(&path, &invalid).is_err());
+    assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    let valid = vec![
+        ("prompt.path".into(), Some(Value::Text("folder".into()))),
+        (
+            "prompt.segments.cwd.colour".into(),
+            Some(Value::Text("cyan".into())),
+        ),
+    ];
+    let (_, config) = save_many(&path, &valid).unwrap();
+    assert_eq!(config.font.size, 14.0);
+    assert_eq!(config.prompt.path, flair_core::config::PromptPath::Folder);
+    assert_eq!(
+        config.prompt.segments[&flair_core::isles::Chip::Cwd].colour,
+        Some(flair_core::config::AnsiColour::Cyan)
+    );
+    fs::remove_dir_all(dir).unwrap();
+}

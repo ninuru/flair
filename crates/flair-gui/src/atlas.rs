@@ -54,6 +54,8 @@ pub enum Face {
     Cell,
     Ui,
     Small,
+    Icon,
+    PromptIcon,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub struct OverlayInput<'a> {
+    pub metrics: crate::CellMetrics,
     pub px: (u32, u32),
     pub scale: f32,
     pub ui: UiMetrics,
@@ -65,6 +66,7 @@ pub struct Sheet {
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct OverlayHits {
+    pub prompt_scroll_limit: Option<usize>,
     pub panel: PxRect,
     pub rows: Vec<(usize, PxRect)>,
     pub controls: Vec<(SettingsHit, PxRect)>,

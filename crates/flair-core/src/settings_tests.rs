@@ -20,9 +20,10 @@ fn builtin_themes() -> Vec<String> {
 fn other_value(setting: &Setting) -> Value {
     let current = default_value(setting);
     match setting.kind {
-        Kind::Toggle | Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice => {
+        Kind::Toggle | Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {
             setting.step(&current, 1, &builtin_themes()).unwrap()
         }
+        Kind::Text if setting.key == "prompt.order" => text("cwd, docker"),
         Kind::Text => Value::Text("C-b".to_owned()),
         Kind::Font => Value::Text("Iosevka".to_owned()),
         Kind::Words => Value::Words(vec!["-i".to_owned()]),
@@ -57,6 +58,27 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "shell.program",
             "shell.args",
             "scrollback.lines",
+            "prompt.style",
+            "prompt.icons",
+            "prompt.user",
+            "prompt.host",
+            "prompt.cwd",
+            "prompt.git_branch",
+            "prompt.git_ahead_behind",
+            "prompt.git_changes",
+            "prompt.venv",
+            "prompt.docker",
+            "prompt.kube",
+            "prompt.exit",
+            "prompt.time",
+            "prompt.duration_ms",
+            "prompt.appearance",
+            "prompt.path",
+            "prompt.time_format",
+            "prompt.date_format",
+            "prompt.separator",
+            "prompt.order",
+            "prompt.date",
             "keys.enabled",
             "keys.key",
             "keys.timeout_ms",
@@ -78,7 +100,7 @@ fn every_section_has_an_entry_and_entries_are_grouped() {
     assert_eq!(sections, sorted);
     assert_eq!(
         Section::ALL.map(Section::title),
-        ["Appearance", "Font", "Window", "Terminal", "Keys"]
+        ["Appearance", "Font", "Window", "Terminal", "Prompt", "Keys"]
     );
     assert_eq!(setting("shell.program").section, Section::Terminal);
     assert_eq!(setting("scrollback.lines").section, Section::Terminal);
@@ -316,6 +338,59 @@ fn theme_cycles_with_wrap_around() {
 }
 
 #[test]
+fn the_prompt_section_lists_style_icons_one_toggle_per_chip_and_the_duration() {
+    let prompt: Vec<_> = SETTINGS
+        .iter()
+        .filter(|setting| setting.section == Section::Prompt)
+        .collect();
+    assert_eq!(prompt.len(), 21);
+    assert_eq!(prompt[0].key, "prompt.style");
+    assert_eq!(prompt[0].title, "Style");
+    assert_eq!(prompt[0].kind, Kind::Choice(Choices::Of(&["chips", "ps1"])));
+    assert_eq!(prompt[1].key, "prompt.icons");
+    assert_eq!(prompt[1].title, "Icons");
+    for setting in &prompt[1..13] {
+        assert_eq!(setting.kind, Kind::Toggle, "{}", setting.key);
+    }
+    assert_eq!(prompt[13].key, "prompt.duration_ms");
+    assert_eq!(
+        prompt[13].kind,
+        Kind::Integer {
+            step: 500,
+            min: 0,
+            max: 600_000
+        }
+    );
+    assert_eq!(setting("theme").kind, Kind::Choice(Choices::Themes));
+}
+
+#[test]
+fn prompt_defaults_read_from_the_config() {
+    assert_eq!(default_value(setting("prompt.style")), text("chips"));
+    assert_eq!(default_value(setting("prompt.icons")), Value::Bool(true));
+    assert_eq!(default_value(setting("prompt.cwd")), Value::Bool(true));
+    assert_eq!(default_value(setting("prompt.time")), Value::Bool(false));
+    assert_eq!(
+        default_value(setting("prompt.duration_ms")),
+        Value::Integer(2000)
+    );
+}
+
+#[test]
+fn a_fixed_choice_steps_through_its_own_list_both_ways() {
+    let style = setting("prompt.style");
+    let themes = ["a", "b", "c"].map(str::to_owned);
+    assert_eq!(style.step(&text("chips"), 1, &themes), Some(text("ps1")));
+    assert_eq!(style.step(&text("ps1"), 1, &themes), Some(text("chips")));
+    assert_eq!(style.step(&text("chips"), -1, &[]), Some(text("ps1")));
+    assert_eq!(style.step(&text("ps1"), -1, &[]), Some(text("chips")));
+    assert_eq!(style.step(&text("other"), 1, &[]), Some(text("chips")));
+    assert_eq!(style.step(&text("chips"), 2, &[]), None);
+    assert_eq!(style.step(&Value::Bool(true), 1, &[]), None);
+    assert_eq!(style.parse("ps1"), Err("use space or ← →".to_owned()));
+}
+
+#[test]
 fn parsing_integers() {
     let padding = setting("window.padding_x");
     assert_eq!(padding.parse(" 12 "), Ok(Some(Value::Integer(12))));
@@ -459,4 +534,25 @@ fn matching_looks_at_title_key_description_and_section() {
     assert!(setting("font.size").matches(""));
     assert!(!setting("font.size").matches("zzz"));
     assert!(!setting("theme").matches("padding"));
+}
+
+#[test]
+fn prompt_order_editing_validates_and_normalizes_segment_names() {
+    let order = setting("prompt.order");
+    assert_eq!(
+        order.parse(" docker,cwd, date "),
+        Ok(Some(text("docker, cwd, date")))
+    );
+    assert!(order.parse("cwd,cwd").is_err());
+    assert!(order.parse("cwd,unknown").is_err());
+    assert_eq!(order.parse(""), Ok(None));
+    assert_eq!(
+        default_value(setting("prompt.appearance")),
+        text("outlined")
+    );
+    assert_eq!(default_value(setting("prompt.path")), text("abbreviated"));
+    assert_eq!(default_value(setting("prompt.separator")), text("none"));
+    assert_eq!(default_value(setting("prompt.time_format")), text("24h"));
+    assert_eq!(default_value(setting("prompt.date_format")), text("iso"));
+    assert_eq!(default_value(setting("prompt.date")), Value::Bool(false));
 }

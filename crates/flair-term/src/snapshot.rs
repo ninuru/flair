@@ -108,6 +108,7 @@ impl Terminal {
             },
             selection: self.selection_spans(),
             flags: PaneFlags {
+                prompt_row: self.current_prompt_row(),
                 alt_screen: self.modes().alt_screen,
                 display_offset: offset.min(u32::MAX as usize) as u32,
                 mouse_reporting: self.modes().mouse != crate::terminal::MouseMode::Off,

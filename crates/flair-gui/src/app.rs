@@ -1,4 +1,12 @@
-use std::{env, error::Error, fmt, fs, path::PathBuf, sync::mpsc::Sender, thread, time::Instant};
+use std::{
+    env,
+    error::Error,
+    fmt, fs,
+    path::PathBuf,
+    sync::mpsc::Sender,
+    thread,
+    time::{Instant, SystemTime, UNIX_EPOCH},
+};
 
 use flair_core::{
     config::Config,
@@ -13,8 +21,8 @@ use flair_core::{
 use winit::{
     application::ApplicationHandler,
     dpi::{LogicalSize, PhysicalPosition, PhysicalSize},
-    event::{ElementState, Ime, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event::{ElementState, Ime, StartCause, WindowEvent},
+    event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy},
     keyboard::ModifiersState,
     platform::wayland::WindowAttributesExtWayland,
     raw_window_handle::HasDisplayHandle,
@@ -23,17 +31,19 @@ use winit::{
 
 use crate::{
     Fonts,
-    chrome_layout::{self, ChromeInput, ChromeLayout, Hit},
+    chrome_layout::{self, ChromeInput, ChromeLayout, Hit, HitTarget},
     clipboard::Clipboard,
     compose::{compose, compose_frame},
     drive::Drive,
     input::InputState,
+    isles::{Isles, local_clock, next_minute},
     mirror::Mirror,
     mouse::{self, WheelAccumulator},
-    mouse_route::{Capture, MouseRoute, bar_command, capture_after, route_mouse},
+    mouse_route::{Capture, MouseRoute, bar_command, capture_after, paste_target, route_mouse},
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
     probe::Probe,
+    prompt_actions::{self, PromptAction, PromptMenu},
     renderer::{Renderer, WindowContext},
     status::status_parts,
     theme_file::resolve_theme,
@@ -41,6 +51,8 @@ use crate::{
 
 #[path = "app_config.rs"]
 mod config;
+#[path = "app_prompt_actions.rs"]
+mod prompt_actions_app;
 
 #[derive(Debug)]
 pub struct GuiError(pub String);
@@ -55,6 +67,11 @@ enum UserEvent {
     Message(ServerMsg),
     Disconnected,
     Drive(Drive),
+    PromptContexts {
+        generation: u64,
+        result: Result<Vec<String>, String>,
+    },
+    PromptActionFinished(Result<(), String>),
 }
 
 struct Surface {
@@ -71,6 +88,7 @@ struct App {
     theme: Theme,
     preview: Option<Preview>,
     tx: Sender<ClientMsg>,
+    proxy: EventLoopProxy<UserEvent>,
     surface: Option<Surface>,
     mirror: Mirror,
     pane: Option<PaneId>,
@@ -89,6 +107,7 @@ struct App {
     status: StatusLine,
     hits: Vec<Hit>,
     drive: Option<(Vec<Drive>, EventLoopProxy<UserEvent>)>,
+    home: Option<PathBuf>,
 }
 
 impl App {
@@ -145,37 +164,6 @@ impl App {
                 ))
         })
     }
-    fn mouse(&mut self, button: MouseButton, action: MouseAction) {
-        let Some(point) = self.cell() else {
-            return;
-        };
-        let route = route_mouse(self.in_bar(), button, action, self.capture);
-        self.capture = capture_after(self.capture, button, action, route);
-        match route {
-            MouseRoute::Bar => {
-                if let Some(target) =
-                    chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y))
-                {
-                    self.send(ClientMsg::Command(bar_command(target)));
-                }
-            }
-            MouseRoute::Drop => {}
-            MouseRoute::Server => {
-                let mods = flair_core::key::Mods {
-                    ctrl: self.mods.control_key(),
-                    shift: self.mods.shift_key(),
-                    alt: self.mods.alt_key(),
-                    super_: self.mods.super_key(),
-                };
-                self.send(ClientMsg::Input(InputEvent::Mouse(MouseInput {
-                    point,
-                    button,
-                    action,
-                    mods,
-                })));
-            }
-        }
-    }
     fn request_redraw(&self) {
         if let Some(surface) = &self.surface {
             surface.window.request_redraw();
@@ -191,6 +179,7 @@ impl App {
             }
             OverlayEvent::Theme(outcome) => self.theme_outcome(outcome),
             OverlayEvent::Settings(outcome) => self.settings_outcome(outcome),
+            OverlayEvent::Prompt(action) => self.prompt_action(action),
         }
     }
     fn set_ime(&mut self, active: bool) {
@@ -198,18 +187,6 @@ impl App {
             self.ime = active;
             self.send(ClientMsg::Input(InputEvent::Ime(active)));
         }
-    }
-    fn pane_at(&self, point: CellPoint) -> Option<PaneId> {
-        self.layout
-            .as_ref()
-            .and_then(|layout| {
-                layout
-                    .panes
-                    .iter()
-                    .find(|placement| placement.rect.contains(point))
-                    .map(|placement| placement.pane)
-            })
-            .or(self.pane)
     }
     fn reload(&mut self, config: Config) {
         let fonts_changed = config.font != self.effective().font;
@@ -254,6 +231,8 @@ impl App {
             return;
         };
         let padding = self.padding(scale);
+        let prompt = self.effective().prompt.clone();
+        let clock = prompt.time.then(local_clock).flatten();
         let Some(surface) = &mut self.surface else {
             return;
         };
@@ -276,6 +255,14 @@ impl App {
             hover: Some((self.pointer.x as f32, self.pointer.y as f32)),
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
+            isles: Some(Isles {
+                info: self.mirror.prompts(),
+                mirror: &self.mirror,
+                config: &prompt,
+                clock,
+                date: crate::isles::local_date(),
+                home: self.home.as_deref(),
+            }),
         };
         let ChromeLayout {
             chrome,
@@ -437,6 +424,14 @@ impl ApplicationHandler<UserEvent> for App {
                     self.layout = Some(layout);
                     self.request_redraw();
                 }
+                ServerMsg::PromptInfo { pane, info } => {
+                    self.mirror.insert_prompt(pane, info);
+                    self.request_redraw();
+                }
+                ServerMsg::PromptHistory { pane, prompts } => {
+                    self.mirror.insert_history(pane, prompts);
+                    self.request_redraw();
+                }
                 ServerMsg::Status(status) => {
                     self.status = status;
                     self.request_redraw();
@@ -479,6 +474,12 @@ impl ApplicationHandler<UserEvent> for App {
                     event_loop.exit();
                 }
             },
+            UserEvent::PromptContexts { generation, result } => {
+                if self.overlays.prompt_contexts(generation, result) {
+                    self.request_redraw();
+                }
+            }
+            UserEvent::PromptActionFinished(result) => self.prompt_action_finished(result),
             UserEvent::Disconnected => event_loop.exit(),
             UserEvent::Drive(Drive::Key(key)) => self.key(key),
             UserEvent::Drive(Drive::Text(text)) => self.text(text),
@@ -491,6 +492,23 @@ impl ApplicationHandler<UserEvent> for App {
             }
             UserEvent::Drive(Drive::Sleep(duration)) => thread::sleep(duration),
         }
+    }
+
+    fn new_events(&mut self, _: &ActiveEventLoop, cause: StartCause) {
+        if let StartCause::ResumeTimeReached { .. } = cause {
+            self.request_redraw();
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let prompt = self.effective().prompt.clone();
+        let since_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        event_loop.set_control_flow(match prompt.time && prompt.band() > 0 {
+            true => ControlFlow::WaitUntil(Instant::now() + next_minute(since_epoch)),
+            false => ControlFlow::Wait,
+        });
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
@@ -586,10 +604,11 @@ impl ApplicationHandler<UserEvent> for App {
                         MouseAction::Press,
                         self.capture,
                     ) == MouseRoute::Server
+                    && let Some(pane) = paste_target(self.layout.as_ref(), self.pane, point)
                     && (self.mods.shift_key()
                         || self
-                            .pane_at(point)
-                            .and_then(|pane| self.mirror.pane(pane))
+                            .mirror
+                            .pane(pane)
                             .is_some_and(|pane| !pane.flags.mouse_reporting))
                 {
                     if state == ElementState::Pressed {
@@ -696,6 +715,7 @@ pub fn run_target(
         .map_err(|e| GuiError(e.to_string()))?;
     let proxy = event_loop.create_proxy();
     let drive = (!drive.is_empty()).then(|| (drive, proxy.clone()));
+    let app_proxy = proxy.clone();
     std::thread::spawn(move || {
         while let Ok(message) = link.rx.recv() {
             if proxy.send_event(UserEvent::Message(message)).is_err() {
@@ -710,6 +730,7 @@ pub fn run_target(
         theme,
         preview: None,
         tx: link.tx,
+        proxy: app_proxy,
         surface: None,
         mirror: Mirror::default(),
         pane: None,
@@ -728,6 +749,7 @@ pub fn run_target(
         status: StatusLine::default(),
         hits: Vec::new(),
         drive,
+        home: env::var_os("HOME").map(PathBuf::from),
     };
     if let Some(notice) = notice {
         app.overlays.set_notice(notice);

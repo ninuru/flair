@@ -1,3 +1,4 @@
+use crate::shell_integration::ShellIntegration;
 use alacritty_terminal::{
     event::{OnResize, WindowSize},
     tty::{self, Options, Shell},
@@ -24,6 +25,7 @@ pub struct Pty {
     inner: Option<tty::Pty>,
     pid: u32,
     status: Option<i32>,
+    integration: Option<ShellIntegration>,
 }
 impl Pty {
     pub fn spawn(spec: &SpawnSpec) -> io::Result<Pty> {
@@ -33,6 +35,27 @@ impl Pty {
                 "PTY dimensions must be nonzero",
             ));
         }
+        let integration = ShellIntegration::prepare(spec)?;
+        let integration_env = integration
+            .as_ref()
+            .map(|integration| integration.env(spec))
+            .transpose()?
+            .unwrap_or_default();
+        let spawn = SpawnSpec {
+            args: integration.as_ref().map_or_else(
+                || spec.args.clone(),
+                |integration| integration.args(spec, &integration_env),
+            ),
+            env: spec.env.iter().cloned().chain(integration_env).collect(),
+            unset_env: spec
+                .unset_env
+                .iter()
+                .filter(|name| integration.is_none() || *name != "ZDOTDIR")
+                .cloned()
+                .collect(),
+            ..spec.clone()
+        };
+        let spec = &spawn;
         let shell = if spec.unset_env.is_empty() {
             Shell::new(spec.program.clone(), spec.args.clone())
         } else {
@@ -94,6 +117,7 @@ impl Pty {
             inner: Some(inner),
             pid,
             status: None,
+            integration,
         })
     }
     pub fn reader(&self) -> io::Result<File> {
@@ -115,6 +139,10 @@ impl Pty {
     }
     pub fn pid(&self) -> u32 {
         self.pid
+    }
+    pub fn foreground(&self) -> Option<u32> {
+        let pgid = unsafe { libc::tcgetpgrp(self.file().ok()?.as_raw_fd()) };
+        u32::try_from(pgid).ok().filter(|pgid| *pgid > 0)
     }
     pub fn cwd(&self) -> io::Result<PathBuf> {
         let pgid = unsafe { libc::tcgetpgrp(self.file()?.as_raw_fd()) };
@@ -197,6 +225,7 @@ impl Pty {
                 }
             }
             drop(pty);
+            self.integration.take();
         }
     }
 }

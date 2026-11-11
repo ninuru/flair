@@ -27,7 +27,7 @@ fn clicks_map_to_sections_and_controls() {
     assert_eq!(sheet.section, Some(3));
     assert!(!sheet.sections_focused);
     assert_eq!(page.click(SettingsHit::Close), SettingsOutcome::Close);
-    section(&mut page, 4);
+    section(&mut page, 5);
     assert_eq!(
         page.click(SettingsHit::Toggle(0)),
         save("keys.enabled", Some(Value::Bool(false)))
@@ -43,23 +43,15 @@ fn clicks_map_to_sections_and_controls() {
         SettingsOutcome::Revert
     );
     section(&mut page, 0);
-    let next = Value::Text("gruvbox-dark".to_owned());
+    assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Pending);
     assert_eq!(
-        page.click(SettingsHit::Cycle(0)),
-        preview_of("", "theme", Some(&next))
+        page.click(SettingsHit::Choose(2)),
+        save("theme", Some(Value::Text("gruvbox-dark".into())))
     );
-    assert_eq!(
-        page.click(SettingsHit::Edit(2)),
-        save("theme", Some(next.clone()))
-    );
-    assert_eq!(page.sheet().focus, Some(2));
-    assert!(!matches!(control(&page), Control::Editor(_)));
     let text = "theme = \"gruvbox-dark\"\n";
     let config = Config::from_toml(text).unwrap();
-    assert_eq!(
-        page.refresh(&config, config.theme(), text.to_owned()),
-        SettingsOutcome::Pending
-    );
+    page.refresh(&config, config.theme(), text.to_owned());
+    assert_eq!(page.click(SettingsHit::Edit(2)), SettingsOutcome::Pending);
     assert!(matches!(control(&page), Control::Editor(_)));
     assert_eq!(page.click(SettingsHit::Search), SettingsOutcome::Revert);
     assert!(!matches!(control(&page), Control::Editor(_)));
@@ -85,7 +77,7 @@ fn a_section_click_reverts_an_open_editor() {
 #[test]
 fn a_control_click_on_another_entry_saves_the_pending_value_first() {
     let mut page = page("");
-    section(&mut page, 4);
+    section(&mut page, 5);
     page.focus(2);
     press(&mut page, NamedKey::Right);
     assert_eq!(
@@ -200,6 +192,47 @@ fn fail_shows_the_message_on_that_entry_only() {
     assert_eq!(error(&page), None);
 }
 
+#[test]
+fn a_choice_click_opens_prompt_options_and_selection_saves_at_once() {
+    let mut page = page("");
+    section(&mut page, 4);
+    assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+    assert_eq!(
+        page.click(SettingsHit::Choose(1)),
+        save("prompt.style", Some(Value::Text("ps1".into())))
+    );
+}
+
+#[test]
+fn refresh_keeps_a_pending_prompt_style_without_a_preview() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.style");
+    press(&mut page, NamedKey::Right);
+    let config = Config::default();
+    assert_eq!(
+        page.refresh(&config, config.theme(), String::new()),
+        SettingsOutcome::Pending
+    );
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(page.sheet().keys, pending_keys());
+}
+
+#[test]
+fn a_toggle_click_on_a_prompt_chip_saves_at_once() {
+    let mut page = page("");
+    section(&mut page, 4);
+    assert_eq!(
+        page.click(SettingsHit::Toggle(4)),
+        save("prompt.cwd", Some(Value::Bool(false)))
+    );
+    assert_eq!(page.sheet().focus, Some(4));
+    assert_eq!(
+        page.click(SettingsHit::Increase(13)),
+        preview_of("", "prompt.duration_ms", Some(&Value::Integer(2500)))
+    );
+}
+
 fn rgb(color: Rgb) -> [u8; 3] {
     [color.r, color.g, color.b]
 }
@@ -260,7 +293,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         Path::new("/nonexistent/flair.toml"),
     ));
     let page = overlays.settings_mut().unwrap();
-    section(page, 4);
+    section(page, 5);
     page.focus(1);
     let status = StatusLine {
         session: "main".into(),
@@ -280,6 +313,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         hover: None,
         overlays: Some(&overlays),
         notice: None,
+        isles: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -319,7 +353,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
             .map(|(_, rect)| *rect)
             .unwrap()
     };
-    let nav = control(SettingsHit::Section(4));
+    let nav = control(SettingsHit::Section(5));
     let first = row(0);
     let second = row(1);
     let page_rect = hits.panel;
@@ -350,4 +384,57 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         at(track.x + track.w - 4.0, track.y + track.h / 2.0),
         rgb(theme.background)
     );
+}
+
+#[test]
+fn choice_click_opens_a_menu_without_changing_the_value() {
+    let mut page = page("");
+    assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("flair-dark".into()));
+    let dropdown = page.sheet().dropdown.unwrap();
+    assert_eq!(dropdown.options, names());
+    assert_eq!(dropdown.selected, 1);
+    assert_eq!(page.insert("gruvbox"), SettingsOutcome::Pending);
+    assert!(page.sheet().search.text.is_empty());
+    assert!(page.sheet().dropdown.is_some());
+    assert_eq!(
+        page.click(SettingsHit::Choose(2)),
+        save("theme", Some(Value::Text("gruvbox-dark".into())))
+    );
+    assert!(page.sheet().dropdown.is_none());
+}
+
+#[test]
+fn dropdown_keyboard_navigation_and_escape_leave_saved_values_unchanged() {
+    let mut page = page("");
+    page.click(SettingsHit::Cycle(0));
+    assert_eq!(press(&mut page, NamedKey::Down), SettingsOutcome::Pending);
+    assert_eq!(page.sheet().dropdown.unwrap().selected, 2);
+    assert_eq!(press(&mut page, NamedKey::Escape), SettingsOutcome::Pending);
+    assert!(page.sheet().dropdown.is_none());
+    assert_eq!(control(&page), Control::Choice("flair-dark".into()));
+    press(&mut page, NamedKey::Enter);
+    page.wheel(-10);
+    assert_eq!(page.sheet().dropdown.unwrap().selected, 0);
+    assert_eq!(
+        press(&mut page, NamedKey::Enter),
+        save("theme", Some(Value::Text("catppuccin-mocha".into())))
+    );
+}
+
+#[test]
+fn dismissing_or_focusing_another_setting_closes_a_dropdown_without_saving() {
+    let mut page = page("");
+    page.click(SettingsHit::Cycle(0));
+    assert!(page.dismiss_dropdown());
+    assert!(!page.dismiss_dropdown());
+    page.click(SettingsHit::Cycle(0));
+    assert_eq!(page.focus(2), SettingsOutcome::Pending);
+    assert!(page.sheet().dropdown.is_none());
+    page.click(SettingsHit::Cycle(0));
+    assert_eq!(
+        page.click(SettingsHit::DismissDropdown),
+        SettingsOutcome::Pending
+    );
+    assert!(page.sheet().dropdown.is_none());
 }

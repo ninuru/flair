@@ -27,6 +27,8 @@ pub enum TextFace {
     Ui,
     Small,
     Mono,
+    Icon,
+    PromptIcon,
 }
 
 #[derive(Debug, Clone, PartialEq)]

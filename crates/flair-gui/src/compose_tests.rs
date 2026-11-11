@@ -2,21 +2,29 @@ use super::*;
 use crate::{
     CellMetrics, Fonts,
     chrome_layout::{self, ChromeInput, ChromeLayout, bar_height, grid_origin, grid_size},
+    isles::Isles,
     overlays::Overlays,
     renderer::{HeadlessContext, Renderer},
     status::status_parts,
 };
 use flair_core::{
-    config::Config,
+    config::{Config, PromptConfig},
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::WindowId,
+    isles::{AheadBehind, Changes, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
     proto::{
         Cell, Cursor, CursorShape, PaneFlags, PanePlacement, PaneUpdate, SelectionSpan, Separator,
         ServerMsg, SessionInfo, WindowLayout,
     },
     status::{StatusLine, StatusWindow},
+    time::Millis,
 };
-use std::{fs, io::Write, path::Path};
+use std::{
+    collections::BTreeMap,
+    fs,
+    io::Write,
+    path::{Path, PathBuf},
+};
 
 #[test]
 fn compose_resolves_inverse_and_cursor() {
@@ -141,10 +149,12 @@ fn frame_places_panes_from_row_zero_and_only_shows_active_cursor() {
             PanePlacement {
                 pane: PaneId(1),
                 rect: rect(0, 2),
+                band: 0,
             },
             PanePlacement {
                 pane: PaneId(2),
                 rect: rect(3, 2),
+                band: 0,
             },
         ],
         separators: vec![Separator {
@@ -210,6 +220,7 @@ fn frame_clips_stale_rectangles_and_wide_glyphs_at_the_edge() {
             panes: vec![PanePlacement {
                 pane: PaneId(1),
                 rect,
+                band: 0,
             }],
             separators: vec![],
             active: PaneId(1),
@@ -361,10 +372,12 @@ fn split_frame(size: GridSize) -> (Mirror, WindowLayout) {
             PanePlacement {
                 pane: PaneId(1),
                 rect: rect(0, left),
+                band: 0,
             },
             PanePlacement {
                 pane: PaneId(2),
                 rect: rect(left + 1, size.cols - left - 1),
+                band: 0,
             },
         ],
         separators: vec![Separator {
@@ -449,6 +462,7 @@ fn draw_chrome_frame(
         hover: None,
         overlays: Some(&overlays),
         notice: None,
+        isles: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -681,10 +695,12 @@ fn stacked_frame_moves_selection_with_cells_and_draws_horizontal_separator() {
             PanePlacement {
                 pane: PaneId(1),
                 rect: rect(0),
+                band: 0,
             },
             PanePlacement {
                 pane: PaneId(2),
                 rect: rect(2),
+                band: 0,
             },
         ],
         separators: vec![Separator {
@@ -712,5 +728,218 @@ fn stacked_frame_moves_selection_with_cells_and_draws_horizontal_separator() {
             g: theme.selection.g,
             b: theme.selection.b
         }
+    );
+}
+
+fn banded(layout: WindowLayout) -> WindowLayout {
+    WindowLayout {
+        panes: layout
+            .panes
+            .iter()
+            .map(|placement| PanePlacement {
+                rect: CellRect {
+                    origin: CellPoint {
+                        row: placement.rect.origin.row + 1,
+                        ..placement.rect.origin
+                    },
+                    size: GridSize {
+                        rows: placement.rect.size.rows - 1,
+                        ..placement.rect.size
+                    },
+                },
+                band: 1,
+                ..*placement
+            })
+            .collect(),
+        ..layout
+    }
+}
+
+#[test]
+fn the_band_row_above_a_pane_stays_blank_in_the_cell_grid() {
+    let theme = Config::default().theme();
+    let size = GridSize { cols: 20, rows: 4 };
+    let (mirror, layout) = split_frame(size);
+    let layout = banded(layout);
+    let grid = compose_frame(&mirror, &layout, size, &theme, true);
+    assert!(
+        grid.cells[..20]
+            .iter()
+            .all(|cell| cell.c == ' ' && cell.bg == theme.background)
+    );
+    assert!(
+        grid.to_lines()[1].contains("left pan"),
+        "{:?}",
+        grid.to_lines()
+    );
+    assert_eq!(grid.cursor.map(|cursor| cursor.point.row), Some(2));
+}
+
+fn band_prompts() -> BTreeMap<PaneId, PromptInfo> {
+    let left = PromptInfo {
+        cwd: Some(PathBuf::from("/home/ada/src/flair")),
+        git: Some(GitInfo {
+            head: Head::Branch("main".into()),
+            upstream: Some(AheadBehind {
+                ahead: 1,
+                behind: 2,
+            }),
+            changes: Some(Changes {
+                files: 3,
+                added: 10,
+                removed: 2,
+            }),
+        }),
+        last: Some(LastCommand {
+            exit: Some(1),
+            duration: Millis(420),
+        }),
+        kube: Some("prod".into()),
+        ..PromptInfo::default()
+    };
+    let right = PromptInfo {
+        cwd: Some(PathBuf::from(
+            "/home/ada/work/a-rather-long-project-name/crates/server",
+        )),
+        git: Some(GitInfo {
+            head: Head::Detached("a1b2c3d".into()),
+            upstream: None,
+            changes: None,
+        }),
+        last: Some(LastCommand {
+            exit: Some(0),
+            duration: Millis(12_400),
+        }),
+        shell: Some(ShellFacts {
+            user: "ada".into(),
+            host: "box".into(),
+            venv: Some("env".into()),
+        }),
+        docker: Some("colima".into()),
+        kube: Some("prod".into()),
+    };
+    BTreeMap::from([(PaneId(1), left), (PaneId(2), right)])
+}
+
+#[test]
+fn gpu_frame_draws_chips_on_each_panes_shell_prompt_row() {
+    const W: u32 = 960;
+    const H: u32 = 400;
+    let (ctx, gl) = match HeadlessContext::new((W, H)) {
+        Ok(pair) => pair,
+        Err(error) => {
+            if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
+                panic!("required EGL unavailable: {error}");
+            }
+            eprintln!("skipped band EGL frame: {error}");
+            return;
+        }
+    };
+    let config = Config::default();
+    let theme = config.theme();
+    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
+    let metrics = fonts.metrics();
+    let padding = (
+        f32::from(config.window.padding_x),
+        f32::from(config.window.padding_y),
+    );
+    let size = grid_size((W, H), padding, 1.0, metrics);
+    let (mut mirror, layout) = split_frame(size);
+    let updates: Vec<_> = layout
+        .panes
+        .iter()
+        .map(|placement| PaneUpdate {
+            pane: placement.pane,
+            size: placement.rect.size,
+            full: false,
+            rows: Vec::new(),
+            cursor: Cursor {
+                point: CellPoint { col: 0, row: 3 },
+                shape: CursorShape::Block,
+                visible: true,
+            },
+            flags: PaneFlags {
+                prompt_row: Some(2),
+                ..Default::default()
+            },
+            selection: Vec::new(),
+        })
+        .collect();
+    mirror.apply(&updates);
+    let grid = compose_frame(&mirror, &layout, size, &theme, true);
+    let prompts = band_prompts();
+    let prompt = PromptConfig {
+        time: true,
+        user: true,
+        host: true,
+        venv: true,
+        docker: true,
+        kube: true,
+        ..PromptConfig::default()
+    };
+    let parts = status_parts(&chrome_status());
+    let input = ChromeInput {
+        px: (W, H),
+        scale: 1.0,
+        padding,
+        metrics,
+        ui: fonts.ui_metrics(),
+        theme: &theme,
+        status: &parts,
+        prompt: None,
+        layout: Some(&layout),
+        hover: None,
+        overlays: None,
+        notice: None,
+        isles: Some(Isles {
+            info: &prompts,
+            mirror: &mirror,
+            config: &prompt,
+            clock: Some((15, 48)),
+            date: Some((2026, 11, 10)),
+            home: Some(Path::new("/home/ada")),
+        }),
+    };
+    let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
+    let mut renderer = Renderer::new(gl, metrics).unwrap();
+    renderer.resize((W, H));
+    renderer
+        .draw_frame(&grid, &chrome.chrome, &mut fonts, theme.background)
+        .unwrap();
+    let frame = Frame {
+        width: W as usize,
+        height: H as usize,
+        pixels: renderer.read_pixels(),
+    };
+    drop(renderer);
+    drop(ctx);
+    frame.dump("FLAIR_BAND_PPM");
+    let origin = grid_origin((W, H), padding, 1.0, metrics);
+    let prompt_y = origin.1 + 2.0 * metrics.height;
+    let chips: Vec<_> = chrome
+        .chrome
+        .quads
+        .iter()
+        .filter(|quad| quad.rect.y >= prompt_y && quad.border.is_some())
+        .collect();
+    assert!(chips.len() >= 4, "{chips:?}");
+    for chip in &chips {
+        let rect = chip.rect;
+        assert!(rect.y >= prompt_y && rect.y + rect.h <= prompt_y + metrics.height);
+        assert_eq!(
+            frame.at(rect.x + 3.0, rect.y + rect.h / 2.0),
+            [chip.color.r, chip.color.g, chip.color.b],
+            "{rect:?}"
+        );
+        assert_eq!(
+            frame.at(rect.x - 2.0, rect.y + rect.h / 2.0),
+            rgb(theme.background),
+            "{rect:?}"
+        );
+    }
+    let row = (origin.1 + metrics.height * 1.5) as usize;
+    assert!(
+        (0..W as usize).any(|x| frame.at(x as f32, row as f32) != rgb(theme.background)),
+        "content starts below the band row"
     );
 }

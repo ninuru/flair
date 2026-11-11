@@ -1,5 +1,5 @@
 use super::*;
-use crate::{renderer::TextFace, ui::ELLIPSIS};
+use crate::{CellMetrics, renderer::TextFace, ui::ELLIPSIS};
 use flair_core::config::Config;
 
 fn measure(text: &str, _: bool) -> f32 {
@@ -12,12 +12,23 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> PxRect {
 
 fn input(theme: &Theme, px: (u32, u32), scale: f32, hover: Option<(f32, f32)>) -> OverlayInput<'_> {
     OverlayInput {
+        metrics: crate::CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
         px,
         scale,
         ui: UiMetrics {
             height: 14.0 * scale,
             ascent: 11.0 * scale,
             small: 0.5,
+            cap: 8.0 * scale,
+            icon: CellMetrics {
+                width: 7.0 * scale,
+                height: 12.0 * scale,
+                baseline: 9.0 * scale,
+            },
         },
         theme,
         hover,

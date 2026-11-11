@@ -7,6 +7,8 @@ use flair_core::{
 use flair_term::pty::SpawnSpec;
 use std::path::PathBuf;
 
+use crate::event::Timer;
+
 #[derive(Debug)]
 pub enum Effect {
     Spawn(PaneId, SpawnSpec),
@@ -15,7 +17,13 @@ pub enum Effect {
     ResizePty(PaneId, GridSize),
     KillPty(PaneId),
     Send(ClientId, ServerMsg),
-    SetTimer(u64, Millis),
+    SetTimer(Timer, Millis),
     ReadConfig(PathBuf),
+    ReadGit {
+        cwd: PathBuf,
+        changes: bool,
+        panes: Vec<PaneId>,
+    },
+    ReadContexts,
     Shutdown,
 }

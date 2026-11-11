@@ -1,7 +1,8 @@
 use super::*;
 use flair_core::{
     command::{PaneRef, WindowRef},
-    geom::Axis,
+    geom::{Axis, CellPoint, CellRect},
+    layout::Layout,
     tree::Window,
 };
 use flair_term::{Terminal, pty::SpawnSpec};
@@ -16,6 +17,11 @@ impl Server {
         env: &[(String, String)],
         no_history: bool,
     ) -> SpawnSpec {
+        let area = CellRect {
+            origin: CellPoint::default(),
+            size,
+        };
+        let size = Layout::Leaf(id).geometry(area, 0).panes[0].rect.size;
         let size = GridSize {
             cols: size.cols.max(1),
             rows: size.rows.max(1),
@@ -31,7 +37,9 @@ impl Server {
                 dirty: true,
                 cached: None,
                 exited: false,
-                running: false,
+                started: None,
+                last: None,
+                shell: None,
                 wheel_copy: false,
             },
         );
@@ -172,7 +180,7 @@ impl Server {
             .tree
             .window(window_id)
             .unwrap()
-            .geometry()
+            .geometry(0)
             .panes
             .into_iter()
             .find(|placement| placement.pane == new)

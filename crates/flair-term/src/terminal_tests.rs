@@ -57,6 +57,22 @@ fn osc_cwd_and_prompt_marks_survive_chunk_boundaries() {
 }
 
 #[test]
+fn shell_facts_surface_as_events_across_advance_calls() {
+    let mut term = Terminal::new(GridSize { cols: 10, rows: 3 }, 0);
+    term.advance(b"\x1b]6973;flair;u=ada;h=b");
+    assert!(term.take_events().is_empty());
+    term.advance(b"%C3%B6x;v=env\x1b\\");
+    assert_eq!(
+        term.take_events(),
+        vec![TermEvent::Facts(ShellFacts {
+            user: "ada".to_string(),
+            host: "böx".to_string(),
+            venv: Some("env".to_string()),
+        })]
+    );
+}
+
+#[test]
 fn scrollback_forces_full_frames_and_returns_to_bottom() {
     let mut term = Terminal::new(GridSize { cols: 10, rows: 2 }, 100);
     term.advance(b"one\r\ntwo\r\nthree");
@@ -329,4 +345,140 @@ fn alt_screen_switch_leaves_copy_mode() {
     term.enter_copy_mode();
     term.advance(b"\x1b[?1049l");
     assert_left_copy_mode(&mut term);
+}
+
+#[test]
+fn prompt_anchor_tracks_the_reserved_row_without_leaking_text() {
+    let mut term = Terminal::new(GridSize { cols: 12, rows: 5 }, 100);
+    term.advance(b"output\r\n\x1b]6973;prompt\x07\r\n> command");
+    let frame = term.snapshot(PaneId(1), true).unwrap();
+    assert_eq!(frame.flags.prompt_row, Some(1));
+    assert!(
+        frame.rows[1]
+            .1
+            .iter()
+            .all(|cell| cell.c == ' ' && cell.extra.is_none() && cell.flags.is_empty())
+    );
+    term.select_start(CellPoint { col: 0, row: 1 }, 1);
+    term.select_update(CellPoint { col: 8, row: 2 });
+    assert_eq!(term.selection_text().as_deref(), Some("\n> command"));
+    term.clear_selection();
+    term.advance(b"long enough to wrap around\x08\x08");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        Some(1)
+    );
+    term.resize(GridSize { cols: 9, rows: 7 });
+    let resized = term.snapshot(PaneId(1), true).unwrap();
+    let row = resized.flags.prompt_row.expect("prompt survives reflow");
+    assert_eq!(resized.rows[usize::from(row + 1)].1[0].c, '>');
+    assert!(
+        resized.rows[usize::from(row)]
+            .1
+            .iter()
+            .all(|cell| cell.c == ' ')
+    );
+}
+
+#[test]
+fn prompt_anchor_moves_with_scroll_and_never_revives_old_prompts() {
+    let mut term = Terminal::new(GridSize { cols: 20, rows: 4 }, 100);
+    term.advance(b"\x1b]6973;prompt\x07\r\n> first\r\n\x1b]6973;prompt\x07\r\n> second");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        Some(2)
+    );
+    term.advance(b"\r\noutput");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        Some(1)
+    );
+    term.advance(b"\r\noutput\r\noutput");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        None
+    );
+    term.scroll(4);
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        None
+    );
+    term.scroll_to_bottom();
+    term.advance(b"\x1b]6973;prompt\x07\r\n> third");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        Some(2)
+    );
+    term.advance(b"\x1b[?1049h");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        None
+    );
+    term.advance(b"\x1b[?1049l");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        Some(2)
+    );
+    term.advance(b"\x1b[2J");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        None
+    );
+}
+
+#[test]
+fn prompt_anchor_accepts_split_osc_terminators() {
+    let mut term = Terminal::new(GridSize { cols: 12, rows: 4 }, 100);
+    term.advance(b"\r\n\x1b]6973;pro");
+    term.advance(b"mpt\x1b");
+    term.advance(b"\\\r\n> text");
+    assert_eq!(
+        term.snapshot(PaneId(1), true).unwrap().flags.prompt_row,
+        Some(1)
+    );
+}
+
+#[test]
+fn prompt_history_keeps_facts_with_their_grid_rows_through_scroll_and_reflow() {
+    let mut term = Terminal::new(GridSize { cols: 24, rows: 6 }, 12);
+    term.advance(b"\x1b]6973;prompt\x07\r\nfirst\r\n");
+    term.set_prompt_info(flair_core::isles::PromptInfo {
+        cwd: Some(PathBuf::from("/first")),
+        ..Default::default()
+    });
+    term.advance(b"\x1b]6973;prompt\x07\r\nsecond");
+    term.set_prompt_info(flair_core::isles::PromptInfo {
+        cwd: Some(PathBuf::from("/second")),
+        ..Default::default()
+    });
+    let history = term.prompt_history();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].row, 0);
+    assert_eq!(history[1].row, 2);
+    assert_ne!(history[0].id, history[1].id);
+    assert_eq!(history[0].info.cwd.as_deref(), Some(Path::new("/first")));
+    assert_eq!(history[1].info.cwd.as_deref(), Some(Path::new("/second")));
+    term.advance(b"\r\nmore\r\nmore\r\nmore");
+    assert_eq!(term.prompt_history().len(), 1);
+    term.scroll(2);
+    assert_eq!(term.prompt_history().len(), 2);
+    term.resize(GridSize { cols: 12, rows: 8 });
+    let history = term.prompt_history();
+    assert_eq!(history.len(), 2);
+    assert_eq!(history[0].info.cwd.as_deref(), Some(Path::new("/first")));
+    let frame = term.snapshot(PaneId(1), true).unwrap();
+    assert!(
+        frame
+            .rows
+            .iter()
+            .all(|(_, cells)| cells.iter().all(|cell| cell.extra.is_none()))
+    );
+    term.select_start(CellPoint { col: 0, row: 0 }, 1);
+    term.select_update(CellPoint { col: 11, row: 7 });
+    assert!(
+        term.selection_text()
+            .is_some_and(|text| !text.contains("flair-prompt"))
+    );
+    term.advance(b"\x1b[?1049h");
+    assert!(term.prompt_history().is_empty());
 }

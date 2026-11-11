@@ -1,0 +1,129 @@
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+
+use crate::time::Millis;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Chip {
+    User,
+    Host,
+    Cwd,
+    GitBranch,
+    GitAheadBehind,
+    GitChanges,
+    Venv,
+    Docker,
+    Kube,
+    Exit,
+    Time,
+    Date,
+}
+
+impl Chip {
+    pub const ALL: [Chip; 12] = [
+        Chip::User,
+        Chip::Host,
+        Chip::Cwd,
+        Chip::GitBranch,
+        Chip::GitAheadBehind,
+        Chip::GitChanges,
+        Chip::Venv,
+        Chip::Docker,
+        Chip::Kube,
+        Chip::Exit,
+        Chip::Time,
+        Chip::Date,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Chip::User => "user",
+            Chip::Host => "host",
+            Chip::Cwd => "cwd",
+            Chip::GitBranch => "git_branch",
+            Chip::GitAheadBehind => "git_ahead_behind",
+            Chip::GitChanges => "git_changes",
+            Chip::Venv => "venv",
+            Chip::Docker => "docker",
+            Chip::Kube => "kube",
+            Chip::Exit => "exit",
+            Chip::Time => "time",
+            Chip::Date => "date",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|chip| chip.name() == name)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct PromptInfo {
+    pub cwd: Option<PathBuf>,
+    pub git: Option<GitInfo>,
+    pub last: Option<LastCommand>,
+    pub shell: Option<ShellFacts>,
+    pub docker: Option<String>,
+    pub kube: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitInfo {
+    pub head: Head,
+    pub upstream: Option<AheadBehind>,
+    pub changes: Option<Changes>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Head {
+    Branch(String),
+    Detached(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AheadBehind {
+    pub ahead: u32,
+    pub behind: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Changes {
+    pub files: u32,
+    pub added: u32,
+    pub removed: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LastCommand {
+    pub exit: Option<i32>,
+    pub duration: Millis,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ShellFacts {
+    pub user: String,
+    pub host: String,
+    pub venv: Option<String>,
+}
+
+pub const LABEL_MAX: usize = 64;
+
+pub fn plain(text: &str) -> bool {
+    !text.chars().any(|c| {
+        c.is_control()
+            || matches!(
+                c,
+                '\u{061C}' | '\u{200B}'..='\u{200F}' | '\u{2028}'..='\u{202E}' | '\u{2066}'..='\u{2069}' | '\u{FEFF}'
+            )
+    })
+}
+
+pub fn label(text: &str) -> Option<String> {
+    plain(text).then(|| text.chars().take(LABEL_MAX).collect())
+}
+
+#[cfg(test)]
+#[path = "isles_tests.rs"]
+mod tests;

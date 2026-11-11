@@ -13,6 +13,11 @@ use crate::{
     theme::{BUILTIN_THEMES, Rgb, Rgba, Theme},
 };
 
+pub use crate::prompt_config::{
+    AnsiColour, PromptAppearance, PromptConfig, PromptDateFormat, PromptOrder, PromptPath,
+    PromptSeparator, PromptStyle, PromptTimeFormat, SegmentConfig,
+};
+
 const MAX_THEME_NAME: usize = 64;
 const SELECTION_ALPHA: u8 = 0x40;
 
@@ -30,6 +35,7 @@ pub struct Config {
     pub cursor: CursorConfig,
     pub bell: BellConfig,
     pub colors: ColorsConfig,
+    pub prompt: PromptConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -333,6 +339,7 @@ impl Default for Config {
             cursor: CursorConfig::default(),
             bell: BellConfig::default(),
             colors: ColorsConfig::default(),
+            prompt: PromptConfig::default(),
         }
     }
 }

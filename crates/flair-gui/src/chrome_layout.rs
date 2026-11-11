@@ -1,6 +1,7 @@
 use flair_core::{
     geom::{Axis, CellPoint, CellRect, GridSize},
-    ids::WindowId,
+    ids::{PaneId, WindowId},
+    isles::Chip,
     proto::{Separator, WindowLayout},
     theme::Theme,
 };
@@ -8,6 +9,7 @@ use flair_core::{
 use crate::{
     CellMetrics, UiMetrics,
     chrome_bar::{self, Scene, fill},
+    isles::{self, Isles},
     notice::Notice,
     overlay_layout::{OverlayHits, OverlayInput},
     overlays::Overlays,
@@ -36,12 +38,14 @@ pub struct ChromeInput<'a> {
     pub hover: Option<(f32, f32)>,
     pub overlays: Option<&'a Overlays>,
     pub notice: Option<&'a Notice>,
+    pub isles: Option<Isles<'a>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HitTarget {
     Window(WindowId),
     Session,
+    Prompt { pane: PaneId, row: u16, chip: Chip },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -130,10 +134,12 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     };
     if let Some(window) = input.layout {
         separators(input, window, extend, &mut scene);
+        isles::band(input, window, &mut scene);
     }
     let overlay = input.overlays.and_then(|overlays| {
         overlays.layout(
             &OverlayInput {
+                metrics: input.metrics,
                 px: input.px,
                 scale,
                 ui: input.ui,
@@ -169,7 +175,7 @@ fn separators(input: &ChromeInput, window: &WindowLayout, bounds: PxRect, scene:
         .panes
         .iter()
         .find(|placement| placement.pane == window.active)
-        .map(|placement| placement.rect);
+        .map(|placement| placement.outer());
     for separator in &window.separators {
         if let Some(rect) = intersect(
             separator_rect(input, separator.axis, separator.rect, bounds),
@@ -296,7 +302,7 @@ fn separator_rect(input: &ChromeInput, axis: Axis, rect: CellRect, bounds: PxRec
     }
 }
 
-fn cell_rect(input: &ChromeInput, rect: CellRect) -> PxRect {
+pub(crate) fn cell_rect(input: &ChromeInput, rect: CellRect) -> PxRect {
     let origin = grid_origin(input.px, input.padding, input.scale, input.metrics);
     let metrics = input.metrics;
     PxRect {

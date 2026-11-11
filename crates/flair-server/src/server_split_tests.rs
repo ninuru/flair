@@ -134,7 +134,7 @@ fn split_frames_include_all_visible_panes_and_inactive_output() {
     let split = run(&mut server, ClientId(1), Command::Split(Axis::Horizontal));
     let window = server.tree.window(WindowId(1)).unwrap();
     let second = window.active_pane;
-    let layout = window.geometry();
+    let layout = window.geometry(0);
     assert_eq!(layout.panes.len(), 2);
     assert_eq!(layout.panes[0].rect.origin, CellPoint { col: 0, row: 0 });
     assert_eq!(server.panes[&PaneId(1)].size, GridSize { cols: 9, rows: 4 });
@@ -200,9 +200,9 @@ fn closing_a_split_pane_collapses_layout_and_resizes_survivor() {
 fn zoom_is_shared_and_restores_split_geometry() {
     let (mut server, _) = setup();
     run(&mut server, ClientId(1), Command::Split(Axis::Horizontal));
-    let before = server.tree.window(WindowId(1)).unwrap().geometry();
+    let before = server.tree.window(WindowId(1)).unwrap().geometry(0);
     run(&mut server, ClientId(1), Command::ToggleZoom);
-    let zoomed = server.tree.window(WindowId(1)).unwrap().geometry();
+    let zoomed = server.tree.window(WindowId(1)).unwrap().geometry(0);
     assert!(zoomed.zoomed);
     assert_eq!(zoomed.panes.len(), 1);
     assert_eq!(zoomed.panes[0].pane, before.active);
@@ -212,7 +212,7 @@ fn zoom_is_shared_and_restores_split_geometry() {
         GridSize { cols: 20, rows: 4 }
     );
     run(&mut server, ClientId(1), Command::ToggleZoom);
-    assert_eq!(server.tree.window(WindowId(1)).unwrap().geometry(), before);
+    assert_eq!(server.tree.window(WindowId(1)).unwrap().geometry(0), before);
 }
 
 #[test]
@@ -247,7 +247,7 @@ fn active_split_selection_converts_full_grid_coordinates() {
     let (mut server, _) = setup();
     run(&mut server, ClientId(1), Command::Split(Axis::Horizontal));
     let pane = server.client_pane(ClientId(1)).unwrap();
-    let origin = server.tree.window(WindowId(1)).unwrap().geometry().panes[1]
+    let origin = server.tree.window(WindowId(1)).unwrap().geometry(0).panes[1]
         .rect
         .origin;
     let mut out = Vec::new();
@@ -327,6 +327,8 @@ fn no_history_windows_and_splits_preserve_environment_policy() {
                 | Effect::Send(_, _)
                 | Effect::SetTimer(_, _)
                 | Effect::ReadConfig(_)
+                | Effect::ReadGit { .. }
+                | Effect::ReadContexts
                 | Effect::Shutdown => None,
             })
             .unwrap();
@@ -462,6 +464,8 @@ fn exited_pane_reaps_after_staggered_clients_acknowledge_its_final_snapshot() {
                 | Effect::Send(_, _)
                 | Effect::SetTimer(_, _)
                 | Effect::ReadConfig(_)
+                | Effect::ReadGit { .. }
+                | Effect::ReadContexts
                 | Effect::Shutdown => None,
             })
             .unwrap()
@@ -613,7 +617,7 @@ fn prefix_quote_stacks_panes_top_and_bottom() {
     ack(&mut server, &initial);
     let out = prefixed(&mut server, '"', '\'');
     assert_split_in_pane_cwd(&out);
-    let layout = server.tree.window(WindowId(1)).unwrap().geometry();
+    let layout = server.tree.window(WindowId(1)).unwrap().geometry(0);
     let [top, bottom] = layout.panes.as_slice() else {
         panic!("expected two panes, got {:?}", layout.panes);
     };
@@ -633,7 +637,7 @@ fn prefix_percent_places_panes_left_and_right() {
     ack(&mut server, &initial);
     let out = prefixed(&mut server, '%', '5');
     assert_split_in_pane_cwd(&out);
-    let layout = server.tree.window(WindowId(1)).unwrap().geometry();
+    let layout = server.tree.window(WindowId(1)).unwrap().geometry(0);
     let [left, right] = layout.panes.as_slice() else {
         panic!("expected two panes, got {:?}", layout.panes);
     };

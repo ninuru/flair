@@ -5,7 +5,7 @@ mod pipeline;
 use crate::{
     atlas::{AtlasFull, AtlasGlyph, Face, GlyphCache, GlyphKey},
     cellgrid::CellGrid,
-    font::{CellMetrics, Fonts, Style},
+    font::{CellMetrics, Fonts, PROMPT_ICON_SCALE, Style},
     ui::px,
 };
 pub use chrome::{Border, Chrome, PxRect, Quad, TextFace, TextRun};
@@ -18,6 +18,7 @@ use flair_core::{
 use glow::HasContext;
 use pipeline::Pipeline;
 use std::{collections::HashSet, error::Error, fmt};
+use unicode_width::UnicodeWidthChar;
 
 const ATLAS_SIZE: u32 = 2048;
 
@@ -205,6 +206,8 @@ impl Renderer {
             Face::Cell => fonts.rasterize(key.c, key.style),
             Face::Ui => fonts.rasterize_ui(key.c, key.style),
             Face::Small => fonts.rasterize_small(key.c, key.style),
+            Face::Icon => fonts.rasterize_icon(key.c),
+            Face::PromptIcon => fonts.rasterize_prompt_icon(key.c),
         }) {
             Ok(glyph) => glyph?,
             Err(AtlasFull) => {
@@ -244,22 +247,39 @@ impl Renderer {
                 TextFace::Ui => Face::Ui,
                 TextFace::Small => Face::Small,
                 TextFace::Mono => Face::Cell,
+                TextFace::Icon => Face::Icon,
+                TextFace::PromptIcon => Face::PromptIcon,
             };
             let mut x = run.x;
+            let mut base_x = x;
             for c in run.text.chars() {
+                let width = c.width().unwrap_or(1);
+                let pen_x = match run.face {
+                    TextFace::Mono if width == 0 => base_x,
+                    TextFace::Mono
+                    | TextFace::Ui
+                    | TextFace::Small
+                    | TextFace::Icon
+                    | TextFace::PromptIcon => x,
+                };
                 let key = GlyphKey { face, c, style };
                 if let Some(glyph) = (c != ' ').then(|| self.glyph(key, fonts)).flatten() {
                     glyph_instance(
                         &mut out,
                         &glyph,
-                        (x.round(), run.baseline.round()),
+                        (pen_x.round(), run.baseline.round()),
                         run.color,
                     );
+                }
+                if width > 0 {
+                    base_x = x;
                 }
                 x += match run.face {
                     TextFace::Ui => fonts.ui_advance(c, style),
                     TextFace::Small => fonts.small_advance(c, style),
-                    TextFace::Mono => self.metrics.width,
+                    TextFace::Mono => self.metrics.width * width as f32,
+                    TextFace::Icon => fonts.ui_metrics().icon.width,
+                    TextFace::PromptIcon => self.metrics.width * PROMPT_ICON_SCALE * width as f32,
                 };
             }
         }

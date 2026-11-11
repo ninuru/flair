@@ -25,7 +25,15 @@ pub struct SettingsSheet {
     pub search: Field,
     pub groups: Vec<Group>,
     pub focus: Option<usize>,
+    pub dropdown: Option<ChoiceMenu>,
     pub keys: Vec<(&'static str, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChoiceMenu {
+    pub item: usize,
+    pub options: Vec<String>,
+    pub selected: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +75,7 @@ pub enum Control {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsHit {
+    PromptEditor(crate::prompt_editor::PromptAction),
     Section(usize),
     Close,
     Search,
@@ -74,6 +83,8 @@ pub enum SettingsHit {
     Decrease(usize),
     Increase(usize),
     Cycle(usize),
+    Choose(usize),
+    DismissDropdown,
     Edit(usize),
 }
 
@@ -138,6 +149,7 @@ pub fn layout(
             measure,
         );
     }
+    dropdown_layout::layout(sheet, frame.page, input, &mut scene, measure);
     scene
 }
 
@@ -203,6 +215,10 @@ fn frame(input: &OverlayInput) -> Frame {
         },
         footer,
     }
+}
+
+pub(crate) fn editor_rect(input: &OverlayInput) -> PxRect {
+    frame(input).viewport
 }
 
 fn place(sheet: &SettingsSheet, scale: f32) -> Vec<Placed<'_>> {
@@ -531,3 +547,6 @@ fn heading_line(
 #[cfg(test)]
 #[path = "settings_layout_tests.rs"]
 mod tests;
+
+#[path = "settings_dropdown_layout.rs"]
+mod dropdown_layout;

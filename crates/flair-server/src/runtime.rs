@@ -1,4 +1,10 @@
-use crate::{config::ServerConfig, effect::Effect, event::Event, server::Server};
+use crate::{
+    config::ServerConfig,
+    effect::Effect,
+    event::Event,
+    facts::{self, Contexts, Job},
+    server::Server,
+};
 use flair_core::{
     ids::{ClientId, PaneId},
     link::ServerLink,
@@ -341,6 +347,29 @@ fn write_pty(mut writer: File, queue: Receiver<Vec<u8>>, stop: Arc<AtomicBool>) 
     }
 }
 
+fn spawn_facts(events: SyncSender<RuntimeEvent>) -> Sender<Job> {
+    let (jobs, queue) = mpsc::channel();
+    let (docker_context, docker, kube) = facts::context_sources();
+    if let Err(error) = thread::Builder::new()
+        .name("flair-facts".into())
+        .spawn(move || {
+            facts::work(queue, docker_context, docker, kube, |event| {
+                events.send(RuntimeEvent::State(event)).is_ok()
+            });
+        })
+    {
+        log::error!("could not start the facts worker: {error}");
+    }
+    jobs
+}
+
+fn request(jobs: &Sender<Job>, job: Job) -> Option<Event> {
+    jobs.send(job).err().map(|unsent| match unsent.0 {
+        Job::Git { cwd, .. } => Event::GitRead(cwd, None),
+        Job::Contexts => Event::ContextsRead(Contexts::default()),
+    })
+}
+
 fn run(
     config: ServerConfig,
     event_tx: SyncSender<RuntimeEvent>,
@@ -350,10 +379,12 @@ fn run(
     use std::collections::HashMap;
     let started = Instant::now();
     let mut server = Server::new(config);
+    let jobs = spawn_facts(event_tx.clone());
     let mut workers: HashMap<PaneId, PtyWorker> = HashMap::new();
     let mut clients: HashMap<ClientId, SyncSender<ServerMsg>> = HashMap::new();
     let mut timers = Vec::new();
     let mut shutdown = false;
+    let mut facts_gone = false;
     let mut pending_effects = Vec::new();
     while !shutdown && (owned || !TERMINATED.load(Ordering::Acquire)) {
         let now = Millis(started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
@@ -407,6 +438,7 @@ fn run(
         timers = pending_timers;
         let mut gone = Vec::new();
         let mut failed = Vec::new();
+        let mut unanswered = Vec::new();
         for effect in effects {
             let effect = if let Effect::SpawnSplit(id, parent, mut spec) = effect {
                 if let Some(worker) = workers.get(&parent) {
@@ -459,7 +491,28 @@ fn run(
                         gone.push(id);
                     }
                 }
-                Effect::SetTimer(id, when) => timers.push((id, when)),
+                Effect::SetTimer(timer, when) => timers.push((timer, when)),
+                Effect::ReadGit {
+                    cwd,
+                    changes,
+                    panes,
+                } => {
+                    let shells = panes
+                        .iter()
+                        .filter_map(|pane| workers.get(pane))
+                        .flat_map(|worker| [Some(worker.pty.pid()), worker.pty.foreground()])
+                        .flatten()
+                        .collect();
+                    unanswered.extend(request(
+                        &jobs,
+                        Job::Git {
+                            cwd,
+                            changes,
+                            shells,
+                        },
+                    ));
+                }
+                Effect::ReadContexts => unanswered.extend(request(&jobs, Job::Contexts)),
                 Effect::ReadConfig(path) => {
                     let result = std::fs::read_to_string(&path)
                         .map_err(|error| format!("cannot read {}: {error}", path.display()));
@@ -474,6 +527,13 @@ fn run(
         }
         for id in failed {
             server.handle(now, Event::PtySpawnFailed(id), &mut pending_effects);
+        }
+        if !unanswered.is_empty() && !facts_gone {
+            log::error!("the facts worker is gone; git and context chips stay empty");
+            facts_gone = true;
+        }
+        for event in unanswered {
+            server.handle(now, event, &mut pending_effects);
         }
         for worker in workers.values_mut() {
             worker.poll_exit();

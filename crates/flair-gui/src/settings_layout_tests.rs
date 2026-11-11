@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    UiMetrics,
+    CellMetrics, UiMetrics,
     chrome_bar::opaque,
     overlay_layout::OverlayHit,
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
@@ -27,12 +27,23 @@ fn run(
 ) -> OverlayScene {
     let theme = Config::default().theme();
     let input = OverlayInput {
+        metrics: crate::CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
         px,
         scale,
         ui: UiMetrics {
             height: 14.0 * scale,
             ascent: 11.0 * scale,
             small: 0.5,
+            cap: 8.0 * scale,
+            icon: CellMetrics {
+                width: 7.0 * scale,
+                height: 12.0 * scale,
+                baseline: 9.0 * scale,
+            },
         },
         theme: &theme,
         hover,
@@ -57,7 +68,7 @@ fn setting(title: &'static str, source: &'static str, control: Control) -> Entry
 
 fn sheet(section: usize, crumb: &'static str, groups: Vec<Group>) -> SettingsSheet {
     SettingsSheet {
-        sections: vec!["Appearance", "Font", "Window", "Terminal", "Keys"],
+        sections: vec!["Appearance", "Font", "Window", "Terminal", "Prompt", "Keys"],
         section: Some(section),
         sections_focused: false,
         crumb,
@@ -67,6 +78,7 @@ fn sheet(section: usize, crumb: &'static str, groups: Vec<Group>) -> SettingsShe
             placeholder: "Search settings",
         },
         groups,
+        dropdown: None,
         focus: Some(0),
         keys: vec![
             ("↵", "edit".into()),
@@ -281,11 +293,53 @@ fn nav_shows_the_title_and_section_rows_with_the_selection() {
         OverlayHit::Settings(SettingsHit::Section(4))
     );
 
+    assert_eq!(
+        control(&scene, SettingsHit::Section(5)),
+        rect(16.0, 251.0, 200.0, 28.0)
+    );
+
     let narrow = run(&appearance(), (960, 600), 1.0, None);
     assert_eq!(
         control(&narrow, SettingsHit::Section(0)),
         rect(16.0, 91.0, 128.0, 28.0)
     );
+}
+
+#[test]
+fn six_nav_rows_fit_the_narrow_column_at_960x600() {
+    let scene = run(&appearance(), (960, 600), 1.0, None);
+    let sections: Vec<_> = scene
+        .hits
+        .controls
+        .iter()
+        .filter_map(|(hit, rect)| match hit {
+            SettingsHit::Section(index) => Some((*index, *rect)),
+            SettingsHit::Close
+            | SettingsHit::Search
+            | SettingsHit::Toggle(_)
+            | SettingsHit::Decrease(_)
+            | SettingsHit::Increase(_)
+            | SettingsHit::Choose(_)
+            | SettingsHit::DismissDropdown
+            | SettingsHit::Cycle(_)
+            | SettingsHit::Edit(_)
+            | SettingsHit::PromptEditor(_) => None,
+        })
+        .collect();
+    let expected: Vec<_> = (0..6)
+        .map(|index| (index, rect(16.0, 91.0 + index as f32 * 32.0, 128.0, 28.0)))
+        .collect();
+    assert_eq!(sections, expected);
+    for name in ["Terminal", "Prompt", "Keys"] {
+        let label = styled(&scene, name, false);
+        assert_eq!(label.x, 26.0);
+        assert!(label.x + measure(name, false) <= 144.0 - 10.0, "{name}");
+    }
+    assert_eq!(
+        scene.hits.hit_test((80.0, 265.0)),
+        OverlayHit::Settings(SettingsHit::Section(5))
+    );
+    assert_inside(&scene, (960, 600));
 }
 
 #[test]

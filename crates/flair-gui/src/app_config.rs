@@ -56,6 +56,7 @@ impl App {
             SettingsOutcome::Preview(config) => self.set_preview(Some(*config)),
             SettingsOutcome::Revert | SettingsOutcome::Close => self.set_preview(None),
             SettingsOutcome::Save { key, value } => self.save_setting(key, value),
+            SettingsOutcome::SavePrompt(changes) => self.save_prompt(changes),
         }
         self.request_redraw();
     }
@@ -92,6 +93,22 @@ impl App {
         }
         self.send(ClientMsg::Resize(self.size()));
         self.request_redraw();
+    }
+
+    fn save_prompt(&mut self, changes: Vec<(String, Option<Value>)>) {
+        match crate::theme_file::save_many(&self.config_path, &changes) {
+            Ok((text, config)) => {
+                self.overlays.set_notice(Notice::info("prompt saved"));
+                self.reload(config);
+                self.send(ClientMsg::Command(Command::ReloadConfig));
+                self.refresh_overlays(&text);
+            }
+            Err(error) => {
+                self.set_preview(None);
+                self.overlays
+                    .set_notice(Notice::error(format!("could not save prompt: {error}")));
+            }
+        }
     }
 
     fn save_setting(&mut self, key: &'static str, value: Option<Value>) {

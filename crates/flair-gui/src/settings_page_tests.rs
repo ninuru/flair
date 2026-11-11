@@ -86,7 +86,12 @@ fn focus_key(page: &mut SettingsPage, key: &str) {
         .filter(|setting| setting.section == Section::ALL[section_index])
         .position(|setting| setting.key == key)
         .unwrap();
-    page.focus(offset);
+    if key.starts_with("prompt.") {
+        page.query.insert(key);
+        page.focus(0);
+    } else {
+        page.focus(offset);
+    }
 }
 
 fn entries(sheet: &SettingsSheet) -> Vec<&Entry> {
@@ -209,7 +214,7 @@ fn a_new_page_shows_appearance_with_the_first_entry_focused() {
     let sheet = page.sheet();
     assert_eq!(
         sheet.sections,
-        ["Appearance", "Font", "Window", "Terminal", "Keys"]
+        ["Appearance", "Font", "Window", "Terminal", "Prompt", "Keys"]
     );
     assert_eq!(sheet.section, Some(0));
     assert!(!sheet.sections_focused);
@@ -244,7 +249,7 @@ fn entries_show_values_and_their_source() {
     page.focus(2);
     assert_eq!(control(&page), Control::Number("1".to_owned()));
     assert_eq!(source(&page), "default");
-    section(&mut page, 4);
+    section(&mut page, 5);
     assert_eq!(control(&page), Control::Toggle(true));
     page.focus(1);
     assert_eq!(control(&page), Control::Text("C-a".to_owned()));
@@ -262,7 +267,7 @@ fn unset_colours_show_the_theme_value_as_default() {
 #[test]
 fn the_keys_section_lists_settings_then_key_bindings() {
     let mut page = page("[keys.prefix]\nc = \"none\"\n");
-    section(&mut page, 4);
+    section(&mut page, 5);
     let sheet = page.sheet();
     assert_eq!(sheet.crumb, "Keys");
     assert_eq!(sheet.groups.len(), 2);
@@ -354,7 +359,7 @@ fn tab_moves_between_the_columns() {
     for _ in 0..10 {
         press(&mut page, NamedKey::Down);
     }
-    assert_eq!(page.sheet().section, Some(4));
+    assert_eq!(page.sheet().section, Some(5));
 }
 
 #[test]
@@ -486,14 +491,11 @@ fn the_theme_cycles_as_a_pending_preview() {
 }
 
 #[test]
-fn enter_on_a_choice_cycles_forward_as_pending() {
+fn enter_on_a_choice_opens_the_available_options() {
     let mut page = page("");
-    let next = Value::Text("gruvbox-dark".to_owned());
-    assert_eq!(
-        press(&mut page, NamedKey::Enter),
-        preview_of("", "theme", Some(&next))
-    );
-    assert_eq!(page.sheet().keys, pending_keys());
+    assert_eq!(press(&mut page, NamedKey::Enter), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("flair-dark".to_owned()));
+    assert_eq!(page.sheet().dropdown.unwrap().options, names());
 }
 
 #[test]
@@ -789,6 +791,156 @@ fn insert_goes_to_the_query_or_the_editor() {
         press(&mut page, NamedKey::Enter),
         save("window.padding_y", Some(Value::Integer(5)))
     );
+}
+
+#[test]
+fn the_prompt_section_lists_the_style_icons_chips_then_the_duration() {
+    let mut page = page("");
+    section(&mut page, 4);
+    let sheet = page.sheet();
+    assert_eq!(sheet.crumb, "Prompt");
+    assert_eq!(sheet.groups.len(), 1);
+    assert_eq!(sheet.groups[0].heading, None);
+    assert_eq!(
+        titles(&sheet),
+        [
+            "Style",
+            "Icons",
+            "User",
+            "Host",
+            "Directory",
+            "Git branch",
+            "Git ahead and behind",
+            "Git changes",
+            "Python environment",
+            "Docker context",
+            "Kubernetes context",
+            "Exit status",
+            "Time",
+            "Minimum duration",
+            "Appearance",
+            "Directory format",
+            "Time format",
+            "Date format",
+            "Input separator",
+            "Segment order",
+            "Date",
+        ]
+    );
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+    assert_eq!(source(&page), "default");
+    assert_eq!(page.sheet().keys, step_keys());
+    page.focus(1);
+    assert_eq!(control(&page), Control::Toggle(true));
+    page.focus(10);
+    assert_eq!(control(&page), Control::Toggle(false));
+    page.focus(13);
+    assert_eq!(control(&page), Control::Number("2000".to_owned()));
+}
+
+#[test]
+fn the_prompt_style_steps_both_ways_as_pending_without_a_preview() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.style");
+    assert_eq!(press(&mut page, NamedKey::Right), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(page.sheet().keys, pending_keys());
+    assert_eq!(press(&mut page, NamedKey::Right), SettingsOutcome::Revert);
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+    assert_eq!(page.sheet().keys, step_keys());
+    assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(
+        press(&mut page, NamedKey::Enter),
+        save("prompt.style", Some(Value::Text("ps1".to_owned())))
+    );
+}
+
+#[test]
+fn the_prompt_style_steps_back_from_ps1_and_saves_on_leave() {
+    let mut page = page("[prompt]\nstyle = \"ps1\"\n");
+    focus_key(&mut page, "prompt.style");
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(source(&page), "flair.toml");
+    assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+    assert_eq!(
+        page.click(SettingsHit::Section(0)),
+        save("prompt.style", Some(Value::Text("chips".to_owned())))
+    );
+    assert_eq!(page.sheet().focus, Some(0));
+}
+
+#[test]
+fn escape_reverts_a_pending_prompt_style() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.style");
+    press(&mut page, NamedKey::Right);
+    assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
+    assert_eq!(press(&mut page, NamedKey::Escape), SettingsOutcome::Revert);
+    assert_eq!(control(&page), Control::Choice("chips".to_owned()));
+}
+
+#[test]
+fn space_flips_a_prompt_chip_in_the_draft_and_enter_saves_the_prompt() {
+    let mut page = page("");
+    section(&mut page, 4);
+    page.click(SettingsHit::PromptEditor(PromptAction::Select(
+        flair_core::isles::Chip::Kube,
+    )));
+    assert!(
+        matches!(page.key(&typed(' ')), SettingsOutcome::Preview(config) if config.prompt.kube)
+    );
+    assert!(matches!(
+        press(&mut page, NamedKey::Enter),
+        SettingsOutcome::SavePrompt(_)
+    ));
+}
+
+#[test]
+fn the_prompt_duration_steps_and_edits_like_other_integers() {
+    let mut page = page("");
+    focus_key(&mut page, "prompt.duration_ms");
+    let more = Value::Integer(2500);
+    assert_eq!(
+        press(&mut page, NamedKey::Right),
+        preview_of("", "prompt.duration_ms", Some(&more))
+    );
+    assert_eq!(control(&page), Control::Number("2500".to_owned()));
+    assert_eq!(
+        press(&mut page, NamedKey::Enter),
+        save("prompt.duration_ms", Some(more))
+    );
+    press(&mut page, NamedKey::Enter);
+    page.key(&ctrl('u'));
+    type_text(&mut page, "700000");
+    assert_eq!(press(&mut page, NamedKey::Enter), SettingsOutcome::Pending);
+    assert_eq!(
+        error(&page).as_deref(),
+        Some("enter a whole number from 0 to 600000")
+    );
+    page.key(&ctrl('u'));
+    type_text(&mut page, "750");
+    assert_eq!(
+        press(&mut page, NamedKey::Enter),
+        save("prompt.duration_ms", Some(Value::Integer(750)))
+    );
+}
+
+#[test]
+fn search_finds_prompt_entries_under_a_prompt_heading() {
+    let mut page = page("");
+    type_text(&mut page, "icons");
+    let sheet = page.sheet();
+    let headings: Vec<_> = sheet.groups.iter().map(|group| group.heading).collect();
+    assert_eq!(headings, [Some("Prompt")]);
+    assert_eq!(titles(&sheet), ["Icons"]);
+    page.key(&ctrl('u'));
+    type_text(&mut page, "kube");
+    let sheet = page.sheet();
+    let headings: Vec<_> = sheet.groups.iter().map(|group| group.heading).collect();
+    assert_eq!(headings, [Some("Prompt")]);
+    assert_eq!(titles(&sheet), ["Kubernetes context"]);
 }
 
 #[path = "settings_page_events_tests.rs"]

@@ -3,13 +3,14 @@ use flair_core::{
     config_edit::apply,
     key::{Key, KeyAction, KeyInput, NamedKey},
     keys::Binding,
-    settings::{Kind, SETTINGS, Section, Source, Value, position, sources},
+    settings::{Choices, Kind, SETTINGS, Section, Source, Value, position, sources},
     theme::Theme,
 };
 
 use crate::{
     cursor::{Edit, TextCursor},
     overlay_layout::Field,
+    prompt_editor::{PromptAction, PromptEditor},
     settings_layout::{Control, Entry, Group, SettingsHit, SettingsSheet},
     ui::{DELETE_KEY, ENTER_KEY, ESCAPE_KEY, SEARCH_KEY, SPACE_KEY, STEP_KEY},
 };
@@ -23,6 +24,9 @@ const QUERY_LIMIT: usize = 256;
 const EDITOR_LIMIT: usize = 1024;
 
 pub struct SettingsPage {
+    dropdown: Option<Dropdown>,
+    prompt_editor: PromptEditor,
+    search_focused: bool,
     config: Config,
     theme: Theme,
     file: String,
@@ -50,11 +54,18 @@ struct Editor {
     text: TextCursor,
 }
 
+struct Dropdown {
+    item: usize,
+    options: Vec<String>,
+    selected: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
     Toggle,
     Step(i32),
     Edit,
+    OpenChoice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,12 +83,16 @@ pub enum SettingsOutcome {
         key: &'static str,
         value: Option<Value>,
     },
+    SavePrompt(Vec<(String, Option<Value>)>),
     Close,
 }
 
 impl SettingsPage {
     pub fn new(config: &Config, theme: Theme, text: String, themes: Vec<String>) -> SettingsPage {
         SettingsPage {
+            dropdown: None,
+            prompt_editor: PromptEditor::new(&config.prompt),
+            search_focused: false,
             config: config.clone(),
             theme,
             sources: sources(&text),
@@ -99,6 +114,12 @@ impl SettingsPage {
         if key.action == KeyAction::Release {
             return SettingsOutcome::Pending;
         }
+        if self.dropdown.is_some() {
+            return self.dropdown_key(key);
+        }
+        if self.is_prompt_editor() && self.focus == Focus::Items {
+            return self.prompt_key(key);
+        }
         if self.editor.is_some() {
             return self.editor_key(key);
         }
@@ -109,6 +130,9 @@ impl SettingsPage {
     }
 
     pub fn insert(&mut self, text: &str) -> SettingsOutcome {
+        if self.dropdown.is_some() {
+            return SettingsOutcome::Pending;
+        }
         if let Some(editor) = &mut self.editor {
             let before = editor.text.text().len();
             editor.text.insert(text);
@@ -121,7 +145,12 @@ impl SettingsPage {
     }
 
     pub fn click(&mut self, hit: SettingsHit) -> SettingsOutcome {
+        if let SettingsHit::Choose(index) = hit {
+            return self.choose(index);
+        }
+        self.dismiss_dropdown();
         match hit {
+            SettingsHit::PromptEditor(action) => self.prompt_action(action),
             SettingsHit::Section(index) => {
                 let outcome = self.leave();
                 self.query = empty_query();
@@ -132,19 +161,21 @@ impl SettingsPage {
             SettingsHit::Close => SettingsOutcome::Close,
             SettingsHit::Search => {
                 let outcome = self.leave();
+                self.search_focused = true;
                 self.focus = Focus::Items;
                 outcome
             }
             SettingsHit::Toggle(item) => self.on_item(item, Action::Toggle),
             SettingsHit::Decrease(item) => self.on_item(item, Action::Step(-1)),
-            SettingsHit::Increase(item) | SettingsHit::Cycle(item) => {
-                self.on_item(item, Action::Step(1))
-            }
+            SettingsHit::Increase(item) => self.on_item(item, Action::Step(1)),
+            SettingsHit::Cycle(item) => self.on_item(item, Action::OpenChoice),
+            SettingsHit::Choose(_) | SettingsHit::DismissDropdown => SettingsOutcome::Pending,
             SettingsHit::Edit(item) => self.on_item(item, Action::Edit),
         }
     }
 
     pub fn focus(&mut self, item: usize) -> SettingsOutcome {
+        self.dismiss_dropdown();
         match item < self.items().len() {
             true => self.go(item),
             false => SettingsOutcome::Pending,
@@ -152,6 +183,14 @@ impl SettingsPage {
     }
 
     pub fn wheel(&mut self, rows: i32) -> SettingsOutcome {
+        if self.dropdown.is_some() {
+            self.move_choice(rows);
+            return SettingsOutcome::Pending;
+        }
+        if self.is_prompt_editor() {
+            self.prompt_editor.wheel(rows);
+            return SettingsOutcome::Pending;
+        }
         match self.editor {
             Some(_) => SettingsOutcome::Pending,
             None => self.move_by(rows),
@@ -159,6 +198,7 @@ impl SettingsPage {
     }
 
     pub fn refresh(&mut self, config: &Config, theme: Theme, text: String) -> SettingsOutcome {
+        self.prompt_editor.sync(&config.prompt);
         self.config = config.clone();
         self.theme = theme;
         self.sources = sources(&text);
@@ -173,7 +213,7 @@ impl SettingsPage {
             return self.preview();
         }
         match &self.pending {
-            Some((index, value)) => self.preview_value(SETTINGS[*index].key, Some(value)),
+            Some((index, value)) => self.preview_step(*index, value),
             None => SettingsOutcome::Pending,
         }
     }
@@ -204,6 +244,7 @@ impl SettingsPage {
             groups: self.groups(&items, searching),
             focus: (!items.is_empty()).then(|| self.item.min(items.len() - 1)),
             keys: self.footer(),
+            dropdown: self.dropdown_sheet(),
         }
     }
 
@@ -281,7 +322,11 @@ impl SettingsPage {
             let section = Section::ALL[self.section];
             let bindings = match section {
                 Section::Keys => self.bindings.len(),
-                Section::Appearance | Section::Font | Section::Window | Section::Terminal => 0,
+                Section::Appearance
+                | Section::Font
+                | Section::Window
+                | Section::Terminal
+                | Section::Prompt => 0,
             };
             return SETTINGS
                 .iter()
@@ -333,25 +378,6 @@ impl SettingsPage {
         }
     }
 
-    fn activate(&mut self) -> SettingsOutcome {
-        let Some(index) = self.selected() else {
-            return SettingsOutcome::Pending;
-        };
-        if self.pending.is_some() {
-            return self.leave();
-        }
-        match SETTINGS[index].kind {
-            Kind::Toggle => self.toggle(),
-            Kind::Choice => self.step(1),
-            Kind::Integer { .. }
-            | Kind::Float { .. }
-            | Kind::Text
-            | Kind::Font
-            | Kind::Words
-            | Kind::Color { .. } => self.edit(),
-        }
-    }
-
     fn toggle(&mut self) -> SettingsOutcome {
         let Some(index) = self.selected() else {
             return SettingsOutcome::Pending;
@@ -367,7 +393,7 @@ impl SettingsPage {
             ),
             Kind::Integer { .. }
             | Kind::Float { .. }
-            | Kind::Choice
+            | Kind::Choice(_)
             | Kind::Text
             | Kind::Font
             | Kind::Words
@@ -381,7 +407,7 @@ impl SettingsPage {
         };
         let setting = &SETTINGS[index];
         match setting.kind {
-            Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice => {}
+            Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {}
             Kind::Toggle | Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => {
                 return SettingsOutcome::Pending;
             }
@@ -393,7 +419,7 @@ impl SettingsPage {
             self.pending = None;
             return SettingsOutcome::Revert;
         }
-        let outcome = self.preview_value(setting.key, Some(&next));
+        let outcome = self.preview_step(index, &next);
         self.pending = Some((index, next));
         outcome
     }
@@ -418,7 +444,7 @@ impl SettingsPage {
                 Kind::Toggle
                 | Kind::Integer { .. }
                 | Kind::Float { .. }
-                | Kind::Choice
+                | Kind::Choice(_)
                 | Kind::Text
                 | Kind::Font
                 | Kind::Words,
@@ -500,6 +526,21 @@ impl SettingsPage {
         }
     }
 
+    fn preview_step(&self, index: usize, value: &Value) -> SettingsOutcome {
+        let setting = &SETTINGS[index];
+        match setting.kind {
+            Kind::Choice(Choices::Of(_)) => SettingsOutcome::Pending,
+            Kind::Choice(Choices::Themes)
+            | Kind::Toggle
+            | Kind::Integer { .. }
+            | Kind::Float { .. }
+            | Kind::Text
+            | Kind::Font
+            | Kind::Words
+            | Kind::Color { .. } => self.preview_value(setting.key, Some(value)),
+        }
+    }
+
     fn preview_value(&self, key: &str, value: Option<&Value>) -> SettingsOutcome {
         apply(&self.file, key, value).map_or(SettingsOutcome::Pending, |(_, config)| {
             SettingsOutcome::Preview(Box::new(config))
@@ -564,10 +605,12 @@ impl SettingsPage {
             Action::Toggle => self.toggle(),
             Action::Step(delta) => self.step(delta),
             Action::Edit => self.edit(),
+            Action::OpenChoice => self.open_choice(),
         }
     }
 
     fn select_section(&mut self, index: usize) {
+        self.search_focused = false;
         self.section = index.min(Section::ALL.len() - 1);
         self.item = 0;
     }
@@ -652,7 +695,7 @@ impl SettingsPage {
         match SETTINGS[index].kind {
             Kind::Toggle => Control::Toggle(value == Value::Bool(true)),
             Kind::Integer { .. } | Kind::Float { .. } => Control::Number(value.display()),
-            Kind::Choice => Control::Choice(value.display()),
+            Kind::Choice(_) => Control::Choice(value.display()),
             Kind::Text | Kind::Font | Kind::Words => Control::Text(value.display()),
             Kind::Color { .. } => Control::Color(value.display()),
         }
@@ -696,7 +739,9 @@ impl SettingsPage {
             (Focus::Items, Some(index)) => {
                 keys.push(match SETTINGS[index].kind {
                     Kind::Toggle => (SPACE_KEY, "toggle"),
-                    Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice => (STEP_KEY, "step"),
+                    Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {
+                        (STEP_KEY, "step")
+                    }
                     Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => {
                         (ENTER_KEY, "edit")
                     }
@@ -721,13 +766,16 @@ fn plain(key: &KeyInput) -> bool {
 
 fn then(first: SettingsOutcome, second: SettingsOutcome) -> SettingsOutcome {
     match first {
-        SettingsOutcome::Save { .. } | SettingsOutcome::Close => first,
+        SettingsOutcome::Save { .. } | SettingsOutcome::SavePrompt(_) | SettingsOutcome::Close => {
+            first
+        }
         SettingsOutcome::Pending | SettingsOutcome::Preview(_) | SettingsOutcome::Revert => {
             match second {
                 SettingsOutcome::Pending => first,
                 SettingsOutcome::Preview(_)
                 | SettingsOutcome::Revert
                 | SettingsOutcome::Save { .. }
+                | SettingsOutcome::SavePrompt(_)
                 | SettingsOutcome::Close => second,
             }
         }
@@ -737,3 +785,9 @@ fn then(first: SettingsOutcome, second: SettingsOutcome) -> SettingsOutcome {
 #[cfg(test)]
 #[path = "settings_page_tests.rs"]
 mod tests;
+
+#[path = "settings_page_prompt.rs"]
+mod prompt_editor_actions;
+
+#[path = "settings_page_dropdown.rs"]
+mod dropdown_actions;

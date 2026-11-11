@@ -424,6 +424,74 @@ fn chrome_draws_bar_border_box_backdrop_text_and_modal_text() {
 }
 
 #[test]
+fn the_icon_face_draws_terminal_glyphs_at_the_small_size() {
+    const W: usize = 64;
+    const H: usize = 48;
+    let Some((ctx, gl)) = headless_or_skip((W as u32, H as u32), "icon") else {
+        return;
+    };
+    let config = Config::default();
+    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
+    let metrics = fonts.metrics();
+    let icon = fonts.ui_metrics().icon;
+    let raster = fonts.rasterize_icon('\u{f114}').unwrap();
+    assert!(
+        icon.height > 0.0 && icon.height < metrics.height && icon.width <= metrics.width,
+        "{icon:?} {metrics:?}"
+    );
+    let black = Rgb { r: 0, g: 0, b: 0 };
+    let white = Rgb {
+        r: 255,
+        g: 255,
+        b: 255,
+    };
+    let size = GridSize {
+        cols: (W as f32 / metrics.width) as u16 + 1,
+        rows: (H as f32 / metrics.height) as u16 + 1,
+    };
+    let baseline = 30.0;
+    let chrome = Chrome {
+        clip: PxRect {
+            x: 0.0,
+            y: 0.0,
+            w: W as f32,
+            h: H as f32,
+        },
+        text: vec![TextRun {
+            x: 10.0,
+            baseline,
+            text: "\u{f114}".to_owned(),
+            color: white,
+            bold: false,
+            face: TextFace::Icon,
+        }],
+        ..Chrome::default()
+    };
+    let mut renderer = Renderer::new(gl, metrics).unwrap();
+    renderer.resize((W as u32, H as u32));
+    renderer
+        .draw_frame(&filled_grid(size, black), &chrome, &mut fonts, black)
+        .unwrap();
+    let pixels = renderer.read_pixels();
+    let lit: Vec<(usize, usize)> = (0..H)
+        .flat_map(|y| (0..W).map(move |x| (x, y)))
+        .filter(|(x, y)| pixels[((H - 1 - y) * W + x) * 4] > 0)
+        .collect();
+    assert!(!lit.is_empty(), "the icon face left no pixels");
+    let left = 10 + raster.left;
+    let top = baseline as i32 - raster.top;
+    for (x, y) in lit {
+        assert!(
+            (top..top + raster.height as i32).contains(&(y as i32))
+                && (left..left + raster.width as i32).contains(&(x as i32)),
+            "pixel {x},{y} outside icon raster {raster:?} at {left},{top}"
+        );
+    }
+    drop(renderer);
+    drop(ctx);
+}
+
+#[test]
 fn scissor_rounds_fractional_clips_outward() {
     let clip = PxRect {
         x: 17.6,
@@ -552,6 +620,46 @@ fn top_and_bottom_margins_use_the_dominant_edge_row_colour() {
             rgb(corner),
             "right of last row at {x}"
         );
+    }
+    drop(renderer);
+    drop(ctx);
+}
+
+#[test]
+fn mono_chrome_text_advances_wide_characters_and_overlays_combining_marks() {
+    let Some((ctx, gl)) = headless_or_skip((100, 50), "mono unicode") else {
+        return;
+    };
+    let config = Config::default();
+    let mut fonts = Fonts::load(&config.font, 1.0).unwrap();
+    let metrics = fonts.metrics();
+    let mut renderer = Renderer::new(gl, metrics).unwrap();
+    let x_glyph = fonts.rasterize('x', crate::font::Style::Regular).unwrap();
+    let text = |value: &str| TextRun {
+        x: 10.0,
+        baseline: 30.0,
+        text: value.to_owned(),
+        color: config.theme().foreground,
+        bold: false,
+        face: TextFace::Mono,
+    };
+    let vertices = renderer.text(&[text("界x")], &mut fonts);
+    let x = vertices.as_chunks::<13>().0.iter().last().unwrap()[0];
+    assert_eq!(x, 10.0 + metrics.width * 2.0 + x_glyph.left as f32);
+    if let Some(mark) = fonts
+        .rasterize('\u{301}', crate::font::Style::Regular)
+        .filter(|glyph| glyph.width > 0 && glyph.height > 0)
+    {
+        let vertices = renderer.text(&[text("a\u{301}x")], &mut fonts);
+        let positions: Vec<_> = vertices
+            .as_chunks::<13>()
+            .0
+            .iter()
+            .map(|instance| instance[0])
+            .collect();
+        assert_eq!(positions.len(), 3);
+        assert_eq!(positions[1], 10.0 + mark.left as f32);
+        assert_eq!(positions[2], 10.0 + metrics.width + x_glyph.left as f32);
     }
     drop(renderer);
     drop(ctx);

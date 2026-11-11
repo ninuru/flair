@@ -9,12 +9,13 @@ use crate::{
     command::Command,
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::{ClientId, PaneId, WindowId},
+    isles::PromptInfo,
     key::InputEvent,
     status::StatusLine,
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 7;
+pub const PROTOCOL: u32 = 10;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -81,6 +82,22 @@ pub enum ServerMsg {
         sessions: Vec<SessionInfo>,
         current: String,
     },
+    PromptInfo {
+        pane: PaneId,
+        info: PromptInfo,
+    },
+    PromptHistory {
+        pane: PaneId,
+        prompts: Vec<PromptSnapshot>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PromptSnapshot {
+    pub row: u16,
+    pub id: u64,
+    pub info: PromptInfo,
+    pub timestamp: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,6 +207,7 @@ pub enum CursorShape {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct PaneFlags {
+    pub prompt_row: Option<u16>,
     pub alt_screen: bool,
     pub mouse_reporting: bool,
     pub display_offset: u32,
@@ -261,6 +279,22 @@ pub struct WindowLayout {
 pub struct PanePlacement {
     pub pane: PaneId,
     pub rect: CellRect,
+    pub band: u16,
+}
+
+impl PanePlacement {
+    pub fn outer(self) -> CellRect {
+        CellRect {
+            origin: CellPoint {
+                row: self.rect.origin.row.saturating_sub(self.band),
+                ..self.rect.origin
+            },
+            size: GridSize {
+                rows: self.rect.size.rows.saturating_add(self.band),
+                ..self.rect.size
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

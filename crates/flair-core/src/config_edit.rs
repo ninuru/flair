@@ -1,6 +1,6 @@
 use std::{error::Error, fmt};
 
-use toml_edit::{DocumentMut, Item, TableLike, TomlError, table};
+use toml_edit::{DocumentMut, Item, TableLike, TomlError};
 
 use crate::{
     config::{Config, ConfigError},
@@ -76,48 +76,58 @@ pub(crate) fn document(text: &str) -> Result<DocumentMut, EditError> {
 }
 
 pub(crate) fn contains(doc: &DocumentMut, key: &str) -> bool {
+    contains_in(doc.as_table(), key)
+}
+
+fn contains_in(table: &dyn TableLike, key: &str) -> bool {
     match key.split_once('.') {
-        Some((name, leaf)) => doc
+        Some((name, remaining)) => table
             .get(name)
             .and_then(Item::as_table_like)
-            .is_some_and(|table| table.contains_key(leaf)),
-        None => doc.contains_key(key),
+            .is_some_and(|table| contains_in(table, remaining)),
+        None => table.contains_key(key),
     }
 }
 
 fn set(doc: &mut DocumentMut, key: &str, value: toml_edit::Value) -> Result<(), EditError> {
-    let (table, leaf): (&mut dyn TableLike, &str) = match key.split_once('.') {
-        Some((name, leaf)) => (
-            doc.entry(name)
-                .or_insert(table())
-                .as_table_like_mut()
-                .ok_or_else(|| EditError::NotATable(name.to_owned()))?,
-            leaf,
-        ),
-        None => (doc.as_table_mut(), key),
-    };
-    match table.get_mut(leaf) {
+    set_in(doc.as_table_mut(), key, value)
+}
+
+fn set_in(table: &mut dyn TableLike, key: &str, value: toml_edit::Value) -> Result<(), EditError> {
+    if let Some((name, remaining)) = key.split_once('.') {
+        let child = table
+            .entry(name)
+            .or_insert(toml_edit::table())
+            .as_table_like_mut()
+            .ok_or_else(|| EditError::NotATable(name.to_owned()))?;
+        return set_in(child, remaining, value);
+    }
+    match table.get_mut(key) {
         Some(Item::Value(old)) => {
             let decor = old.decor().clone();
             *old = value;
             *old.decor_mut() = decor;
         }
         Some(Item::None | Item::Table(_) | Item::ArrayOfTables(_)) | None => {
-            table.insert(leaf, Item::Value(value));
+            table.insert(key, Item::Value(value));
         }
     }
     Ok(())
 }
 
 fn remove(doc: &mut DocumentMut, key: &str) {
+    remove_in(doc.as_table_mut(), key);
+}
+
+fn remove_in(table: &mut dyn TableLike, key: &str) {
     match key.split_once('.') {
-        Some((name, leaf)) => {
-            if let Some(table) = doc.get_mut(name).and_then(Item::as_table_like_mut) {
-                table.remove(leaf);
+        Some((name, remaining)) => {
+            if let Some(child) = table.get_mut(name).and_then(Item::as_table_like_mut) {
+                remove_in(child, remaining);
             }
         }
         None => {
-            doc.remove(key);
+            table.remove(key);
         }
     }
 }

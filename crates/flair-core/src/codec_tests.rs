@@ -6,15 +6,18 @@ use crate::{
     config::Config,
     geom::{Axis, CellPoint, CellRect, Direction, GridSize},
     ids::{ClientId, PaneId, WindowId},
+    isles::{AheadBehind, Changes, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
     key::{
         InputEvent, Key, KeyAction, KeyInput, Locks, Mods, MouseAction, MouseButton, MouseInput,
         NamedKey,
     },
     proto::{
         Cell, CellFlags, ClientKind, ClientMsg, Color, Cursor, CursorShape, ExitReason, PaneFlags,
-        PanePlacement, PaneUpdate, Separator, ServerMsg, SessionInfo, Target, WindowLayout,
+        PanePlacement, PaneUpdate, PromptSnapshot, Separator, ServerMsg, SessionInfo, Target,
+        WindowLayout,
     },
     status::{StatusLine, StatusWindow},
+    time::Millis,
 };
 
 fn size() -> GridSize {
@@ -174,6 +177,7 @@ fn server_messages() -> Vec<ServerMsg> {
                 },
                 selection: Vec::new(),
                 flags: PaneFlags {
+                    prompt_row: Some(3),
                     alt_screen: true,
                     display_offset: 12,
                     mouse_reporting: false,
@@ -191,9 +195,10 @@ fn server_messages() -> Vec<ServerMsg> {
                 PanePlacement {
                     pane: PaneId(1),
                     rect: CellRect {
-                        origin: CellPoint { col: 0, row: 1 },
-                        size: GridSize { cols: 40, rows: 23 },
+                        origin: CellPoint { col: 0, row: 2 },
+                        size: GridSize { cols: 40, rows: 22 },
                     },
+                    band: 1,
                 },
                 PanePlacement {
                     pane: PaneId(2),
@@ -201,6 +206,7 @@ fn server_messages() -> Vec<ServerMsg> {
                         origin: CellPoint { col: 41, row: 1 },
                         size: GridSize { cols: 39, rows: 23 },
                     },
+                    band: 0,
                 },
             ],
             separators: vec![Separator {
@@ -252,6 +258,70 @@ fn server_messages() -> Vec<ServerMsg> {
                 windows: 2,
             }],
             current: "main".to_owned(),
+        },
+        ServerMsg::PromptInfo {
+            pane: PaneId(4),
+            info: PromptInfo {
+                cwd: Some(PathBuf::from("/home/u/世界 project")),
+                git: Some(GitInfo {
+                    head: Head::Branch("feat/isles".to_owned()),
+                    upstream: Some(AheadBehind {
+                        ahead: 3,
+                        behind: 1000,
+                    }),
+                    changes: Some(Changes {
+                        files: 2,
+                        added: 10,
+                        removed: 7,
+                    }),
+                }),
+                last: Some(LastCommand {
+                    exit: Some(-1),
+                    duration: Millis(2500),
+                }),
+                shell: Some(ShellFacts {
+                    user: "u".to_owned(),
+                    host: "box".to_owned(),
+                    venv: Some(".venv".to_owned()),
+                }),
+                docker: Some("colima".to_owned()),
+                kube: Some("prod".to_owned()),
+            },
+        },
+        ServerMsg::PromptInfo {
+            pane: PaneId(5),
+            info: PromptInfo {
+                cwd: None,
+                git: Some(GitInfo {
+                    head: Head::Detached("2a760da".to_owned()),
+                    upstream: None,
+                    changes: None,
+                }),
+                last: Some(LastCommand {
+                    exit: None,
+                    duration: Millis(0),
+                }),
+                shell: Some(ShellFacts {
+                    user: String::new(),
+                    host: String::new(),
+                    venv: None,
+                }),
+                docker: None,
+                kube: None,
+            },
+        },
+        ServerMsg::PromptInfo {
+            pane: PaneId(6),
+            info: PromptInfo::default(),
+        },
+        ServerMsg::PromptHistory {
+            pane: PaneId(4),
+            prompts: vec![PromptSnapshot {
+                row: 2,
+                id: 1,
+                timestamp: 1_700_000_000,
+                info: PromptInfo::default(),
+            }],
         },
     ]
 }

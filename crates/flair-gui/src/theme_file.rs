@@ -15,6 +15,13 @@ pub(crate) fn save_theme(path: &Path, name: &str) -> io::Result<Config> {
 }
 
 pub(crate) fn save(path: &Path, key: &str, value: Option<&Value>) -> io::Result<(String, Config)> {
+    save_many(path, &[(key.to_owned(), value.cloned())])
+}
+
+pub(crate) fn save_many(
+    path: &Path,
+    changes: &[(String, Option<Value>)],
+) -> io::Result<(String, Config)> {
     let path = match fs::canonicalize(path) {
         Ok(real) => real,
         Err(error) if error.kind() == io::ErrorKind::NotFound => path.to_owned(),
@@ -25,7 +32,11 @@ pub(crate) fn save(path: &Path, key: &str, value: Option<&Value>) -> io::Result<
         Err(error) if error.kind() == io::ErrorKind::NotFound => (String::new(), None),
         Err(error) => return Err(error),
     };
-    let (text, config) = apply(&text, key, value).map_err(io::Error::other)?;
+    let (text, config) = changes
+        .iter()
+        .try_fold((text, Config::default()), |(text, _), (key, value)| {
+            apply(&text, key, value.as_ref()).map_err(io::Error::other)
+        })?;
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }

@@ -1,6 +1,10 @@
 use std::ops::Add;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+use serde::{Deserialize, Serialize};
+
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default, Serialize, Deserialize,
+)]
 pub struct Millis(pub u64);
 
 impl Millis {

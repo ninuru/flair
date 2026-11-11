@@ -1,21 +1,26 @@
-use std::path::Path;
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+};
 
 use super::*;
 use crate::{
     chrome_bar::fit_letters,
     notice::Notice,
     overlay_layout::OverlayHit,
-    renderer::TextRun,
+    renderer::{Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, ChipParts, TabParts, status_parts},
     ui::{ELLIPSIS, SMALL_TEXT},
 };
 use flair_core::{
-    config::Config,
+    config::{Config, PromptConfig, PromptStyle},
     geom::{Axis, CellPoint},
     ids::PaneId,
+    isles::{GitInfo, Head, LastCommand, PromptInfo},
     proto::{PanePlacement, ServerMsg, SessionInfo},
     status::{StatusLine, StatusWindow},
     theme::{Rgb, Rgba},
+    time::Millis,
 };
 
 fn measure(text: &str, _: bool) -> f32 {
@@ -48,6 +53,12 @@ fn ui(scale: f32) -> UiMetrics {
         height: 14.0 * scale,
         ascent: 11.0 * scale,
         small: 0.5,
+        cap: 8.0 * scale,
+        icon: CellMetrics {
+            width: 7.0 * scale,
+            height: 12.0 * scale,
+            baseline: 9.0 * scale,
+        },
     }
 }
 
@@ -95,6 +106,7 @@ fn window(separators: &[Separator], panes: &[(u32, CellRect)], active: u32) -> W
             .map(|(pane, rect)| PanePlacement {
                 pane: PaneId(*pane),
                 rect: *rect,
+                band: 0,
             })
             .collect(),
         separators: separators.to_vec(),
@@ -119,6 +131,7 @@ fn run_layout(scale: f32, width: u32, window: Option<&WindowLayout>) -> ChromeLa
         hover: None,
         overlays: None,
         notice: None,
+        isles: None,
     };
     layout(&input, measure)
 }
@@ -214,6 +227,7 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
             hover: None,
             overlays: None,
             notice: None,
+            isles: None,
         };
         let chrome = layout(&input, measure).chrome;
         let full = rect(0.0, top, px.0 as f32, px.1 as f32 - top);
@@ -503,6 +517,7 @@ fn scaled_layout(
         hover: None,
         overlays: Some(overlays),
         notice,
+        isles: None,
     };
     layout(&input, fractional)
 }
@@ -645,6 +660,7 @@ fn bar_layout(width: u32, status: &StatusParts) -> ChromeLayout {
         hover: None,
         overlays: None,
         notice: None,
+        isles: None,
     };
     layout(&input, measure)
 }
@@ -773,6 +789,7 @@ fn monogram_letters_at_the_small_size_fit_inside_the_square() {
             hover: None,
             overlays: None,
             notice: None,
+            isles: None,
         };
         let layout = layout(&input, measure);
         let letters = text(&layout, session).unwrap();
@@ -794,4 +811,365 @@ fn a_monogram_that_does_not_fit_its_square_keeps_only_its_first_letter() {
     assert_eq!(fit_letters("WW", 18.0, 1.0, &mut wide), "W");
     assert_eq!(fit_letters("MA", 18.0, 0.8, &mut wide), "MA");
     assert_eq!(fit_letters("Ü", 18.0, 1.0, &mut wide), "Ü");
+}
+
+fn banded(separators: &[Separator], panes: &[(u32, CellRect)], active: u32) -> WindowLayout {
+    let layout = window(separators, panes, active);
+    WindowLayout {
+        panes: layout
+            .panes
+            .iter()
+            .map(|placement| PanePlacement {
+                rect: cells(
+                    placement.rect.origin.col,
+                    placement.rect.origin.row + 1,
+                    placement.rect.size.cols,
+                    placement.rect.size.rows - 1,
+                ),
+                band: 1,
+                ..*placement
+            })
+            .collect(),
+        ..layout
+    }
+}
+
+fn prompt(cwd: &str) -> PromptInfo {
+    PromptInfo {
+        cwd: Some(PathBuf::from(cwd)),
+        git: Some(GitInfo {
+            head: Head::Branch("main".into()),
+            upstream: None,
+            changes: None,
+        }),
+        last: Some(LastCommand {
+            exit: Some(1),
+            duration: Millis(0),
+        }),
+        ..PromptInfo::default()
+    }
+}
+
+fn band_layout(
+    window: &WindowLayout,
+    info: &BTreeMap<PaneId, PromptInfo>,
+    config: &PromptConfig,
+) -> ChromeLayout {
+    let theme = Config::default().theme();
+    let status = parts();
+    let mut mirror = crate::mirror::Mirror::default();
+    let updates: Vec<_> = window
+        .panes
+        .iter()
+        .map(|placement| flair_core::proto::PaneUpdate {
+            pane: placement.pane,
+            size: placement.rect.size,
+            full: true,
+            rows: Vec::new(),
+            cursor: flair_core::proto::Cursor {
+                point: CellPoint { col: 0, row: 1 },
+                shape: flair_core::proto::CursorShape::Block,
+                visible: true,
+            },
+            flags: flair_core::proto::PaneFlags {
+                prompt_row: (placement.band > 0).then_some(0),
+                ..Default::default()
+            },
+            selection: Vec::new(),
+        })
+        .collect();
+    mirror.apply(&updates);
+    let input = ChromeInput {
+        px: (800, 600),
+        scale: 1.0,
+        padding: (8.0, 4.0),
+        metrics: metrics(1.0),
+        ui: ui(1.0),
+        theme: &theme,
+        status: &status,
+        prompt: None,
+        layout: Some(window),
+        hover: None,
+        overlays: None,
+        notice: None,
+        isles: Some(Isles {
+            info,
+            mirror: &mirror,
+            config,
+            clock: None,
+            date: None,
+            home: None,
+        }),
+    };
+    layout(&input, measure)
+}
+
+fn band_chips(layout: &ChromeLayout) -> Vec<Quad> {
+    layout
+        .chrome
+        .quads
+        .iter()
+        .filter(|quad| quad.rect.y >= chrome_bottom(1.0) && quad.border.is_some())
+        .copied()
+        .collect()
+}
+
+fn band_text(layout: &ChromeLayout) -> Vec<(f32, f32, &str, TextFace)> {
+    layout
+        .chrome
+        .text
+        .iter()
+        .filter(|run| run.baseline >= chrome_bottom(1.0))
+        .map(|run| (run.x, run.baseline, run.text.as_str(), run.face))
+        .collect()
+}
+
+fn plain_config() -> PromptConfig {
+    PromptConfig {
+        icons: false,
+        ..PromptConfig::default()
+    }
+}
+
+#[test]
+fn each_pane_uses_subtle_outlined_chips_on_its_prompt_row() {
+    let theme = Config::default().theme();
+    let separators = [Separator {
+        axis: Axis::Horizontal,
+        rect: cells(49, 0, 1, 34),
+    }];
+    let window = banded(
+        &separators,
+        &[(1, cells(0, 0, 49, 34)), (2, cells(50, 0, 48, 34))],
+        2,
+    );
+    let info = BTreeMap::from([
+        (PaneId(1), prompt("/srv/one")),
+        (PaneId(2), prompt("/srv/two")),
+    ]);
+    let layout = band_layout(&window, &info, &plain_config());
+    let chips = band_chips(&layout);
+    assert_eq!(chips.len(), 6);
+    for chip in &chips {
+        assert_eq!(
+            chip.color,
+            opaque(flair_core::theme::blend(
+                theme.background,
+                theme.foreground,
+                4
+            ))
+        );
+        assert_eq!(
+            chip.border.unwrap().color,
+            opaque(flair_core::theme::blend(
+                theme.background,
+                theme.foreground,
+                12
+            ))
+        );
+        assert_eq!(chip.rect.y, 68.0);
+        assert_eq!(chip.rect.h, 16.0);
+        assert_eq!(chip.radius, 3.0);
+    }
+    let text = band_text(&layout);
+    assert_eq!(
+        text.iter().map(|run| run.2).collect::<Vec<_>>(),
+        ["/srv/one", "main", "1", "/srv/two", "main", "1"]
+    );
+    assert!(
+        text.iter()
+            .all(|run| run.3 == TextFace::Mono && run.1 == 80.0)
+    );
+}
+
+#[test]
+fn successful_exit_uses_neutral_chrome_and_readable_status_text() {
+    let theme = Config::default().theme();
+    let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
+    let info = BTreeMap::from([(
+        PaneId(1),
+        PromptInfo {
+            last: Some(LastCommand {
+                exit: Some(0),
+                duration: Millis(420),
+            }),
+            ..PromptInfo::default()
+        },
+    )]);
+    let config = PromptConfig {
+        duration_ms: 0,
+        ..plain_config()
+    };
+    let layout = band_layout(&window, &info, &config);
+    let chips = band_chips(&layout);
+    assert_eq!(chips.len(), 1);
+    assert_eq!(
+        chips[0].color,
+        opaque(flair_core::theme::blend(
+            theme.background,
+            theme.foreground,
+            4
+        ))
+    );
+    assert_eq!(band_text(&layout), [(14.0, 80.0, "0.42s", TextFace::Mono)]);
+}
+
+#[test]
+fn prompt_icons_are_centered_beside_terminal_labels() {
+    let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
+    let info = BTreeMap::from([(PaneId(1), prompt("/srv/one"))]);
+    let layout = band_layout(&window, &info, &PromptConfig::default());
+    let text = band_text(&layout);
+    assert_eq!(
+        text.iter().map(|run| run.2).collect::<Vec<_>>(),
+        ["\u{f114}", "/srv/one", "\u{f418}", "main", "1"]
+    );
+    for (index, run) in text.iter().enumerate() {
+        let icon = index == 0 || index == 2;
+        assert_eq!(
+            run.3,
+            if icon {
+                TextFace::PromptIcon
+            } else {
+                TextFace::Mono
+            }
+        );
+        assert_eq!(run.1, if icon { 82.0 } else { 80.0 });
+    }
+    assert_eq!(text[1].0 - text[0].0, 15.0);
+    assert_eq!(text[3].0 - text[2].0, 15.0);
+}
+
+#[test]
+fn a_narrow_pane_shortens_the_cwd_before_dropping_chips() {
+    let info = BTreeMap::from([(PaneId(1), prompt("/srv/projects/flair"))]);
+    let texts = |cols| {
+        let window = banded(&[], &[(1, cells(0, 0, cols, 34))], 1);
+        band_text(&band_layout(&window, &info, &plain_config()))
+            .into_iter()
+            .map(|(_, _, text, _)| text.to_owned())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(texts(98), ["/srv/projects/flair", "main", "1"]);
+    assert_eq!(texts(20), ["…/flair", "main", "1"]);
+    assert_eq!(texts(15), ["…/flair", "main"]);
+    assert_eq!(texts(12), ["…/flair"]);
+    assert!(texts(2).is_empty());
+    for cols in 2..=98 {
+        let window = banded(&[], &[(1, cells(0, 0, cols, 34))], 1);
+        let layout = band_layout(&window, &info, &plain_config());
+        for chip in band_chips(&layout) {
+            let right = chip.rect.x + chip.rect.w;
+            assert!(right <= 8.0 + f32::from(cols) * 8.0, "{cols}: {chip:?}");
+        }
+    }
+}
+
+#[test]
+fn chips_centre_on_the_shell_prompt_row_in_stacked_panes() {
+    let info = BTreeMap::from([
+        (PaneId(1), prompt("/srv/one")),
+        (PaneId(2), prompt("/srv/two")),
+    ]);
+    let window = banded(
+        &[],
+        &[(1, cells(0, 0, 98, 16)), (2, cells(0, 17, 98, 17))],
+        1,
+    );
+    let layout = band_layout(&window, &info, &plain_config());
+    let (_, top) = grid_origin((800, 600), (8.0, 4.0), 1.0, metrics(1.0));
+    let prompt_top = top + 16.0;
+    let chips = band_chips(&layout);
+    assert_eq!(chips.len(), 6);
+    let upper = chips[0].rect;
+    let middle = upper.y + upper.h / 2.0;
+    let centre = prompt_top + 8.0;
+    assert!((middle - centre).abs() <= 0.5, "{upper:?} centre {centre}");
+    assert!(chips[..3].iter().all(|chip| chip.rect.y == upper.y));
+    let lower = chips[3].rect;
+    assert_eq!(lower.h, upper.h);
+    let row = top + 18.0 * 16.0;
+    assert_eq!(lower.y, row);
+    assert_eq!(lower.y + lower.h / 2.0, row + 8.0);
+}
+
+#[test]
+fn no_chips_without_a_band_without_info_or_with_ps1() {
+    let info = BTreeMap::from([(PaneId(1), prompt("/srv/one"))]);
+    let panes = [(1, cells(0, 0, 98, 34))];
+    assert!(
+        band_chips(&band_layout(
+            &window(&[], &panes, 1),
+            &info,
+            &plain_config()
+        ))
+        .is_empty()
+    );
+    let empty = BTreeMap::new();
+    assert!(
+        band_chips(&band_layout(
+            &banded(&[], &panes, 1),
+            &empty,
+            &plain_config()
+        ))
+        .is_empty()
+    );
+    let ps1 = PromptConfig {
+        style: PromptStyle::Ps1,
+        ..plain_config()
+    };
+    assert!(band_chips(&band_layout(&banded(&[], &panes, 1), &info, &ps1)).is_empty());
+    assert_eq!(
+        band_chips(&band_layout(
+            &banded(&[], &panes, 1),
+            &info,
+            &plain_config()
+        ))
+        .len(),
+        3
+    );
+}
+
+#[test]
+fn the_active_accent_covers_the_band_row_of_a_banded_pane() {
+    let theme = Config::default().theme();
+    let outline = opaque(theme.surfaces().outline);
+    let accent = opaque(theme.accent);
+    let separators = [
+        Separator {
+            axis: Axis::Horizontal,
+            rect: cells(49, 0, 1, 34),
+        },
+        Separator {
+            axis: Axis::Vertical,
+            rect: cells(50, 16, 48, 1),
+        },
+    ];
+    let panes = [
+        (1, cells(0, 0, 49, 34)),
+        (2, cells(50, 0, 48, 16)),
+        (3, cells(50, 17, 48, 17)),
+    ];
+    let vertical = rect(404.0, 35.0, 1.0, 565.0);
+    let horizontal = rect(404.0, 316.0, 396.0, 1.0);
+    let lower = rect(404.0, 316.0, 1.0, 284.0);
+    assert_eq!(
+        lines(run_layout(1.0, 800, Some(&banded(&separators, &panes, 3)))),
+        [
+            (vertical, outline),
+            (horizontal, outline),
+            (lower, accent),
+            (horizontal, accent),
+        ]
+    );
+    let upper = rect(404.0, 35.0, 1.0, 282.0);
+    assert_eq!(
+        lines(run_layout(1.0, 800, Some(&banded(&separators, &panes, 2)))),
+        [
+            (vertical, outline),
+            (horizontal, outline),
+            (upper, accent),
+            (horizontal, accent),
+        ]
+    );
 }

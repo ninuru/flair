@@ -4,6 +4,7 @@ pub mod config;
 pub mod config_edit;
 pub mod geom;
 pub mod ids;
+pub mod isles;
 pub mod key;
 pub mod keys;
 pub mod layout;
@@ -18,3 +19,5 @@ pub mod theme;
 pub mod time;
 pub mod tree;
 pub mod view;
+
+mod prompt_config;
