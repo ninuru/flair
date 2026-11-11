@@ -307,6 +307,14 @@ fn ui_font_defaults_to_sans_serif_at_twelve() {
 }
 
 #[test]
+fn ligatures_are_off_by_default_and_parse_as_a_bool() {
+    assert!(!Config::default().font.ligatures);
+    let config = Config::from_toml("[font]\nligatures = true\n").unwrap();
+    assert!(config.font.ligatures);
+    assert!(Config::from_toml("[font]\nligatures = \"yes\"\n").is_err());
+}
+
+#[test]
 fn ui_size_must_be_finite_and_positive() {
     for value in ["0", "-2", "nan", "inf"] {
         let error = Config::from_toml(&format!("[font]\nui_size = {value}\n")).unwrap_err();

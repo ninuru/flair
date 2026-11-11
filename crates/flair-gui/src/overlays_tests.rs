@@ -420,7 +420,14 @@ fn the_settings_page_reads_sources_from_the_config_file() {
         .collect();
     assert_eq!(
         sources,
-        ["default", "flair.toml", "default", "default", "default"]
+        [
+            "default",
+            "flair.toml",
+            "default",
+            "default",
+            "default",
+            "default"
+        ]
     );
 }
 

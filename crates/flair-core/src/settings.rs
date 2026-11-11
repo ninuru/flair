@@ -311,6 +311,14 @@ pub const SETTINGS: &[Setting] = &[
         read: |config, _| Value::Float(decimal(config.font.ui_size)),
     },
     Setting {
+        key: "font.ligatures",
+        title: "Ligatures",
+        section: Section::Font,
+        kind: Kind::Toggle,
+        description: "Join sequences like -> and != when the font has ligatures.",
+        read: |config, _| Value::Bool(config.font.ligatures),
+    },
+    Setting {
         key: "window.padding_x",
         title: "Padding X",
         section: Section::Window,

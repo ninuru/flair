@@ -664,3 +664,46 @@ fn mono_chrome_text_advances_wide_characters_and_overlays_combining_marks() {
     drop(renderer);
     drop(ctx);
 }
+
+#[test]
+fn ligatures_change_the_arrow_pixels_only_while_enabled() {
+    let px = (120, 40);
+    let Some((ctx, gl)) = headless_or_skip(px, "ligatures") else {
+        return;
+    };
+    let config = Config::default();
+    let theme = config.theme();
+    let mut off = Fonts::load(&config.font, 1.0).unwrap();
+    let mut font = config.font.clone();
+    font.ligatures = true;
+    let mut on = Fonts::load(&font, 1.0).unwrap();
+    let mut grid = filled_grid(GridSize { cols: 6, rows: 1 }, theme.background);
+    for (cell, c) in grid.cells.iter_mut().zip("a -> b".chars()) {
+        cell.c = c;
+        cell.fg = theme.foreground;
+    }
+    let ligature = Shaper::new(Arc::clone(on.shaping().unwrap()))
+        .row(&grid.cells, None)
+        .iter()
+        .any(Option::is_some);
+    let mut renderer = Renderer::new(gl, off.metrics()).unwrap();
+    renderer.resize(px);
+    let chrome = cells_only((4.0, 4.0), px);
+    let mut draw = |fonts: &mut Fonts| {
+        renderer
+            .draw_frame(&grid, &chrome, fonts, theme.background)
+            .unwrap();
+        renderer.read_pixels()
+    };
+    let plain = draw(&mut off);
+    let shaped = draw(&mut on);
+    let again = draw(&mut off);
+    assert_eq!(plain, again);
+    if ligature {
+        assert_ne!(plain, shaped);
+    } else {
+        eprintln!("skipped ligature pixels: the terminal font has no -> ligature");
+    }
+    drop(renderer);
+    drop(ctx);
+}

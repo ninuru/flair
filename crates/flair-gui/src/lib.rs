@@ -25,6 +25,8 @@ pub mod renderer;
 pub mod settings_layout;
 pub mod settings_page;
 mod settings_rows;
+pub mod shape;
+mod shaper;
 pub mod status;
 mod theme_file;
 pub mod theme_picker;

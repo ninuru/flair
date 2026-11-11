@@ -53,6 +53,7 @@ pub struct FontConfig {
     pub line_height: f32,
     pub ui_family: String,
     pub ui_size: f32,
+    pub ligatures: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -361,6 +362,7 @@ impl Default for FontConfig {
             line_height: 1.0,
             ui_family: "sans-serif".to_owned(),
             ui_size: 12.0,
+            ligatures: false,
         }
     }
 }

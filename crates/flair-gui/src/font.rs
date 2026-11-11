@@ -1,9 +1,9 @@
-use std::{collections::HashMap, error::Error, fmt};
+use std::{collections::HashMap, error::Error, fmt, sync::Arc};
 
 use crossfont::{BitmapBuffer, FontDesc, Rasterize, Slant, Weight};
 use flair_core::config::FontConfig;
 
-use crate::ui::SMALL_TEXT;
+use crate::{shaper::ShapeSource, ui::SMALL_TEXT};
 
 pub(crate) const PROMPT_ICON_SCALE: f32 = 1.4;
 
@@ -17,6 +17,7 @@ pub struct Fonts {
     small_size: crossfont::Size,
     ui_metrics: UiMetrics,
     ui_advances: HashMap<(char, Style, bool), f32>,
+    shaping: Option<Arc<ShapeSource>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -166,11 +167,18 @@ impl Fonts {
             small_size,
             ui_metrics,
             ui_advances: HashMap::new(),
+            shaping: config
+                .ligatures
+                .then(|| Arc::new(ShapeSource::locate(&config.family, size.as_px()))),
         })
     }
 
     pub fn metrics(&self) -> CellMetrics {
         self.metrics
+    }
+
+    pub(crate) fn shaping(&self) -> Option<&Arc<ShapeSource>> {
+        self.shaping.as_ref()
     }
 
     pub fn rasterize(&mut self, c: char, style: Style) -> Option<RasterGlyph> {

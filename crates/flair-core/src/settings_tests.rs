@@ -53,6 +53,7 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "font.line_height",
             "font.ui_family",
             "font.ui_size",
+            "font.ligatures",
             "window.padding_x",
             "window.padding_y",
             "shell.program",
@@ -374,6 +375,17 @@ fn prompt_defaults_read_from_the_config() {
         default_value(setting("prompt.duration_ms")),
         Value::Integer(2000)
     );
+}
+
+#[test]
+fn ligatures_is_an_off_toggle_in_the_font_section() {
+    let ligatures = setting("font.ligatures");
+    assert_eq!(ligatures.section, Section::Font);
+    assert_eq!(ligatures.kind, Kind::Toggle);
+    assert_eq!(default_value(ligatures), Value::Bool(false));
+    let mut config = Config::default();
+    config.font.ligatures = true;
+    assert_eq!(ligatures.value(&config, &config.theme()), Value::Bool(true));
 }
 
 #[test]
