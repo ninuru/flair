@@ -611,7 +611,12 @@ fn icon_ui() -> UiMetrics {
     }
 }
 
-fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
+fn prompt_scene(
+    info: PromptInfo,
+    cols: u16,
+    row: u16,
+    occupied: bool,
+) -> crate::chrome_layout::ChromeLayout {
     let theme = Config::default().theme();
     let status = StatusParts {
         chip: ChipParts {
@@ -648,14 +653,24 @@ fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
         pane: PaneId(1),
         size: GridSize { cols, rows: 33 },
         full: true,
-        rows: Vec::new(),
+        rows: if occupied && row > 0 {
+            vec![(
+                row - 1,
+                vec![flair_core::proto::Cell {
+                    c: 'X',
+                    ..Default::default()
+                }],
+            )]
+        } else {
+            Vec::new()
+        },
         cursor: flair_core::proto::Cursor {
             point: CellPoint { col: 0, row: 1 },
             shape: flair_core::proto::CursorShape::Block,
             visible: true,
         },
         flags: flair_core::proto::PaneFlags {
-            prompt_row: Some(0),
+            prompt_row: Some(row),
             ..Default::default()
         },
         selection: Vec::new(),
@@ -687,6 +702,10 @@ fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
         }),
     };
     layout(&input, |text, _| text.chars().count() as f32 * 7.0)
+}
+
+fn icon_runs(info: PromptInfo, cols: u16) -> Vec<(f32, f32, String, TextFace)> {
+    prompt_scene(info, cols, 0, false)
         .chrome
         .text
         .into_iter()
@@ -964,4 +983,61 @@ fn home_is_compact_by_default_and_full_path_remains_an_explicit_choice() {
         text_of(&info, &config, Chip::Cwd).as_deref(),
         Some("/home/ada")
     );
+}
+
+#[test]
+fn prompt_dividers_stay_inside_the_pane_and_above_the_chip_row() {
+    let theme = Config::default().theme();
+    let metrics = CellMetrics {
+        width: 10.0,
+        height: 24.0,
+        baseline: 18.0,
+    };
+    let rect = PxRect {
+        x: 480.0,
+        y: 120.0,
+        w: 320.0,
+        h: 24.0,
+    };
+    let quad = divider(rect, metrics, 1.5, &theme);
+    assert_eq!(
+        quad.rect,
+        PxRect {
+            x: 480.0,
+            y: 108.0,
+            w: 320.0,
+            h: 2.0
+        }
+    );
+    assert_eq!(
+        quad.color,
+        opaque(blend(theme.background, theme.foreground, 12))
+    );
+    assert!(quad.border.is_none());
+}
+
+#[test]
+fn prompt_dividers_respect_output_and_top_of_pane_and_publish_chip_hits() {
+    let info = PromptInfo {
+        cwd: Some(PathBuf::from("/srv/one")),
+        ..Default::default()
+    };
+    let lines = |scene: &crate::chrome_layout::ChromeLayout| {
+        scene
+            .chrome
+            .quads
+            .iter()
+            .filter(|quad| quad.rect.y >= 68.0 && quad.rect.h == 1.0 && quad.border.is_none())
+            .count()
+    };
+    let reserved = prompt_scene(info.clone(), 98, 2, false);
+    assert_eq!(lines(&reserved), 1);
+    assert_eq!(lines(&prompt_scene(info.clone(), 98, 2, true)), 0);
+    assert_eq!(lines(&prompt_scene(info, 98, 0, false)), 0);
+    assert!(reserved.hits.iter().any(|hit| hit.target
+        == HitTarget::Prompt {
+            pane: PaneId(1),
+            row: 2,
+            chip: Chip::Cwd
+        }));
 }

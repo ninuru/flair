@@ -40,10 +40,11 @@ pub(crate) fn route_mouse(
     }
 }
 
-pub(crate) fn bar_command(target: HitTarget) -> Command {
+pub(crate) fn bar_command(target: HitTarget) -> Option<Command> {
     match target {
-        HitTarget::Window(window) => Command::SelectWindow(WindowRef::Id(window)),
-        HitTarget::Session => Command::ChooseSession,
+        HitTarget::Window(window) => Some(Command::SelectWindow(WindowRef::Id(window))),
+        HitTarget::Session => Some(Command::ChooseSession),
+        HitTarget::Prompt { .. } => None,
     }
 }
 

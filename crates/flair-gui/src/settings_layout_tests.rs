@@ -78,6 +78,7 @@ fn sheet(section: usize, crumb: &'static str, groups: Vec<Group>) -> SettingsShe
             placeholder: "Search settings",
         },
         groups,
+        dropdown: None,
         focus: Some(0),
         keys: vec![
             ("↵", "edit".into()),
@@ -318,6 +319,8 @@ fn six_nav_rows_fit_the_narrow_column_at_960x600() {
             | SettingsHit::Toggle(_)
             | SettingsHit::Decrease(_)
             | SettingsHit::Increase(_)
+            | SettingsHit::Choose(_)
+            | SettingsHit::DismissDropdown
             | SettingsHit::Cycle(_)
             | SettingsHit::Edit(_)
             | SettingsHit::PromptEditor(_) => None,

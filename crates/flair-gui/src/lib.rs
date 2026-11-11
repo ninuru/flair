@@ -19,6 +19,7 @@ pub mod overlays;
 pub mod picker;
 pub mod probe;
 pub mod prompt;
+pub mod prompt_actions;
 mod prompt_editor;
 pub mod renderer;
 pub mod settings_layout;

@@ -135,6 +135,8 @@ fn compact_editor_keeps_save_visible_and_scrolls_to_every_option() {
                     | SettingsHit::Toggle(_)
                     | SettingsHit::Decrease(_)
                     | SettingsHit::Increase(_)
+                    | SettingsHit::Choose(_)
+                    | SettingsHit::DismissDropdown
                     | SettingsHit::Cycle(_)
                     | SettingsHit::Edit(_) => None,
                 }

@@ -24,6 +24,7 @@ const QUERY_LIMIT: usize = 256;
 const EDITOR_LIMIT: usize = 1024;
 
 pub struct SettingsPage {
+    dropdown: Option<Dropdown>,
     prompt_editor: PromptEditor,
     search_focused: bool,
     config: Config,
@@ -53,11 +54,18 @@ struct Editor {
     text: TextCursor,
 }
 
+struct Dropdown {
+    item: usize,
+    options: Vec<String>,
+    selected: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Action {
     Toggle,
     Step(i32),
     Edit,
+    OpenChoice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -82,6 +90,7 @@ pub enum SettingsOutcome {
 impl SettingsPage {
     pub fn new(config: &Config, theme: Theme, text: String, themes: Vec<String>) -> SettingsPage {
         SettingsPage {
+            dropdown: None,
             prompt_editor: PromptEditor::new(&config.prompt),
             search_focused: false,
             config: config.clone(),
@@ -105,6 +114,9 @@ impl SettingsPage {
         if key.action == KeyAction::Release {
             return SettingsOutcome::Pending;
         }
+        if self.dropdown.is_some() {
+            return self.dropdown_key(key);
+        }
         if self.is_prompt_editor() && self.focus == Focus::Items {
             return self.prompt_key(key);
         }
@@ -118,6 +130,9 @@ impl SettingsPage {
     }
 
     pub fn insert(&mut self, text: &str) -> SettingsOutcome {
+        if self.dropdown.is_some() {
+            return SettingsOutcome::Pending;
+        }
         if let Some(editor) = &mut self.editor {
             let before = editor.text.text().len();
             editor.text.insert(text);
@@ -130,6 +145,10 @@ impl SettingsPage {
     }
 
     pub fn click(&mut self, hit: SettingsHit) -> SettingsOutcome {
+        if let SettingsHit::Choose(index) = hit {
+            return self.choose(index);
+        }
+        self.dismiss_dropdown();
         match hit {
             SettingsHit::PromptEditor(action) => self.prompt_action(action),
             SettingsHit::Section(index) => {
@@ -148,14 +167,15 @@ impl SettingsPage {
             }
             SettingsHit::Toggle(item) => self.on_item(item, Action::Toggle),
             SettingsHit::Decrease(item) => self.on_item(item, Action::Step(-1)),
-            SettingsHit::Increase(item) | SettingsHit::Cycle(item) => {
-                self.on_item(item, Action::Step(1))
-            }
+            SettingsHit::Increase(item) => self.on_item(item, Action::Step(1)),
+            SettingsHit::Cycle(item) => self.on_item(item, Action::OpenChoice),
+            SettingsHit::Choose(_) | SettingsHit::DismissDropdown => SettingsOutcome::Pending,
             SettingsHit::Edit(item) => self.on_item(item, Action::Edit),
         }
     }
 
     pub fn focus(&mut self, item: usize) -> SettingsOutcome {
+        self.dismiss_dropdown();
         match item < self.items().len() {
             true => self.go(item),
             false => SettingsOutcome::Pending,
@@ -163,6 +183,10 @@ impl SettingsPage {
     }
 
     pub fn wheel(&mut self, rows: i32) -> SettingsOutcome {
+        if self.dropdown.is_some() {
+            self.move_choice(rows);
+            return SettingsOutcome::Pending;
+        }
         if self.is_prompt_editor() {
             self.prompt_editor.wheel(rows);
             return SettingsOutcome::Pending;
@@ -220,6 +244,7 @@ impl SettingsPage {
             groups: self.groups(&items, searching),
             focus: (!items.is_empty()).then(|| self.item.min(items.len() - 1)),
             keys: self.footer(),
+            dropdown: self.dropdown_sheet(),
         }
     }
 
@@ -350,25 +375,6 @@ impl SettingsPage {
         match &self.pending {
             Some((at, value)) if *at == index => value.clone(),
             Some(_) | None => self.current(index),
-        }
-    }
-
-    fn activate(&mut self) -> SettingsOutcome {
-        let Some(index) = self.selected() else {
-            return SettingsOutcome::Pending;
-        };
-        if self.pending.is_some() {
-            return self.leave();
-        }
-        match SETTINGS[index].kind {
-            Kind::Toggle => self.toggle(),
-            Kind::Choice(_) => self.step(1),
-            Kind::Integer { .. }
-            | Kind::Float { .. }
-            | Kind::Text
-            | Kind::Font
-            | Kind::Words
-            | Kind::Color { .. } => self.edit(),
         }
     }
 
@@ -599,6 +605,7 @@ impl SettingsPage {
             Action::Toggle => self.toggle(),
             Action::Step(delta) => self.step(delta),
             Action::Edit => self.edit(),
+            Action::OpenChoice => self.open_choice(),
         }
     }
 
@@ -781,3 +788,6 @@ mod tests;
 
 #[path = "settings_page_prompt.rs"]
 mod prompt_editor_actions;
+
+#[path = "settings_page_dropdown.rs"]
+mod dropdown_actions;

@@ -31,7 +31,7 @@ use winit::{
 
 use crate::{
     Fonts,
-    chrome_layout::{self, ChromeInput, ChromeLayout, Hit},
+    chrome_layout::{self, ChromeInput, ChromeLayout, Hit, HitTarget},
     clipboard::Clipboard,
     compose::{compose, compose_frame},
     drive::Drive,
@@ -43,6 +43,7 @@ use crate::{
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
     probe::Probe,
+    prompt_actions::{self, PromptAction, PromptMenu},
     renderer::{Renderer, WindowContext},
     status::status_parts,
     theme_file::resolve_theme,
@@ -50,6 +51,8 @@ use crate::{
 
 #[path = "app_config.rs"]
 mod config;
+#[path = "app_prompt_actions.rs"]
+mod prompt_actions_app;
 
 #[derive(Debug)]
 pub struct GuiError(pub String);
@@ -64,6 +67,11 @@ enum UserEvent {
     Message(ServerMsg),
     Disconnected,
     Drive(Drive),
+    PromptContexts {
+        generation: u64,
+        result: Result<Vec<String>, String>,
+    },
+    PromptActionFinished(Result<(), String>),
 }
 
 struct Surface {
@@ -80,6 +88,7 @@ struct App {
     theme: Theme,
     preview: Option<Preview>,
     tx: Sender<ClientMsg>,
+    proxy: EventLoopProxy<UserEvent>,
     surface: Option<Surface>,
     mirror: Mirror,
     pane: Option<PaneId>,
@@ -155,37 +164,6 @@ impl App {
                 ))
         })
     }
-    fn mouse(&mut self, button: MouseButton, action: MouseAction) {
-        let Some(point) = self.cell() else {
-            return;
-        };
-        let route = route_mouse(self.in_bar(), button, action, self.capture);
-        self.capture = capture_after(self.capture, button, action, route);
-        match route {
-            MouseRoute::Bar => {
-                if let Some(target) =
-                    chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y))
-                {
-                    self.send(ClientMsg::Command(bar_command(target)));
-                }
-            }
-            MouseRoute::Drop => {}
-            MouseRoute::Server => {
-                let mods = flair_core::key::Mods {
-                    ctrl: self.mods.control_key(),
-                    shift: self.mods.shift_key(),
-                    alt: self.mods.alt_key(),
-                    super_: self.mods.super_key(),
-                };
-                self.send(ClientMsg::Input(InputEvent::Mouse(MouseInput {
-                    point,
-                    button,
-                    action,
-                    mods,
-                })));
-            }
-        }
-    }
     fn request_redraw(&self) {
         if let Some(surface) = &self.surface {
             surface.window.request_redraw();
@@ -201,6 +179,7 @@ impl App {
             }
             OverlayEvent::Theme(outcome) => self.theme_outcome(outcome),
             OverlayEvent::Settings(outcome) => self.settings_outcome(outcome),
+            OverlayEvent::Prompt(action) => self.prompt_action(action),
         }
     }
     fn set_ime(&mut self, active: bool) {
@@ -495,6 +474,12 @@ impl ApplicationHandler<UserEvent> for App {
                     event_loop.exit();
                 }
             },
+            UserEvent::PromptContexts { generation, result } => {
+                if self.overlays.prompt_contexts(generation, result) {
+                    self.request_redraw();
+                }
+            }
+            UserEvent::PromptActionFinished(result) => self.prompt_action_finished(result),
             UserEvent::Disconnected => event_loop.exit(),
             UserEvent::Drive(Drive::Key(key)) => self.key(key),
             UserEvent::Drive(Drive::Text(text)) => self.text(text),
@@ -730,6 +715,7 @@ pub fn run_target(
         .map_err(|e| GuiError(e.to_string()))?;
     let proxy = event_loop.create_proxy();
     let drive = (!drive.is_empty()).then(|| (drive, proxy.clone()));
+    let app_proxy = proxy.clone();
     std::thread::spawn(move || {
         while let Ok(message) = link.rx.recv() {
             if proxy.send_event(UserEvent::Message(message)).is_err() {
@@ -744,6 +730,7 @@ pub fn run_target(
         theme,
         preview: None,
         tx: link.tx,
+        proxy: app_proxy,
         surface: None,
         mirror: Mirror::default(),
         pane: None,

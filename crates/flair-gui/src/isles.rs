@@ -12,8 +12,8 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{
     CellMetrics,
-    chrome_bar::{Scene, opaque, rounded},
-    chrome_layout::{ChromeInput, cell_rect},
+    chrome_bar::{Scene, fill, opaque, rounded},
+    chrome_layout::{ChromeInput, Hit, HitTarget, cell_rect},
     font::PROMPT_ICON_SCALE,
     mirror::Mirror,
     overlay_layout::{OverlayInput, OverlayScene},
@@ -451,7 +451,40 @@ fn draw_prompt(
         metrics: input.metrics,
         config: isles.config,
     };
-    paint.chips(&labels, rect, scene);
+    if row > 0
+        && isles.mirror.pane(placement.pane).is_some_and(|pane| {
+            pane.rows.get(usize::from(row - 1)).is_some_and(|cells| {
+                cells
+                    .iter()
+                    .all(|cell| cell.c == ' ' && cell.extra.is_none())
+            })
+        })
+    {
+        scene
+            .quads
+            .push(divider(rect, input.metrics, input.scale, input.theme));
+    }
+    let hits = paint.chips(&labels, rect, scene);
+    scene.hits.extend(hits.into_iter().map(|(chip, rect)| Hit {
+        rect,
+        target: HitTarget::Prompt {
+            pane: placement.pane,
+            row,
+            chip,
+        },
+    }));
+}
+
+fn divider(rect: PxRect, metrics: CellMetrics, scale: f32, theme: &Theme) -> Quad {
+    fill(
+        PxRect {
+            x: rect.x,
+            y: (rect.y - metrics.height / 2.0).round(),
+            w: rect.w,
+            h: px(LINE, scale),
+        },
+        blend(theme.background, theme.foreground, 12),
+    )
 }
 
 pub fn preview(

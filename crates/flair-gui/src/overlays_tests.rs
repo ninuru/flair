@@ -548,3 +548,40 @@ fn an_unreadable_config_shows_an_error_instead_of_the_settings_page() {
     assert!(notice.error);
     assert!(notice.text.starts_with("settings: "), "{}", notice.text);
 }
+
+#[test]
+fn prompt_menu_dismisses_outside_and_ignores_stale_context_results() {
+    use crate::{
+        prompt_actions::{PromptAction, PromptMenu},
+        renderer::PxRect,
+    };
+    use flair_core::{
+        ids::PaneId,
+        isles::{Chip, PromptInfo},
+    };
+    let mut overlays = Overlays::default();
+    let first = overlays.open_prompt(PromptMenu::new(
+        PaneId(1),
+        Chip::Docker,
+        &PromptInfo::default(),
+        PxRect::default(),
+        "docker".into(),
+    ));
+    assert!(overlays.is_open());
+    assert_eq!(overlays.click(OverlayHit::Outside), OverlayEvent::Redraw);
+    assert!(!overlays.prompt_contexts(first, Ok(vec!["stale".into()])));
+    let second = overlays.open_prompt(PromptMenu::new(
+        PaneId(1),
+        Chip::Docker,
+        &PromptInfo::default(),
+        PxRect::default(),
+        "docker".into(),
+    ));
+    assert!(!overlays.prompt_contexts(first, Ok(vec!["stale".into()])));
+    assert!(overlays.prompt_contexts(second, Ok(vec!["dev".into()])));
+    assert_eq!(
+        overlays.click(OverlayHit::Row(0)),
+        OverlayEvent::Prompt(PromptAction::DockerContext("dev".into()))
+    );
+    assert!(!overlays.is_open());
+}

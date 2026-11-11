@@ -258,5 +258,7 @@ fn the_theme_choice_still_previews_every_step() {
         press(&mut page, NamedKey::Left),
         preview_of("", "theme", Some(&mocha))
     );
-    assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Revert);
+    assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Pending);
+    assert_eq!(page.sheet().dropdown.unwrap().selected, 0);
+    assert_eq!(page.click(SettingsHit::Choose(1)), SettingsOutcome::Revert);
 }

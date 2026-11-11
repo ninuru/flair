@@ -345,6 +345,10 @@ fn zsh_default_prompt_leaves_a_plain_input_line_below_its_chip_anchor() {
     let mut terminal = crate::Terminal::new(spawn.size, 100);
     terminal.advance(text.as_bytes());
     let frame = terminal.snapshot(flair_core::ids::PaneId(1), true).unwrap();
+    assert!(
+        frame.cursor.point.row >= 2,
+        "divider needs a reserved blank row"
+    );
     assert_eq!(frame.cursor.point.col, 0);
     assert_eq!(frame.flags.prompt_row, Some(frame.cursor.point.row - 1));
     pty.kill();

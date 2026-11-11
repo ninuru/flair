@@ -340,6 +340,7 @@ impl Capture {
             Some(OverlayEvent::Send(message)) => Ok(vec![message]),
             Some(OverlayEvent::Theme(outcome)) => Ok(self.theme_outcome(outcome)),
             Some(OverlayEvent::Settings(outcome)) => self.settings(outcome),
+            Some(OverlayEvent::Prompt(_)) => Err("Prompt actions require the native client".into()),
         }
     }
 

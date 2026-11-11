@@ -215,9 +215,14 @@ fn wheel_presses_do_not_start_a_capture_and_bar_presses_capture_the_bar() {
 fn bar_hits_map_to_commands() {
     assert_eq!(
         bar_command(HitTarget::Window(flair_core::ids::WindowId(4))),
-        Command::SelectWindow(WindowRef::Id(flair_core::ids::WindowId(4)))
+        Some(Command::SelectWindow(WindowRef::Id(
+            flair_core::ids::WindowId(4)
+        )))
     );
-    assert_eq!(bar_command(HitTarget::Session), Command::ChooseSession);
+    assert_eq!(
+        bar_command(HitTarget::Session),
+        Some(Command::ChooseSession)
+    );
 }
 
 #[test]

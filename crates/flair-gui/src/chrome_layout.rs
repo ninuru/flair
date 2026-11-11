@@ -1,6 +1,7 @@
 use flair_core::{
     geom::{Axis, CellPoint, CellRect, GridSize},
-    ids::WindowId,
+    ids::{PaneId, WindowId},
+    isles::Chip,
     proto::{Separator, WindowLayout},
     theme::Theme,
 };
@@ -44,6 +45,7 @@ pub struct ChromeInput<'a> {
 pub enum HitTarget {
     Window(WindowId),
     Session,
+    Prompt { pane: PaneId, row: u16, chip: Chip },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

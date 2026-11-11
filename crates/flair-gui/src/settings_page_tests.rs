@@ -491,14 +491,11 @@ fn the_theme_cycles_as_a_pending_preview() {
 }
 
 #[test]
-fn enter_on_a_choice_cycles_forward_as_pending() {
+fn enter_on_a_choice_opens_the_available_options() {
     let mut page = page("");
-    let next = Value::Text("gruvbox-dark".to_owned());
-    assert_eq!(
-        press(&mut page, NamedKey::Enter),
-        preview_of("", "theme", Some(&next))
-    );
-    assert_eq!(page.sheet().keys, pending_keys());
+    assert_eq!(press(&mut page, NamedKey::Enter), SettingsOutcome::Pending);
+    assert_eq!(control(&page), Control::Choice("flair-dark".to_owned()));
+    assert_eq!(page.sheet().dropdown.unwrap().options, names());
 }
 
 #[test]
@@ -878,7 +875,7 @@ fn the_prompt_style_steps_back_from_ps1_and_saves_on_leave() {
 fn escape_reverts_a_pending_prompt_style() {
     let mut page = page("");
     focus_key(&mut page, "prompt.style");
-    press(&mut page, NamedKey::Enter);
+    press(&mut page, NamedKey::Right);
     assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
     assert_eq!(press(&mut page, NamedKey::Escape), SettingsOutcome::Revert);
     assert_eq!(control(&page), Control::Choice("chips".to_owned()));
