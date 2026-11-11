@@ -159,12 +159,12 @@ impl Terminal {
                 | TermEvent::PromptAnchor(_, _) => (),
             }
         }
-        if self.copy_mode() {
-            self.clamp_copy_cursor();
-        }
         let alt_changed = old_alt != self.modes().alt_screen;
         if sniff_clear(&mut self.clear, bytes) || alt_changed {
             self.exit_copy_mode();
+        }
+        if self.copy_mode() {
+            self.settle_copy_cursor(self.term.vi_mode_cursor.point);
         }
         self.force_full |= alt_changed;
     }
@@ -262,6 +262,15 @@ impl Terminal {
                 prompt_id(&self.term.grid()[Point::new(*line, Column(0))]) == Some(self.prompt_id)
             })
     }
+    pub(crate) fn chrome_line(&self, line: Line) -> bool {
+        let grid = self.term.grid();
+        let anchor = |line: Line| prompt_id(&grid[Point::new(line, Column(0))]).is_some();
+        anchor(line)
+            || (line < self.term.bottommost_line()
+                && anchor(line + 1)
+                && (0..self.size.cols)
+                    .all(|col| grid[Point::new(line, Column(usize::from(col)))].c == ' '))
+    }
     pub fn copy_mode(&self) -> bool {
         self.term.mode().contains(TermMode::VI)
     }
@@ -269,7 +278,7 @@ impl Terminal {
         if !self.copy_mode() {
             self.term.toggle_vi_mode();
             self.copy_anchor = None;
-            self.clamp_copy_cursor();
+            self.settle_copy_cursor(self.term.vi_mode_cursor.point);
             self.force_full = true;
         }
     }
@@ -322,9 +331,42 @@ impl Terminal {
         }
     }
     pub fn selection_text(&self) -> Option<String> {
-        self.term
-            .selection_to_string()
-            .filter(|text| !text.is_empty())
+        let selection = self.term.selection.as_ref()?;
+        let range = selection.to_range(&self.term)?;
+        let mut parts = Vec::new();
+        let mut line = range.start.line;
+        while line <= range.end.line {
+            if self.chrome_line(line) {
+                line += 1;
+                continue;
+            }
+            let first = line;
+            while !range.is_block && line < range.end.line && !self.chrome_line(line + 1) {
+                line += 1;
+            }
+            let start = if range.is_block || first == range.start.line {
+                Point::new(first, range.start.column)
+            } else {
+                Point::new(first, Column(0))
+            };
+            let end = if range.is_block || line == range.end.line {
+                Point::new(line, range.end.column)
+            } else {
+                Point::new(line, self.term.last_column())
+            };
+            let text = self.term.bounds_to_string(start, end);
+            parts.push(if range.is_block {
+                text.trim_end().to_owned()
+            } else {
+                text
+            });
+            line += 1;
+        }
+        let mut text = parts.join("\n");
+        if selection.ty == SelectionType::Lines {
+            text.push('\n');
+        }
+        Some(text).filter(|text| !text.is_empty())
     }
     pub fn clear_selection(&mut self) {
         self.term.selection = None;

@@ -361,7 +361,7 @@ fn prompt_anchor_tracks_the_reserved_row_without_leaking_text() {
     );
     term.select_start(CellPoint { col: 0, row: 1 }, 1);
     term.select_update(CellPoint { col: 8, row: 2 });
-    assert_eq!(term.selection_text().as_deref(), Some("\n> command"));
+    assert_eq!(term.selection_text().as_deref(), Some("> command"));
     term.clear_selection();
     term.advance(b"long enough to wrap around\x08\x08");
     assert_eq!(

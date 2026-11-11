@@ -24,7 +24,7 @@ impl Terminal {
         (0..self.size.rows)
             .filter_map(|row| {
                 let line = Line(i32::from(row) - offset);
-                if line < range.start.line || line > range.end.line {
+                if line < range.start.line || line > range.end.line || self.chrome_line(line) {
                     return None;
                 }
                 let start = if range.is_block || line == range.start.line {
