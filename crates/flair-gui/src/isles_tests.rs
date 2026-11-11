@@ -154,7 +154,7 @@ fn text_of(info: &PromptInfo, config: &PromptConfig, chip: Chip) -> Option<Strin
 #[test]
 fn every_chip_on_gives_labels_in_band_order() {
     let labels = labels(&full(), &all_on(false), Some((15, 48)), home());
-    assert_eq!(chips(&labels), Chip::ALL);
+    assert_eq!(chips(&labels), shown());
     assert_eq!(
         texts(&labels),
         [
@@ -167,7 +167,6 @@ fn every_chip_on_gives_labels_in_band_order() {
             "venv env",
             "docker colima",
             "kube prod",
-            "1",
             "15:48",
             "2026-11-10",
         ]
@@ -178,13 +177,13 @@ fn every_chip_on_gives_labels_in_band_order() {
 fn a_disabled_chip_is_absent_and_the_others_stay() {
     for chip in Chip::ALL {
         let labels = labels(&full(), &without(chip), Some((15, 48)), home());
-        let expected: Vec<Chip> = Chip::ALL.into_iter().filter(|c| *c != chip).collect();
+        let expected: Vec<Chip> = shown().into_iter().filter(|c| *c != chip).collect();
         assert_eq!(chips(&labels), expected, "{chip:?}");
     }
 }
 
 #[test]
-fn icons_on_put_a_terminal_glyph_before_every_chip_but_ahead_behind_and_exit() {
+fn icons_on_put_a_terminal_glyph_before_every_chip_but_ahead_behind() {
     let labels = labels(&full(), &all_on(true), Some((15, 48)), home());
     let icons: Vec<(Chip, Option<char>)> = labels
         .iter()
@@ -202,7 +201,6 @@ fn icons_on_put_a_terminal_glyph_before_every_chip_but_ahead_behind_and_exit() {
             (Chip::Venv, Some('\u{f487}')),
             (Chip::Docker, Some('\u{f308}')),
             (Chip::Kube, Some('\u{f10fe}')),
-            (Chip::Exit, None),
             (Chip::Time, Some('\u{f017}')),
             (Chip::Date, Some('\u{f073}')),
         ]
@@ -305,58 +303,36 @@ fn changes_show_files_then_line_counts() {
     assert_eq!(with(None), None);
 }
 
-fn exit(code: Option<i32>, ms: u64, threshold: u64) -> Option<(String, Tone)> {
-    let info = PromptInfo {
-        last: Some(LastCommand {
-            exit: code,
-            duration: Millis(ms),
-        }),
-        ..PromptInfo::default()
-    };
-    let config = PromptConfig {
-        duration_ms: threshold,
-        ..all_on(false)
-    };
-    labels(&info, &config, None, None)
-        .into_iter()
-        .find(|label| label.chip == Chip::Exit)
-        .map(|label| (label.text, label.tone))
-}
-
 #[test]
-fn exit_shows_code_and_duration_only_above_the_threshold() {
-    assert_eq!(exit(Some(0), 1999, 2000), None);
-    assert_eq!(exit(None, 100, 2000), None);
-    assert_eq!(exit(Some(0), 2000, 2000), Some(("2.0s".into(), Tone::Ok)));
-    assert_eq!(exit(None, 3000, 2000), Some(("3.0s".into(), Tone::Ok)));
-    assert_eq!(exit(Some(1), 420, 2000), Some(("1".into(), Tone::Failed)));
-    assert_eq!(
-        exit(Some(1), 420, 400),
-        Some(("1 · 0.42s".into(), Tone::Failed))
-    );
-    assert_eq!(exit(Some(0), 420, 0), Some(("0.42s".into(), Tone::Ok)));
-    assert_eq!(
-        exit(Some(130), 12_400, 2000),
-        Some(("130 · 12.4s".into(), Tone::Failed))
-    );
-    let info = PromptInfo {
-        last: None,
-        ..PromptInfo::default()
-    };
-    assert!(labels(&info, &all_on(false), None, None).is_empty());
+fn the_live_prompt_shows_no_exit_chip_even_after_a_failure() {
+    for code in [Some(0), Some(1), Some(130), None] {
+        let info = PromptInfo {
+            last: Some(LastCommand {
+                exit: code,
+                duration: Millis(12_400),
+            }),
+            ..full()
+        };
+        let config = PromptConfig {
+            duration_ms: 0,
+            ..all_on(false)
+        };
+        let labels = labels(&info, &config, Some((15, 48)), home());
+        assert!(labels.iter().all(|label| label.chip != Chip::Exit));
+        assert!(!labels.is_empty());
+    }
 }
 
 #[test]
 fn durations_read_in_the_largest_useful_unit() {
-    let text = |ms| exit(Some(0), ms, 0).map(|(text, _)| text);
-    assert_eq!(text(420).as_deref(), Some("0.42s"));
-    assert_eq!(text(999).as_deref(), Some("0.99s"));
-    assert_eq!(text(3000).as_deref(), Some("3.0s"));
-    assert_eq!(text(12_400).as_deref(), Some("12.4s"));
-    assert_eq!(text(59_999).as_deref(), Some("59.9s"));
-    assert_eq!(text(60_000).as_deref(), Some("1m 0s"));
-    assert_eq!(text(252_000).as_deref(), Some("4m 12s"));
-    assert_eq!(text(3_780_000).as_deref(), Some("1h 3m"));
+    assert_eq!(duration(420), "0.42s");
+    assert_eq!(duration(999), "0.99s");
+    assert_eq!(duration(3000), "3.0s");
+    assert_eq!(duration(12_400), "12.4s");
+    assert_eq!(duration(59_999), "59.9s");
+    assert_eq!(duration(60_000), "1m 0s");
+    assert_eq!(duration(252_000), "4m 12s");
+    assert_eq!(duration(3_780_000), "1h 3m");
 }
 
 #[test]
@@ -403,7 +379,7 @@ fn line_joins_labels_with_two_spaces() {
         ..all_on(true)
     };
     let labels = labels(&full(), &config, None, home());
-    assert_eq!(line(&labels), "~/src/flair  main  ↑1 ↓2  3 · +10 −2  1");
+    assert_eq!(line(&labels), "~/src/flair  main  ↑1 ↓2  3 · +10 −2");
     assert_eq!(line(&[]), "");
 }
 
@@ -424,7 +400,7 @@ fn span(widths: &[(Chip, f32)], kept: &[Chip], gap: f32) -> f32 {
     total + gap * kept.len().saturating_sub(1) as f32
 }
 
-const DROP_ORDER: [Chip; 11] = [
+const DROP_ORDER: [Chip; 10] = [
     Chip::Date,
     Chip::Time,
     Chip::Host,
@@ -434,12 +410,18 @@ const DROP_ORDER: [Chip; 11] = [
     Chip::Venv,
     Chip::GitAheadBehind,
     Chip::GitChanges,
-    Chip::Exit,
     Chip::GitBranch,
 ];
 
-fn kept_after(dropped: usize) -> Vec<Chip> {
+fn shown() -> Vec<Chip> {
     Chip::ALL
+        .into_iter()
+        .filter(|chip| *chip != Chip::Exit)
+        .collect()
+}
+
+fn kept_after(dropped: usize) -> Vec<Chip> {
+    shown()
         .into_iter()
         .filter(|chip| !DROP_ORDER[..dropped].contains(chip))
         .collect()
@@ -448,8 +430,8 @@ fn kept_after(dropped: usize) -> Vec<Chip> {
 #[test]
 fn fit_keeps_everything_that_fits() {
     let widths = widths();
-    let room = span(&widths, &Chip::ALL, 6.0);
-    assert_eq!(fit(&widths, room, 6.0), Chip::ALL);
+    let room = span(&widths, &shown(), 6.0);
+    assert_eq!(fit(&widths, room, 6.0), shown());
     assert_eq!(fit(&widths, room - 1.0, 6.0), kept_after(1));
 }
 
@@ -763,17 +745,11 @@ fn a_wide_icon_takes_two_small_cells() {
 fn outlined_chips_use_neutral_surfaces_and_readable_ansi_text() {
     let theme = Config::default().theme();
     let config = PromptConfig::default();
-    for (chip, tone, index) in [
-        (Chip::Cwd, Tone::Plain, 6),
-        (Chip::Docker, Tone::Plain, 2),
-        (Chip::GitBranch, Tone::Plain, 5),
-        (Chip::Exit, Tone::Failed, 1),
-    ] {
+    for (chip, index) in [(Chip::Cwd, 6), (Chip::Docker, 2), (Chip::GitBranch, 5)] {
         let label = Label {
             chip,
             icon: None,
             text: "test".into(),
-            tone,
         };
         let (fill, ink, border) = colours(&theme, &config, &label);
         assert_eq!(fill, blend(theme.background, theme.foreground, 4));
@@ -805,7 +781,6 @@ fn individual_segments_override_colour_appearance_and_icons() {
         chip: Chip::Cwd,
         icon: None,
         text: "/home/ada".into(),
-        tone: Tone::Plain,
     };
     config.segments.insert(
         Chip::Cwd,
@@ -901,7 +876,6 @@ fn outlined_chip_surfaces_stay_neutral_across_segment_colours() {
         chip,
         icon: None,
         text: "example".into(),
-        tone: Tone::Plain,
     };
     let (directory, _, directory_border) = colours(&theme, &config, &make(Chip::Cwd));
     let (docker, _, docker_border) = colours(&theme, &config, &make(Chip::Docker));
@@ -933,13 +907,11 @@ fn prompt_labels_are_strong_while_the_icons_keep_their_outline_weight() {
             chip: Chip::Cwd,
             icon: Some('\u{f114}'),
             text: "~".into(),
-            tone: Tone::Plain,
         },
         Label {
             chip: Chip::Docker,
             icon: Some('\u{f308}'),
             text: "skynetx-prod".into(),
-            tone: Tone::Plain,
         },
     ];
     let mut scene = Scene::default();

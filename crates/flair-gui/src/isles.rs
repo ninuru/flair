@@ -30,7 +30,7 @@ const ICON_GAP: f32 = 4.0;
 const HEADER_INK: u8 = 50;
 const STRIPE: f32 = 3.0;
 const COUNT_CAP: u32 = 1000;
-const DROP: [Chip; 11] = [
+const DROP: [Chip; 10] = [
     Chip::Date,
     Chip::Time,
     Chip::Host,
@@ -40,7 +40,6 @@ const DROP: [Chip; 11] = [
     Chip::Venv,
     Chip::GitAheadBehind,
     Chip::GitChanges,
-    Chip::Exit,
     Chip::GitBranch,
 ];
 
@@ -54,19 +53,11 @@ pub struct Isles<'a> {
     pub home: Option<&'a Path>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Tone {
-    Plain,
-    Ok,
-    Failed,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Label {
     pub chip: Chip,
     pub icon: Option<char>,
     pub text: String,
-    pub tone: Tone,
 }
 
 pub fn labels(
@@ -97,13 +88,12 @@ pub fn labels_at(
         )
         .filter(|chip| config.enabled(*chip))
         .filter_map(|chip| {
-            let (text, tone) =
-                text(chip, info, config, clock, date, home).filter(|(text, _)| !text.is_empty())?;
+            let text =
+                text(chip, info, config, clock, date, home).filter(|text| !text.is_empty())?;
             Some(Label {
                 chip,
                 icon: icon(chip).filter(|_| icons(config, chip)),
                 text,
-                tone,
             })
         })
         .collect()
@@ -196,13 +186,8 @@ fn text(
     clock: Option<(u8, u8)>,
     date: Option<(i32, u8, u8)>,
     home: Option<&Path>,
-) -> Option<(String, Tone)> {
-    let plain = |text: String| {
-        Some((
-            text.chars().filter(|c| !c.is_control()).collect(),
-            Tone::Plain,
-        ))
-    };
+) -> Option<String> {
+    let plain = |text: String| Some(text.chars().filter(|c| !c.is_control()).collect());
     let named = |chip, prefix: &str, value: &str| match icons(config, chip) {
         true => value.to_owned(),
         false => format!("{prefix} {value}"),
@@ -221,7 +206,7 @@ fn text(
         Chip::Venv => plain(named(chip, "venv", shell?.venv.as_deref()?)),
         Chip::Docker => plain(named(chip, "docker", info.docker.as_deref()?)),
         Chip::Kube => plain(named(chip, "kube", info.kube.as_deref()?)),
-        Chip::Exit => exit(info.last?, config.duration_ms),
+        Chip::Exit => None,
         Chip::Time => clock.and_then(|(hour, minute)| {
             plain(match config.time_format {
                 PromptTimeFormat::TwentyFour => format!("{hour:02}:{minute:02}"),
@@ -353,21 +338,6 @@ fn changes(changes: Changes) -> Option<String> {
         (files, true) => Some(files.to_string()),
         (files, false) => Some(format!("{files} · {}", lines.join(" "))),
     }
-}
-
-fn exit(last: LastCommand, threshold: u64) -> Option<(String, Tone)> {
-    let failed = last.exit.filter(|code| *code != 0);
-    let shown = (last.duration.0 >= threshold).then(|| duration(last.duration.0));
-    let parts: Vec<String> = failed
-        .map(|code| code.to_string())
-        .into_iter()
-        .chain(shown)
-        .collect();
-    let tone = match failed {
-        Some(_) => Tone::Failed,
-        None => Tone::Ok,
-    };
-    (!parts.is_empty()).then(|| (parts.join(" · "), tone))
 }
 
 fn duration(ms: u64) -> String {
@@ -778,7 +748,6 @@ impl Paint<'_> {
         };
         let fitted = labels
             .iter()
-            .filter(|label| label.chip != Chip::Exit)
             .all(|label| push(Some(label.chip), label.text.clone(), scene));
         if fitted && let Some(last) = last {
             push(None, format!("({})", duration(last.duration.0)), scene);
@@ -832,10 +801,7 @@ fn colours(theme: &Theme, config: &PromptConfig, label: &Label) -> (Rgb, Rgb, Op
             Chip::Docker | Chip::GitChanges | Chip::GitAheadBehind | Chip::Venv => 2,
             Chip::GitBranch | Chip::Kube => 5,
             Chip::User => 3,
-            Chip::Exit => match label.tone {
-                Tone::Failed => 1,
-                Tone::Ok | Tone::Plain => 2,
-            },
+            Chip::Exit => 1,
         },
         |colour| colour.index(),
     );

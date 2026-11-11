@@ -287,7 +287,7 @@ fn the_prompt_page_fits_at_960x600_with_whole_descriptions_beside_the_source() {
         hover: None,
     };
     let sheet = prompt();
-    assert_eq!(sheet.groups[0].entries.len(), 21);
+    assert_eq!(sheet.groups[0].entries.len(), 20);
     let scene = layout(&sheet, &input, &mut wide);
     assert_inside(&scene, (960, 600));
     assert_eq!(scene.hits.rows.len(), 6);
@@ -316,7 +316,7 @@ fn the_prompt_page_fits_at_960x600_with_whole_descriptions_beside_the_source() {
         let end = run.x + wide(&run.text, false) * 0.5;
         assert!(end <= label.x - 12.0, "{end} {}", label.x);
     }
-    assert!(text(&scene, "+15 more").is_some());
+    assert!(text(&scene, "+14 more").is_some());
 }
 
 #[test]

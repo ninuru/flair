@@ -693,7 +693,7 @@ fn band_labels(capture: &str) -> Vec<String> {
 }
 
 #[test]
-fn prompt_band_shows_directory_branch_changes_and_exit() {
+fn prompt_band_shows_directory_branch_and_changes_but_no_exit_chip() {
     if !Path::new("/bin/zsh").exists() {
         eprintln!("skipped prompt band e2e: /bin/zsh missing");
         return;
@@ -782,7 +782,7 @@ name = "changes"
     );
     let cwd = "~/repo";
     let band = fs::read_to_string(output.0.join("band.txt")).unwrap();
-    assert_eq!(band_labels(&band), [cwd, "main", "1"], "{band}");
+    assert_eq!(band_labels(&band), [cwd, "main"], "{band}");
     let content: Vec<&str> = band.lines().map(str::trim_end).collect();
     let command = content
         .iter()
