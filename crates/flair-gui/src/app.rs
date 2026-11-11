@@ -218,6 +218,7 @@ impl App {
         self.request_redraw();
     }
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+        let started = self.probe.as_ref().map(|_| Instant::now());
         let theme = self
             .preview
             .as_ref()
@@ -273,22 +274,28 @@ impl App {
         } = chrome_layout::layout(&input, |text, bold| surface.fonts.ui_width(text, bold));
         self.hits = hits;
         self.overlays.place(overlay);
-        if let Err(error) = surface
-            .renderer
-            .draw_frame(&grid, &chrome, &mut surface.fonts, theme.background)
-            .and_then(|()| surface.context.swap_buffers())
-        {
+        let drawn =
+            surface
+                .renderer
+                .draw_frame(&grid, &chrome, &mut surface.fonts, theme.background);
+        let cost = started.map(|started| started.elapsed());
+        if let Err(error) = drawn.and_then(|()| surface.context.swap_buffers()) {
             self.fail(error, event_loop);
             return;
         }
         if let Some(seq) = self.ack.take() {
             self.send(ClientMsg::FrameAck { seq });
         }
-        if let Some(mut probe) = self.probe.take() {
-            probe.mark("first_frame");
-            probe.finish();
-            self.send(ClientMsg::Detach);
-            event_loop.exit();
+        if let Some(cost) = cost {
+            if self.probe.as_mut().is_some_and(|probe| probe.frame(cost)) {
+                if let Some(probe) = self.probe.take() {
+                    probe.finish();
+                }
+                self.send(ClientMsg::Detach);
+                event_loop.exit();
+            } else {
+                self.request_redraw();
+            }
         }
         if let Some((steps, proxy)) = self.drive.take() {
             thread::spawn(move || {

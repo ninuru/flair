@@ -6,6 +6,8 @@ use crate::{
     atlas::{AtlasFull, AtlasGlyph, Face, GlyphCache, GlyphKey},
     cellgrid::CellGrid,
     font::{CellMetrics, Fonts, PROMPT_ICON_SCALE, Style},
+    shape::{self, Shaped},
+    shaper::Shaper,
     ui::px,
 };
 pub use chrome::{Border, Chrome, PxRect, Quad, TextFace, TextRun};
@@ -17,7 +19,7 @@ use flair_core::{
 };
 use glow::HasContext;
 use pipeline::Pipeline;
-use std::{collections::HashSet, error::Error, fmt};
+use std::{collections::HashSet, error::Error, fmt, sync::Arc};
 use unicode_width::UnicodeWidthChar;
 
 const ATLAS_SIZE: u32 = 2048;
@@ -30,6 +32,7 @@ pub struct Renderer {
     cache: GlyphCache,
     uploaded: HashSet<GlyphKey>,
     reset_atlas: bool,
+    shaper: Option<Shaper>,
 }
 
 #[derive(Debug)]
@@ -132,6 +135,7 @@ impl Renderer {
             cache: GlyphCache::new(ATLAS_SIZE),
             uploaded: HashSet::new(),
             reset_atlas: false,
+            shaper: None,
         })
     }
     pub fn resize(&mut self, px: (u32, u32)) {
@@ -148,6 +152,7 @@ impl Renderer {
         fonts: &mut Fonts,
         background: Rgb,
     ) -> Result<(), RenderError> {
+        self.sync_shaper(fonts);
         if self.reset_atlas {
             self.cache.clear();
             self.uploaded.clear();
@@ -194,6 +199,17 @@ impl Renderer {
         }
         Ok(())
     }
+    fn sync_shaper(&mut self, fonts: &Fonts) {
+        match (fonts.shaping(), &self.shaper) {
+            (None, None) => {}
+            (None, Some(_)) => self.shaper = None,
+            (Some(source), Some(shaper)) if shaper.serves(source) => {}
+            (Some(source), _) => {
+                self.shaper = Some(Shaper::new(Arc::clone(source)));
+                self.reset_atlas = true;
+            }
+        }
+    }
     fn scissor(&self, clip: PxRect) {
         let (x, y, w, h) = scissor_box(clip, self.px.1);
         unsafe {
@@ -208,6 +224,7 @@ impl Renderer {
             Face::Small => fonts.rasterize_small(key.c, key.style),
             Face::Icon => fonts.rasterize_icon(key.c),
             Face::PromptIcon => fonts.rasterize_prompt_icon(key.c),
+            Face::Shaped(id) => self.shaper.as_ref()?.rasterize(id, key.style),
         }) {
             Ok(glyph) => glyph?,
             Err(AtlasFull) => {
@@ -343,7 +360,20 @@ impl Renderer {
         let mut decorations = Vec::new();
         let m = self.metrics;
         let cols = usize::from(grid.size.cols).max(1);
+        let block = grid
+            .cursor
+            .filter(|cursor| cursor.shape == CursorShape::Block);
+        let mut shaped = Vec::new();
         for (i, cell) in grid.cells.iter().enumerate() {
+            if i % cols == 0
+                && let Some(shaper) = &mut self.shaper
+            {
+                let row = &grid.cells[i..(i + cols).min(grid.cells.len())];
+                let cursor = block
+                    .filter(|cursor| usize::from(cursor.point.row) == i / cols)
+                    .map(|cursor| usize::from(cursor.point.col));
+                shaped = shaper.row(row, cursor);
+            }
             let point = CellPoint {
                 col: (i % cols) as u16,
                 row: (i / cols) as u16,
@@ -361,15 +391,7 @@ impl Renderer {
             {
                 continue;
             }
-            let style = match (
-                cell.flags.contains(CellFlags::BOLD),
-                cell.flags.contains(CellFlags::ITALIC),
-            ) {
-                (false, false) => Style::Regular,
-                (true, false) => Style::Bold,
-                (false, true) => Style::Italic,
-                (true, true) => Style::BoldItalic,
-            };
+            let style = shape::style(cell.flags);
             let cursor_here = grid
                 .cursor
                 .is_some_and(|cursor| cursor.point == point && cursor.shape == CursorShape::Block);
@@ -380,23 +402,39 @@ impl Renderer {
                 } else {
                     1.0
                 };
-            for (index, c) in std::iter::once(cell.c)
-                .chain(cell.extra.iter().flat_map(|s| s.chars()))
-                .enumerate()
-            {
-                if c == ' ' {
-                    continue;
+            let baseline = (y + m.baseline).round();
+            match shaped.get(i % cols) {
+                Some(Some(Shaped::Glyph(id))) => {
+                    let key = GlyphKey {
+                        face: Face::Shaped(*id),
+                        c: cell.c,
+                        style,
+                    };
+                    if let Some(glyph) = self.glyph(key, fonts) {
+                        glyph_instance(&mut glyphs, &glyph, (x, baseline), fg);
+                    }
                 }
-                let key = GlyphKey {
-                    face: Face::Cell,
-                    c,
-                    style,
-                };
-                let Some(glyph) = self.glyph(key, fonts) else {
-                    continue;
-                };
-                let left = x + if index == 0 { 0.0 } else { width };
-                glyph_instance(&mut glyphs, &glyph, (left, (y + m.baseline).round()), fg);
+                Some(Some(Shaped::Blank)) => {}
+                Some(None) | None => {
+                    for (index, c) in std::iter::once(cell.c)
+                        .chain(cell.extra.iter().flat_map(|s| s.chars()))
+                        .enumerate()
+                    {
+                        if c == ' ' {
+                            continue;
+                        }
+                        let key = GlyphKey {
+                            face: Face::Cell,
+                            c,
+                            style,
+                        };
+                        let Some(glyph) = self.glyph(key, fonts) else {
+                            continue;
+                        };
+                        let left = x + if index == 0 { 0.0 } else { width };
+                        glyph_instance(&mut glyphs, &glyph, (left, baseline), fg);
+                    }
+                }
             }
             if cell.flags.contains(CellFlags::UNDERLINE) {
                 instance(
