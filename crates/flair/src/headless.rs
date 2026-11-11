@@ -91,11 +91,12 @@ struct Pixels {
     gpu: Option<(Renderer, HeadlessContext, (u32, u32))>,
 }
 impl Pixels {
-    fn grid(&self, config: &Config) -> Result<GridSize, String> {
+    fn grid(&self, config: &Config, zen: bool) -> Result<GridSize, String> {
         let size = chrome_layout::grid_size(
             self.px,
-            padding(config, self.scale),
+            chrome_layout::padding(&config.window, self.scale, zen),
             self.scale as f32,
+            zen,
             self.fonts.metrics(),
         );
         client_size(size.cols, size.rows)
@@ -138,13 +139,6 @@ fn isles<'a>(mirror: &'a Mirror, config: &'a PromptConfig, home: Option<&'a Path
     }
 }
 
-fn padding(config: &Config, scale: f64) -> (f32, f32) {
-    (
-        (f32::from(config.window.padding_x) * scale as f32).round(),
-        (f32::from(config.window.padding_y) * scale as f32).round(),
-    )
-}
-
 fn ppm(px: (u32, u32), rgba: &[u8]) -> Vec<u8> {
     let (width, height) = px;
     let mut out = format!("P6\n{width} {height}\n255\n").into_bytes();
@@ -171,6 +165,7 @@ struct Capture {
     overlays: Overlays,
     pixels: Option<Pixels>,
     home: Option<PathBuf>,
+    zen: bool,
 }
 impl Capture {
     fn message(&mut self, message: ServerMsg, tx: &Sender<ClientMsg>) -> Result<(), String> {
@@ -202,6 +197,12 @@ impl Capture {
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::PaneProcesses(_)
             | ServerMsg::Done => {}
+            ServerMsg::ToggleZen => {
+                self.zen = !self.zen;
+                if let Some(resize) = self.refit()? {
+                    tx.send(resize).map_err(|e| e.to_string())?;
+                }
+            }
             ServerMsg::Layout(layout) => {
                 self.mirror.retain_layout(&layout);
                 self.pane = Some(layout.active);
@@ -457,7 +458,7 @@ impl Capture {
                     .set_notice(Notice::error(format!("font not loaded: {error}"))),
             }
         }
-        let size = pixels.grid(effective)?;
+        let size = pixels.grid(effective, self.zen)?;
         if size == self.size {
             return Ok(None);
         }
@@ -474,7 +475,7 @@ impl Capture {
             .preview
             .as_ref()
             .map_or(&self.config, |preview| &preview.config);
-        self.size = pixels.grid(effective)?;
+        self.size = pixels.grid(effective, self.zen)?;
         Ok(Some(ClientMsg::Resize(self.size)))
     }
 
@@ -493,7 +494,8 @@ impl Capture {
         let input = ChromeInput {
             px: pixels.px,
             scale: pixels.scale as f32,
-            padding: padding(config, pixels.scale),
+            padding: chrome_layout::padding(&config.window, pixels.scale, self.zen),
+            zen: self.zen,
             metrics: pixels.fonts.metrics(),
             ui: pixels.fonts.ui_metrics(),
             theme,
@@ -534,7 +536,8 @@ impl Capture {
         let input = ChromeInput {
             px: pixels.px,
             scale,
-            padding: padding(&config, pixels.scale),
+            padding: chrome_layout::padding(&config.window, pixels.scale, self.zen),
+            zen: self.zen,
             metrics,
             ui: pixels.fonts.ui_metrics(),
             theme: &theme,
@@ -655,7 +658,7 @@ pub fn run(
         None => None,
     };
     let size = match &pixels {
-        Some(pixels) => pixels.grid(&config)?,
+        Some(pixels) => pixels.grid(&config, false)?,
         None => client_size(scenario.cols, scenario.rows)?,
     };
     let config_text = fs::read_to_string(&config_path).unwrap_or_default();
@@ -716,6 +719,7 @@ pub fn run(
         overlays,
         pixels,
         home: shell_home,
+        zen: false,
     };
     let mut failed_step = None;
     let mut worker = None;

@@ -28,6 +28,7 @@ pub enum Command {
     SelectPane(PaneRef),
     ClosePane,
     ToggleZoom,
+    ToggleZen,
     ReloadConfig,
     ChooseSession,
     ChooseTheme,

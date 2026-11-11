@@ -260,7 +260,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
     );
-    let size = grid_size((W, H), padding, 1.0, metrics);
+    let size = grid_size((W, H), padding, 1.0, false, metrics);
     let mut mirror = Mirror::default();
     mirror.apply(&[PaneUpdate {
         pane: PaneId(1),
@@ -304,6 +304,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         px: (W, H),
         scale: 1.0,
         padding,
+        zen: false,
         metrics,
         ui: fonts.ui_metrics(),
         theme: &theme,

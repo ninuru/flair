@@ -108,6 +108,7 @@ struct App {
     hits: Vec<Hit>,
     drive: Option<(Vec<Drive>, EventLoopProxy<UserEvent>)>,
     home: Option<PathBuf>,
+    zen: bool,
 }
 
 impl App {
@@ -122,10 +123,7 @@ impl App {
         event_loop.exit();
     }
     fn padding(&self, scale: f64) -> (f32, f32) {
-        (
-            (f32::from(self.effective().window.padding_x) * scale as f32).round(),
-            (f32::from(self.effective().window.padding_y) * scale as f32).round(),
-        )
+        chrome_layout::padding(&self.effective().window, scale, self.zen)
     }
     fn size(&self) -> GridSize {
         let Some(surface) = &self.surface else {
@@ -137,6 +135,7 @@ impl App {
             (px.width, px.height),
             self.padding(scale),
             scale as f32,
+            self.zen,
             surface.fonts.metrics(),
         )
     }
@@ -151,18 +150,20 @@ impl App {
                 (px.width, px.height),
                 self.padding(scale),
                 scale as f32,
+                self.zen,
                 surface.fonts.metrics(),
             ),
             self.size(),
         ))
     }
     fn in_bar(&self) -> bool {
-        self.surface.as_ref().is_some_and(|surface| {
-            self.pointer.y
-                < f64::from(chrome_layout::bar_height(
-                    surface.window.scale_factor() as f32
-                ))
-        })
+        !self.zen
+            && self.surface.as_ref().is_some_and(|surface| {
+                self.pointer.y
+                    < f64::from(chrome_layout::bar_height(
+                        surface.window.scale_factor() as f32
+                    ))
+            })
     }
     fn request_redraw(&self) {
         if let Some(surface) = &self.surface {
@@ -246,6 +247,7 @@ impl App {
             px: (px.width, px.height),
             scale: scale as f32,
             padding,
+            zen: self.zen,
             metrics,
             ui: surface.fonts.ui_metrics(),
             theme: &theme,
@@ -414,6 +416,11 @@ impl ApplicationHandler<UserEvent> for App {
                     }
                 }
                 ServerMsg::Bell => {}
+                ServerMsg::ToggleZen => {
+                    self.zen = !self.zen;
+                    self.send(ClientMsg::Resize(self.size()));
+                    self.request_redraw();
+                }
                 ServerMsg::SetClipboard { text, primary } => {
                     if let Some(surface) = &self.surface {
                         surface.clipboard.store(text, primary);
@@ -751,6 +758,7 @@ pub fn run_target(
         hits: Vec::new(),
         drive,
         home: env::var_os("HOME").map(PathBuf::from),
+        zen: false,
     };
     if let Some(notice) = notice {
         app.overlays.set_notice(notice);

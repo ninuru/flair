@@ -76,6 +76,7 @@ impl Server {
             Command::ChooseWindow => out.push(Effect::Send(id, ServerMsg::ChooseWindow)),
             Command::ChooseTheme => out.push(Effect::Send(id, ServerMsg::ChooseTheme)),
             Command::Settings => out.push(Effect::Send(id, ServerMsg::Settings)),
+            Command::ToggleZen => out.push(Effect::Send(id, ServerMsg::ToggleZen)),
             Command::RenameWindow(name) => {
                 let window = self.clients[&id].view.window;
                 if let Some(name) = name {
@@ -163,6 +164,7 @@ impl Server {
                         | Command::SelectPane(_)
                         | Command::ClosePane
                         | Command::ToggleZoom
+                        | Command::ToggleZen
                         | Command::PasteClipboard
                         | Command::ReloadConfig
                         | Command::CopyMode
