@@ -309,3 +309,30 @@ fn other_end_of_lines_selection_started_on_a_wrapped_row() {
     term.copy_other_end();
     assert_eq!(term.selection_text(), before);
 }
+
+#[test]
+fn copy_cursor_stays_above_the_live_prompt() {
+    let mut term = term(20, 5, "one\r\ntwo\r\n\x1b]6973;prompt\x07\r\n> cmd");
+    assert_eq!(cursor(&mut term), at(5, 1));
+    assert_eq!(moves(&mut term, &[CopyMotion::Down]), at(5, 1));
+    assert_eq!(moves(&mut term, &[CopyMotion::BottomLine]).row, 1);
+    assert_eq!(moves(&mut term, &[CopyMotion::HistoryBottom]).row, 1);
+    assert_eq!(moves(&mut term, &[CopyMotion::HalfPageDown]).row, 1);
+    term.copy_search("cmd", true).unwrap();
+    assert_eq!(cursor(&mut term).row, 1);
+    term.copy_search("one", true).unwrap();
+    assert_eq!(cursor(&mut term), at(0, 0));
+    term.copy_search("o", false).unwrap();
+    assert_eq!(cursor(&mut term), at(2, 1));
+    term.copy_select(SelectionKind::Lines);
+    term.copy_move(CopyMotion::Down);
+    assert_eq!(term.selection_text().as_deref(), Some("two\n"));
+}
+
+#[test]
+fn copy_cursor_reaches_the_prompt_once_a_command_runs() {
+    let mut term = term(20, 5, "one\r\n\x1b]6973;prompt\x07\r\n> cmd\x1b]133;C\x07");
+    term.exit_copy_mode();
+    term.enter_copy_mode();
+    assert_eq!(cursor(&mut term), at(5, 2));
+}

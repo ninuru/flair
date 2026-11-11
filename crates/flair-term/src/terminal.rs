@@ -159,6 +159,9 @@ impl Terminal {
                 | TermEvent::PromptAnchor(_, _) => (),
             }
         }
+        if self.copy_mode() {
+            self.clamp_copy_cursor();
+        }
         let alt_changed = old_alt != self.modes().alt_screen;
         if sniff_clear(&mut self.clear, bytes) || alt_changed {
             self.exit_copy_mode();
@@ -248,6 +251,17 @@ impl Terminal {
                 == Some(self.prompt_id)
         })
     }
+    pub(crate) fn live_prompt_line(&self) -> Option<Line> {
+        if !self.prompt_editing || self.modes().alt_screen {
+            return None;
+        }
+        (self.term.topmost_line().0..i32::from(self.size.rows))
+            .rev()
+            .map(Line)
+            .find(|line| {
+                prompt_id(&self.term.grid()[Point::new(*line, Column(0))]) == Some(self.prompt_id)
+            })
+    }
     pub fn copy_mode(&self) -> bool {
         self.term.mode().contains(TermMode::VI)
     }
@@ -255,6 +269,7 @@ impl Terminal {
         if !self.copy_mode() {
             self.term.toggle_vi_mode();
             self.copy_anchor = None;
+            self.clamp_copy_cursor();
             self.force_full = true;
         }
     }
