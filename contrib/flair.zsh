@@ -1,6 +1,6 @@
 [[ $TERM_PROGRAM == flair ]] || return
-[[ $_FLAIR_INTEGRATION_LOADED != 6 ]] || return
-typeset -g _FLAIR_INTEGRATION_LOADED=6
+[[ $_FLAIR_INTEGRATION_LOADED != 7 ]] || return
+typeset -g _FLAIR_INTEGRATION_LOADED=7
 
 autoload -Uz add-zsh-hook
 
@@ -43,6 +43,14 @@ _flair_precmd() {
 _flair_preexec() {
     printf '\e]133;C\a'
 }
+
+autoload -Uz edit-command-line
+zle -N edit-command-line
+for _flair_keymap in emacs viins vicmd; do
+    [[ $(bindkey -M $_flair_keymap '^X^E') == *undefined-key ]] \
+        && bindkey -M $_flair_keymap '^X^E' edit-command-line
+done
+unset _flair_keymap
 
 add-zsh-hook precmd _flair_precmd
 add-zsh-hook preexec _flair_preexec
