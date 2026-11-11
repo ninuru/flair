@@ -5,7 +5,7 @@ use flair_core::{
     geom::{CellPoint, CellRect, GridSize},
     ids::PaneId,
     isles::{AheadBehind, Changes, Chip, Head, LastCommand, PromptInfo},
-    proto::{PanePlacement, WindowLayout},
+    proto::{PanePlacement, PromptSnapshot, WindowLayout},
     theme::{Rgb, Theme, blend},
 };
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -14,6 +14,7 @@ use crate::{
     CellMetrics,
     chrome_bar::{Scene, fill, opaque, rounded},
     chrome_layout::{ChromeInput, Hit, HitTarget, cell_rect},
+    compose::{FAILED_TINT, spacer},
     font::PROMPT_ICON_SCALE,
     mirror::Mirror,
     overlay_layout::{OverlayInput, OverlayScene},
@@ -26,6 +27,8 @@ const PAD: f32 = 6.0;
 const GAP: f32 = 8.0;
 const RADIUS: f32 = 3.0;
 const ICON_GAP: f32 = 4.0;
+const HEADER_INK: u8 = 50;
+const STRIPE: f32 = 3.0;
 const COUNT_CAP: u32 = 1000;
 const DROP: [Chip; 11] = [
     Chip::Date,
@@ -383,14 +386,31 @@ pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene
     }
     for placement in &window.panes {
         if let Some(history) = isles.mirror.history(placement.pane) {
-            for snapshot in history {
+            let live = isles
+                .mirror
+                .pane(placement.pane)
+                .and_then(|pane| pane.flags.prompt_row);
+            for (index, snapshot) in history.iter().enumerate() {
                 let calendar = calendar_at(snapshot.timestamp);
+                let next = history.get(index + 1);
+                let style = if Some(snapshot.row) == live {
+                    Style::Chips
+                } else {
+                    Style::Header(next.and_then(|next| next.info.last))
+                };
+                if index == 0 && failed(snapshot) {
+                    failed_block(input, placement, None, snapshot.row, scene);
+                }
+                if let Some(next) = next.filter(|next| failed(next)) {
+                    failed_block(input, placement, Some(snapshot.row), next.row, scene);
+                }
                 draw_prompt(
                     input,
                     placement,
                     snapshot.row,
                     &snapshot.info,
                     calendar,
+                    style,
                     scene,
                 );
             }
@@ -413,8 +433,117 @@ pub(crate) fn band(input: &ChromeInput, window: &WindowLayout, scene: &mut Scene
             .clock
             .zip(isles.date)
             .map(|(clock, date)| Calendar { clock, date });
-        draw_prompt(input, placement, prompt_row, info, calendar, scene);
+        draw_prompt(
+            input,
+            placement,
+            prompt_row,
+            info,
+            calendar,
+            Style::Chips,
+            scene,
+        );
     }
+}
+
+fn failed(snapshot: &PromptSnapshot) -> bool {
+    snapshot
+        .info
+        .last
+        .is_some_and(|last| last.exit.is_some_and(|code| code != 0))
+}
+
+fn failed_block(
+    input: &ChromeInput,
+    placement: &PanePlacement,
+    top: Option<u16>,
+    bottom: u16,
+    scene: &mut Scene,
+) {
+    let Some(pane) = input
+        .isles
+        .and_then(|isles| isles.mirror.pane(placement.pane))
+    else {
+        return;
+    };
+    let half = input.metrics.height / 2.0;
+    let row_rect = |row: u16| {
+        cell_rect(
+            input,
+            CellRect {
+                origin: CellPoint {
+                    row: placement.rect.origin.row + row,
+                    ..placement.rect.origin
+                },
+                size: GridSize {
+                    rows: 1,
+                    ..placement.rect.size
+                },
+            },
+        )
+    };
+    let edge = input.padding.0 + input.metrics.width;
+    let width = input.px.0 as f32;
+    let pane_rect = row_rect(0);
+    let left = if pane_rect.x < edge { 0.0 } else { pane_rect.x };
+    let right = if width - (pane_rect.x + pane_rect.w) < edge {
+        width
+    } else {
+        pane_rect.x + pane_rect.w
+    };
+    let spacer_at =
+        |row: u16| row < placement.rect.size.rows && spacer(&pane.rows, usize::from(row));
+    let start = |row: u16| {
+        let rect = row_rect(row);
+        if spacer_at(row) {
+            rect.y - half
+        } else {
+            rect.y
+        }
+    };
+    if top.is_none() && bottom <= u16::from(spacer_at(bottom)) {
+        return;
+    }
+    let tint = blend(input.theme.background, input.theme.normal[1], FAILED_TINT);
+    let y0 = top.map_or(pane_rect.y, start).round();
+    let y1 = start(bottom).round();
+    if let Some(top) = top.filter(|top| spacer_at(*top)) {
+        scene.quads.push(fill(
+            PxRect {
+                x: left,
+                y: y0,
+                w: right - left,
+                h: row_rect(top).y - y0,
+            },
+            tint,
+        ));
+    }
+    if spacer_at(bottom) {
+        let y = row_rect(bottom - 1).y;
+        scene.quads.push(fill(
+            PxRect {
+                x: left,
+                y,
+                w: right - left,
+                h: y1 - y,
+            },
+            tint,
+        ));
+    }
+    scene.quads.push(fill(
+        PxRect {
+            x: left,
+            y: y0,
+            w: px(STRIPE, input.scale),
+            h: y1 - y0,
+        },
+        input.theme.normal[1],
+    ));
+}
+
+#[derive(Clone, Copy)]
+enum Style {
+    Chips,
+    Header(Option<LastCommand>),
 }
 
 fn draw_prompt(
@@ -423,6 +552,7 @@ fn draw_prompt(
     row: u16,
     info: &PromptInfo,
     calendar: Option<Calendar>,
+    style: Style,
     scene: &mut Scene,
 ) {
     if row >= placement.rect.size.rows {
@@ -451,20 +581,24 @@ fn draw_prompt(
         metrics: input.metrics,
         config: isles.config,
     };
-    if row > 0
-        && isles.mirror.pane(placement.pane).is_some_and(|pane| {
-            pane.rows.get(usize::from(row - 1)).is_some_and(|cells| {
-                cells
-                    .iter()
-                    .all(|cell| cell.c == ' ' && cell.extra.is_none())
-            })
-        })
-    {
+    let gap = isles
+        .mirror
+        .pane(placement.pane)
+        .is_some_and(|pane| spacer(&pane.rows, usize::from(row)));
+    if row > u16::from(gap) {
+        let y = if gap {
+            rect.y - input.metrics.height / 2.0
+        } else {
+            rect.y
+        };
         scene
             .quads
-            .push(divider(rect, input.metrics, input.scale, input.theme));
+            .push(divider(PxRect { y, ..rect }, input.scale, input.theme));
     }
-    let hits = paint.chips(&labels, rect, scene);
+    let hits = match style {
+        Style::Chips => paint.chips(&labels, rect, scene),
+        Style::Header(last) => paint.header(&labels, last, rect, scene),
+    };
     scene.hits.extend(hits.into_iter().map(|(chip, rect)| Hit {
         rect,
         target: HitTarget::Prompt {
@@ -475,11 +609,11 @@ fn draw_prompt(
     }));
 }
 
-fn divider(rect: PxRect, metrics: CellMetrics, scale: f32, theme: &Theme) -> Quad {
+fn divider(rect: PxRect, scale: f32, theme: &Theme) -> Quad {
     fill(
         PxRect {
             x: rect.x,
-            y: (rect.y - metrics.height / 2.0).round(),
+            y: rect.y.round(),
             w: rect.w,
             h: px(LINE, scale),
         },
@@ -600,6 +734,54 @@ impl Paint<'_> {
             self.draw(label, text, rect, scene);
             hits.push((label.chip, rect));
             x += width + gap;
+        }
+        hits
+    }
+
+    fn header(
+        &self,
+        labels: &[Label],
+        last: Option<LastCommand>,
+        row: PxRect,
+        scene: &mut Scene,
+    ) -> Vec<(Chip, PxRect)> {
+        let ink = blend(self.theme.background, self.theme.foreground, HEADER_INK);
+        let baseline =
+            (row.y + (row.h - self.metrics.height) / 2.0 + self.metrics.baseline).round();
+        let right = row.x + row.w;
+        let mut x = row.x.round();
+        let mut hits = Vec::new();
+        let mut push = |chip, text: String, scene: &mut Scene| {
+            let width = text.width() as f32 * self.metrics.width;
+            if x + width > right {
+                return false;
+            }
+            let rect = PxRect {
+                x,
+                y: row.y,
+                w: width,
+                h: row.h,
+            };
+            scene.text.push(TextRun {
+                x,
+                baseline,
+                text,
+                color: ink,
+                bold: false,
+                face: TextFace::Mono,
+            });
+            if let Some(chip) = chip {
+                hits.push((chip, rect));
+            }
+            x = (x + width + self.metrics.width).round();
+            true
+        };
+        let fitted = labels
+            .iter()
+            .filter(|label| label.chip != Chip::Exit)
+            .all(|label| push(Some(label.chip), label.text.clone(), scene));
+        if fitted && let Some(last) = last {
+            push(None, format!("({})", duration(last.duration.0)), scene);
         }
         hits
     }

@@ -336,3 +336,35 @@ fn copy_cursor_reaches_the_prompt_once_a_command_runs() {
     term.enter_copy_mode();
     assert_eq!(cursor(&mut term), at(5, 2));
 }
+
+#[test]
+fn copy_cursor_and_selection_skip_old_prompts() {
+    let prompt = "\x1b]6973;prompt\x07\r\n";
+    let mut term = term(
+        20,
+        10,
+        &format!("{prompt}> a\r\nout-a\r\n{prompt}> b\r\nout-b\r\n{prompt}> c"),
+    );
+    assert_eq!(cursor(&mut term).row, 5);
+    assert_eq!(moves(&mut term, &[CopyMotion::Up]).row, 4);
+    assert_eq!(moves(&mut term, &[CopyMotion::Up]).row, 2);
+    assert_eq!(moves(&mut term, &[CopyMotion::Up, CopyMotion::Up]).row, 1);
+    assert_eq!(moves(&mut term, &[CopyMotion::HistoryTop]).row, 1);
+    term.copy_move(CopyMotion::Down);
+    term.copy_select(SelectionKind::Lines);
+    term.copy_move(CopyMotion::Down);
+    term.copy_move(CopyMotion::Down);
+    assert_eq!(cursor(&mut term).row, 5);
+    assert_eq!(
+        term.selection_text().as_deref(),
+        Some("out-a\n> b\nout-b\n")
+    );
+    let rows: Vec<_> = term
+        .snapshot(PaneId(1), true)
+        .unwrap()
+        .selection
+        .iter()
+        .map(|span| span.row)
+        .collect();
+    assert_eq!(rows, [2, 4, 5]);
+}

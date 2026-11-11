@@ -13,8 +13,8 @@ use flair_core::{
     ids::WindowId,
     isles::{AheadBehind, Changes, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
     proto::{
-        Cell, Cursor, CursorShape, PaneFlags, PanePlacement, PaneUpdate, SelectionSpan, Separator,
-        ServerMsg, SessionInfo, WindowLayout,
+        Cell, Cursor, CursorShape, PaneFlags, PanePlacement, PaneUpdate, PromptSnapshot,
+        SelectionSpan, Separator, ServerMsg, SessionInfo, WindowLayout,
     },
     status::{StatusLine, StatusWindow},
     time::Millis,
@@ -59,6 +59,61 @@ fn compose_resolves_inverse_and_cursor() {
     assert_eq!(grid.cells[0].bg, theme.foreground);
     assert_eq!(grid.cursor.unwrap().color, theme.cursor);
     assert!(compose(&mirror, PaneId(1), &theme, false).cursor.is_none());
+}
+
+#[test]
+fn failed_command_blocks_get_a_red_tint_up_to_the_next_prompt() {
+    let theme = Config::default().theme();
+    let text = |c| {
+        vec![Cell {
+            c,
+            ..Cell::default()
+        }]
+    };
+    let mut mirror = Mirror::default();
+    mirror.apply(&[PaneUpdate {
+        pane: PaneId(1),
+        size: GridSize { cols: 1, rows: 7 },
+        full: true,
+        rows: ['_', ' ', 'a', 'x', ' ', ' ', 'b']
+            .into_iter()
+            .enumerate()
+            .map(|(row, c)| (row as u16, text(c)))
+            .collect(),
+        cursor: Cursor {
+            point: CellPoint { col: 0, row: 6 },
+            shape: CursorShape::Block,
+            visible: false,
+        },
+        flags: PaneFlags::default(),
+        selection: vec![],
+    }]);
+    let prompt = |row, exit: Option<i32>| PromptSnapshot {
+        row,
+        id: u64::from(row),
+        info: PromptInfo {
+            last: exit.map(|exit| LastCommand {
+                exit: Some(exit),
+                duration: Millis(0),
+            }),
+            ..PromptInfo::default()
+        },
+        timestamp: 0,
+    };
+    let tinted = |mirror: &Mirror| -> Vec<bool> {
+        compose(mirror, PaneId(1), &theme, false)
+            .cells
+            .iter()
+            .map(|cell| cell.bg != theme.background)
+            .collect()
+    };
+    mirror.insert_history(PaneId(1), vec![prompt(1, None), prompt(5, Some(1))]);
+    assert_eq!(
+        tinted(&mirror),
+        [false, true, true, true, false, false, false]
+    );
+    mirror.insert_history(PaneId(1), vec![prompt(1, None), prompt(5, Some(0))]);
+    assert_eq!(tinted(&mirror), [false; 7]);
 }
 
 #[test]

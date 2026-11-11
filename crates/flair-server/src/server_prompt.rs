@@ -76,10 +76,8 @@ impl Server {
                 }
             }
             MarkKind::CommandEnd => {
-                if let Some(state) = self.panes.get_mut(&pane)
-                    && let Some(start) = state.started
-                {
-                    state.last = Some(LastCommand {
+                if let Some(state) = self.panes.get_mut(&pane) {
+                    state.last = state.started.map(|start| LastCommand {
                         exit: code,
                         duration: now.saturating_sub(start),
                     });

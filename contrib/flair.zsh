@@ -1,6 +1,6 @@
 [[ $TERM_PROGRAM == flair ]] || return
-[[ $_FLAIR_INTEGRATION_LOADED != 4 ]] || return
-typeset -g _FLAIR_INTEGRATION_LOADED=4
+[[ $_FLAIR_INTEGRATION_LOADED != 6 ]] || return
+typeset -g _FLAIR_INTEGRATION_LOADED=6
 
 autoload -Uz add-zsh-hook
 
