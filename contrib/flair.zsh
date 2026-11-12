@@ -1,6 +1,6 @@
 [[ $TERM_PROGRAM == flair ]] || return
-[[ $_FLAIR_INTEGRATION_LOADED != 8 ]] || return
-typeset -g _FLAIR_INTEGRATION_LOADED=8
+[[ $_FLAIR_INTEGRATION_LOADED != 9 ]] || return
+typeset -g _FLAIR_INTEGRATION_LOADED=9
 
 autoload -Uz add-zsh-hook
 
@@ -37,32 +37,31 @@ _flair_precmd() {
         dollar) separator='$ ' ;;
         percent) separator='%% ' ;;
     esac
-    PS1=$'\n%{\e]6973;prompt\a%}\n'"$separator"$'%{\e]133;B\a%}'
+    PS1=$_flair_gap$'%{\e]6973;prompt\a%}\n'"$separator"$'%{\e]133;B\a%}'
+    _flair_gap=$'\n'
 }
 
 _flair_preexec() {
     printf '\e]133;C\a'
 }
 
-_flair_accept_line() {
-    if [[ -n $BUFFER || $CONTEXT != start ]]; then
-        zle accept-line
+_flair_line_finish() {
+    if [[ -z $BUFFER && $CONTEXT == start ]]; then
+        printf '\e]133;C\a'
     fi
 }
 
-autoload -Uz edit-command-line
+typeset -g _flair_gap=''
+
+autoload -Uz edit-command-line add-zle-hook-widget
 zle -N edit-command-line
-zle -N _flair_accept_line
 for _flair_keymap in emacs viins vicmd; do
     [[ $(bindkey -M $_flair_keymap '^X^E') == *undefined-key ]] \
         && bindkey -M $_flair_keymap '^X^E' edit-command-line
-    for _flair_key in '^M' '^J'; do
-        [[ $(bindkey -M $_flair_keymap $_flair_key) == *' accept-line' ]] \
-            && bindkey -M $_flair_keymap $_flair_key _flair_accept_line
-    done
 done
-unset _flair_keymap _flair_key
+unset _flair_keymap
 
 add-zsh-hook precmd _flair_precmd
 add-zsh-hook preexec _flair_preexec
+add-zle-hook-widget zle-line-finish _flair_line_finish
 [[ $FLAIR_PROMPT == chips ]] || PS1+=$'%{\e]133;B\a%}'
