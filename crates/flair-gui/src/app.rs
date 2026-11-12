@@ -47,6 +47,7 @@ use crate::{
     renderer::{Renderer, WindowContext},
     status::status_parts,
     theme_file::resolve_theme,
+    zen::Zen,
 };
 
 #[path = "app_config.rs"]
@@ -108,7 +109,7 @@ struct App {
     hits: Vec<Hit>,
     drive: Option<(Vec<Drive>, EventLoopProxy<UserEvent>)>,
     home: Option<PathBuf>,
-    zen: bool,
+    zen: Zen,
 }
 
 impl App {
@@ -123,7 +124,7 @@ impl App {
         event_loop.exit();
     }
     fn padding(&self, scale: f64) -> (f32, f32) {
-        chrome_layout::padding(&self.effective().window, scale, self.zen)
+        chrome_layout::padding(&self.effective().window, scale, self.zen.on())
     }
     fn size(&self) -> GridSize {
         let Some(surface) = &self.surface else {
@@ -135,7 +136,7 @@ impl App {
             (px.width, px.height),
             self.padding(scale),
             scale as f32,
-            self.zen,
+            self.zen.on(),
             surface.fonts.metrics(),
         )
     }
@@ -150,14 +151,14 @@ impl App {
                 (px.width, px.height),
                 self.padding(scale),
                 scale as f32,
-                self.zen,
+                self.zen.on(),
                 surface.fonts.metrics(),
             ),
             self.size(),
         ))
     }
     fn in_bar(&self) -> bool {
-        !self.zen
+        !self.zen.on()
             && self.surface.as_ref().is_some_and(|surface| {
                 self.pointer.y
                     < f64::from(chrome_layout::bar_height(
@@ -248,7 +249,7 @@ impl App {
             px: (px.width, px.height),
             scale: scale as f32,
             padding,
-            zen: self.zen,
+            zen: self.zen.on(),
             metrics,
             ui: surface.fonts.ui_metrics(),
             theme: &theme,
@@ -424,7 +425,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 ServerMsg::Bell => {}
                 ServerMsg::ToggleZen => {
-                    self.zen = !self.zen;
+                    self.zen = self.zen.toggled();
                     self.send(ClientMsg::Resize(self.size()));
                     self.request_redraw();
                 }
@@ -543,6 +544,7 @@ impl ApplicationHandler<UserEvent> for App {
                 if let Some(surface) = &mut self.surface {
                     surface.context.resize((size.width, size.height));
                     surface.renderer.resize((size.width, size.height));
+                    self.zen = self.zen.fullscreen(surface.window.fullscreen().is_some());
                 }
                 self.send(ClientMsg::Resize(self.size()));
             }
@@ -765,7 +767,7 @@ pub fn run_target(
         hits: Vec::new(),
         drive,
         home: env::var_os("HOME").map(PathBuf::from),
-        zen: false,
+        zen: Zen::default(),
     };
     if let Some(notice) = notice {
         app.overlays.set_notice(notice);

@@ -31,6 +31,7 @@ pub mod status;
 mod theme_file;
 pub mod theme_picker;
 pub mod ui;
+mod zen;
 
 pub use app::{GuiError, run, run_target};
 pub use font::{CellMetrics, FontError, Fonts, RasterGlyph, Style, UiMetrics};
