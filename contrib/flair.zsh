@@ -1,6 +1,6 @@
 [[ $TERM_PROGRAM == flair ]] || return
-[[ $_FLAIR_INTEGRATION_LOADED != 9 ]] || return
-typeset -g _FLAIR_INTEGRATION_LOADED=9
+[[ $_FLAIR_INTEGRATION_LOADED != 10 ]] || return
+typeset -g _FLAIR_INTEGRATION_LOADED=10
 
 autoload -Uz add-zsh-hook
 
@@ -52,6 +52,17 @@ _flair_line_finish() {
 }
 
 typeset -g _flair_gap=''
+
+if (( ! $+functions[TRAPINT] )); then
+    TRAPINT() {
+        if zle && [[ $CONTEXT == start ]]; then
+            zle kill-buffer
+            zle -R
+            return 0
+        fi
+        return $(( 128 + $1 ))
+    }
+fi
 
 autoload -Uz edit-command-line add-zle-hook-widget
 zle -N edit-command-line

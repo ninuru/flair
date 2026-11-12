@@ -460,3 +460,58 @@ fn zsh_empty_enter_starts_a_timed_block_and_only_later_prompts_get_a_gap() {
     pty.kill();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn zsh_ctrl_c_clears_the_input_in_place_but_still_interrupts_a_command() {
+    if !std::path::Path::new("/bin/zsh").exists() {
+        eprintln!("skipping ctrl-c PTY test: /bin/zsh unavailable");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("flair-zsh-ctrl-c-{}", std::process::id()));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .recursive(true)
+        .create(&root)
+        .unwrap();
+    let mut spawn = spec("");
+    spawn.program = "/bin/zsh".into();
+    spawn.args = vec!["-i".into()];
+    spawn.env.extend([
+        ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
+        ("HOME".into(), root.to_string_lossy().into_owned()),
+        ("FLAIR_PROMPT".into(), "chips".into()),
+        ("FLAIR_PROMPT_SEPARATOR".into(), "chevron".into()),
+    ]);
+    let mut pty = Pty::spawn(&spawn).unwrap();
+    let mut reader = pty.reader().unwrap();
+    read_until(&mut reader, "❯ ");
+    let mut writer = pty.writer().unwrap();
+    writer.write_all(b"echo typed").unwrap();
+    read_until(&mut reader, "typed");
+    writer.write_all(b"\x03").unwrap();
+    thread::sleep(Duration::from_millis(100));
+    writer.write_all(b"\x03").unwrap();
+    thread::sleep(Duration::from_millis(100));
+    writer.write_all(b"echo one\r").unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    assert!(
+        !text.contains("\u{1b}]6973;prompt\u{7}\r\n❯ echo typed"),
+        "{text:?}"
+    );
+    assert!(!text.contains("typed\r\n"), "{text:?}");
+    assert_eq!(text.matches("\u{1b}]133;C\u{7}").count(), 1, "{text:?}");
+    assert_eq!(
+        text.matches("\u{1b}]6973;prompt\u{7}").count(),
+        1,
+        "{text:?}"
+    );
+    assert!(text.contains("\u{1b}]133;C\u{7}one\r\n"), "{text:?}");
+    writer.write_all(b"sleep 5\r").unwrap();
+    read_until(&mut reader, "\u{1b}]133;C\u{7}");
+    thread::sleep(Duration::from_millis(200));
+    writer.write_all(b"\x03").unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    assert!(text.contains("\u{1b}]133;D;130\u{7}"), "{text:?}");
+    pty.kill();
+    std::fs::remove_dir_all(root).unwrap();
+}
