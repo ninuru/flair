@@ -9,6 +9,7 @@ pub(crate) struct OscSniffer {
     events: Vec<TermEvent>,
     hostname: Option<String>,
     prompt: bool,
+    gap: bool,
 }
 impl OscSniffer {
     pub fn advance(&mut self, bytes: &[u8]) {
@@ -51,12 +52,17 @@ impl OscSniffer {
     pub fn take_prompt(&mut self) -> bool {
         std::mem::take(&mut self.prompt)
     }
+    pub fn take_gap(&mut self) -> bool {
+        std::mem::take(&mut self.gap)
+    }
     fn finish(&mut self) {
         let Ok(text) = std::str::from_utf8(&self.bytes) else {
             return;
         };
         if text == "6973;prompt" {
             self.prompt = true;
+        } else if text == "6973;gap" {
+            self.gap = true;
         } else if let Some(uri) = text.strip_prefix("7;file://") {
             let Some((host, path)) = uri.split_once('/') else {
                 return;

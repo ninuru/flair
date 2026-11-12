@@ -140,6 +140,9 @@ impl Terminal {
                 self.prompt_editing = false;
             }
             self.events.borrow_mut().extend(events);
+            if self.osc.take_gap() && !self.modes().alt_screen && self.needs_gap() {
+                self.processor.advance(&mut self.term, b"\n");
+            }
             if self.osc.take_prompt() && !self.modes().alt_screen {
                 self.mark_prompt();
             }
@@ -169,6 +172,9 @@ impl Terminal {
             self.settle_copy_cursor(self.term.vi_mode_cursor.point);
         }
         self.force_full |= alt_changed;
+    }
+    fn needs_gap(&self) -> bool {
+        !self.prompt_editing && self.term.grid().cursor.point.line > Line(0)
     }
     fn mark_prompt(&mut self) {
         self.prompt_editing = true;
