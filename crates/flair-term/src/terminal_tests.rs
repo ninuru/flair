@@ -381,6 +381,22 @@ fn prompt_anchor_tracks_the_reserved_row_without_leaking_text() {
 }
 
 #[test]
+fn gap_marker_leaves_a_blank_row_except_on_the_top_row_and_on_a_redraw() {
+    let gap = b"\x1b]6973;gap\x07\x1b]6973;prompt\x07\r\n> ";
+    let prompt_row = |term: &mut Terminal| term.snapshot(PaneId(1), true).unwrap().flags.prompt_row;
+    let mut term = Terminal::new(GridSize { cols: 20, rows: 8 }, 100);
+    term.advance(b"\x1b]6973;prompt\x07\r\n> ls\r\n\x1b]133;C\x07out\r\n");
+    term.advance(gap);
+    assert_eq!(prompt_row(&mut term), Some(4));
+    term.advance(b"\r\x1b[1A\x1b[J");
+    term.advance(gap);
+    assert_eq!(prompt_row(&mut term), Some(4));
+    term.advance(b"\x1b[H\x1b[2J");
+    term.advance(gap);
+    assert_eq!(prompt_row(&mut term), Some(0));
+}
+
+#[test]
 fn a_running_command_has_no_live_prompt_row_until_the_next_prompt() {
     let mut term = Terminal::new(GridSize { cols: 20, rows: 6 }, 100);
     term.advance(b"\x1b]6973;prompt\x07\r\n> sleep 5");

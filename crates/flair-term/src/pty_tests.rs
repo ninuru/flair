@@ -432,6 +432,7 @@ fn zsh_empty_enter_starts_a_timed_block_and_only_later_prompts_get_a_gap() {
     let mut reader = pty.reader().unwrap();
     let text = read_until(&mut reader, "❯ ");
     assert!(text.contains("\u{1b}]6973;prompt\u{7}"), "{text:?}");
+    assert!(!text.contains("\u{1b}]6973;gap"), "{text:?}");
     assert!(!text.contains("\n\u{1b}]6973;prompt"), "{text:?}");
     let mut writer = pty.writer().unwrap();
     writer.write_all(b"\r").unwrap();
@@ -441,7 +442,11 @@ fn zsh_empty_enter_starts_a_timed_block_and_only_later_prompts_get_a_gap() {
         started < text.find("\u{1b}]133;D;0\u{7}").unwrap(),
         "{text:?}"
     );
-    assert!(text.contains("\n\u{1b}]6973;prompt\u{7}"), "{text:?}");
+    assert!(
+        text.contains("\u{1b}]6973;gap\u{7}\u{1b}]6973;prompt\u{7}"),
+        "{text:?}"
+    );
+    assert!(!text.contains("\n\u{1b}]6973;prompt"), "{text:?}");
     writer.write_all(b"echo two \\\r").unwrap();
     read_until(&mut reader, "> ");
     writer.write_all(b"\r").unwrap();
