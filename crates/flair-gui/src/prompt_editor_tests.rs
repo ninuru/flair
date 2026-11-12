@@ -160,7 +160,6 @@ fn compact_editor_keeps_save_visible_and_scrolls_to_every_option() {
         PromptAction::GlobalAppearance,
         PromptAction::GlobalIcons,
         PromptAction::Style,
-        PromptAction::Duration(-1),
         PromptAction::Reset,
         PromptAction::Cancel,
     ] {
@@ -174,6 +173,14 @@ fn adding_a_segment_from_the_tray_enables_and_selects_it() {
     editor.act(PromptAction::Add(Chip::Date));
     assert_eq!(editor.selected(), Chip::Date);
     assert!(editor.draft.date);
+}
+
+#[test]
+fn the_tray_offers_every_segment_but_the_exit_status() {
+    let editor = PromptEditor::new(&PromptConfig::default());
+    let order = editor.ordered();
+    assert!(!order.contains(&Chip::Exit));
+    assert_eq!(order.len(), Chip::ALL.len() - 1);
 }
 
 #[test]
@@ -356,8 +363,6 @@ fn every_option_remains_reachable_in_narrow_and_short_windows() {
                 PromptAction::Date,
                 PromptAction::Separator,
                 PromptAction::Style,
-                PromptAction::Duration(-1),
-                PromptAction::Duration(1),
             ] {
                 if action_rect(&scene, action).is_some() {
                     seen.push(action);
@@ -375,8 +380,6 @@ fn every_option_remains_reachable_in_narrow_and_short_windows() {
             PromptAction::Date,
             PromptAction::Separator,
             PromptAction::Style,
-            PromptAction::Duration(-1),
-            PromptAction::Duration(1),
         ] {
             assert!(seen.contains(&action), "{size:?}: {action:?}");
         }
@@ -425,10 +428,10 @@ fn rendered_scroll_bounds_reach_the_end_and_reverse_without_a_dead_zone() {
     overlays.place(Some(initial.hits));
     overlays.wheel(i32::MAX);
     let end = render(&overlays);
-    let end_rect = action_rect(&end, PromptAction::Duration(1)).unwrap();
+    let end_rect = action_rect(&end, PromptAction::Style).unwrap();
     overlays.place(Some(end.hits));
     overlays.wheel(-1);
     let back = render(&overlays);
-    let back_rect = action_rect(&back, PromptAction::Duration(1)).unwrap();
+    let back_rect = action_rect(&back, PromptAction::Style).unwrap();
     assert!(back_rect.y > end_rect.y);
 }

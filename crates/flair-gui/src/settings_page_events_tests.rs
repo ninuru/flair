@@ -227,10 +227,6 @@ fn a_toggle_click_on_a_prompt_chip_saves_at_once() {
         save("prompt.cwd", Some(Value::Bool(false)))
     );
     assert_eq!(page.sheet().focus, Some(4));
-    assert_eq!(
-        page.click(SettingsHit::Increase(13)),
-        preview_of("", "prompt.duration_ms", Some(&Value::Integer(2500)))
-    );
 }
 
 fn rgb(color: Rgb) -> [u8; 3] {

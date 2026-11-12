@@ -462,10 +462,10 @@ pub const SETTINGS: &[Setting] = &[
     },
     Setting {
         key: "prompt.exit",
-        title: "Exit status",
+        title: "Runtime and failures",
         section: Section::Prompt,
         kind: Kind::Toggle,
-        description: "Shows the last exit status and duration.",
+        description: "Shows each block's runtime and marks failed blocks.",
         read: |config, _| Value::Bool(config.prompt.exit),
     },
     Setting {
@@ -475,20 +475,6 @@ pub const SETTINGS: &[Setting] = &[
         kind: Kind::Toggle,
         description: "Shows the time of day.",
         read: |config, _| Value::Bool(config.prompt.time),
-    },
-    Setting {
-        key: "prompt.duration_ms",
-        title: "Minimum duration",
-        section: Section::Prompt,
-        kind: Kind::Integer {
-            step: 500,
-            min: 0,
-            max: 600_000,
-        },
-        description: "Hides commands shorter than this, in ms.",
-        read: |config, _| {
-            Value::Integer(i64::try_from(config.prompt.duration_ms).unwrap_or(i64::MAX))
-        },
     },
     Setting {
         key: "prompt.appearance",

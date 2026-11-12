@@ -1,5 +1,3 @@
-use std::cmp::Ordering;
-
 use flair_core::{
     config::{
         AnsiColour, PromptAppearance, PromptConfig, PromptDateFormat, PromptOrder, PromptPath,
@@ -25,7 +23,6 @@ pub enum PromptAction {
     GlobalAppearance,
     GlobalIcons,
     Style,
-    Duration(i8),
     Reset,
     Save,
     Cancel,
@@ -82,11 +79,6 @@ impl PromptEditor {
                         delta != 0 && target >= 0 && target < order.len() as i32
                     })
             }
-            PromptAction::Duration(delta) => match delta.cmp(&0) {
-                Ordering::Less => self.draft.duration_ms > 0,
-                Ordering::Greater => self.draft.duration_ms < 600_000,
-                Ordering::Equal => false,
-            },
             PromptAction::Select(_)
             | PromptAction::Add(_)
             | PromptAction::Toggle
@@ -121,6 +113,7 @@ impl PromptEditor {
                 .into_iter()
                 .filter(|chip| !self.draft.order.chips().contains(chip)),
         );
+        order.retain(|chip| *chip != Chip::Exit);
         order
     }
 
@@ -215,10 +208,6 @@ impl PromptEditor {
                     PromptStyle::Chips => PromptStyle::Ps1,
                     PromptStyle::Ps1 => PromptStyle::Chips,
                 }
-            }
-            PromptAction::Duration(delta) => {
-                self.draft.duration_ms = (self.draft.duration_ms as i128 + i128::from(delta) * 500)
-                    .clamp(0, 600_000) as u64
             }
             PromptAction::Reset => self.draft = PromptConfig::default(),
             PromptAction::Cancel => self.cancel(),

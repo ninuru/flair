@@ -794,7 +794,7 @@ fn insert_goes_to_the_query_or_the_editor() {
 }
 
 #[test]
-fn the_prompt_section_lists_the_style_icons_chips_then_the_duration() {
+fn the_prompt_section_lists_the_style_icons_chips_then_the_formats() {
     let mut page = page("");
     section(&mut page, 4);
     let sheet = page.sheet();
@@ -815,9 +815,8 @@ fn the_prompt_section_lists_the_style_icons_chips_then_the_duration() {
             "Python environment",
             "Docker context",
             "Kubernetes context",
-            "Exit status",
+            "Runtime and failures",
             "Time",
-            "Minimum duration",
             "Appearance",
             "Directory format",
             "Time format",
@@ -835,7 +834,7 @@ fn the_prompt_section_lists_the_style_icons_chips_then_the_duration() {
     page.focus(10);
     assert_eq!(control(&page), Control::Toggle(false));
     page.focus(13);
-    assert_eq!(control(&page), Control::Number("2000".to_owned()));
+    assert_eq!(control(&page), Control::Choice("outlined".to_owned()));
 }
 
 #[test]
@@ -895,36 +894,6 @@ fn space_flips_a_prompt_chip_in_the_draft_and_enter_saves_the_prompt() {
         press(&mut page, NamedKey::Enter),
         SettingsOutcome::SavePrompt(_)
     ));
-}
-
-#[test]
-fn the_prompt_duration_steps_and_edits_like_other_integers() {
-    let mut page = page("");
-    focus_key(&mut page, "prompt.duration_ms");
-    let more = Value::Integer(2500);
-    assert_eq!(
-        press(&mut page, NamedKey::Right),
-        preview_of("", "prompt.duration_ms", Some(&more))
-    );
-    assert_eq!(control(&page), Control::Number("2500".to_owned()));
-    assert_eq!(
-        press(&mut page, NamedKey::Enter),
-        save("prompt.duration_ms", Some(more))
-    );
-    press(&mut page, NamedKey::Enter);
-    page.key(&ctrl('u'));
-    type_text(&mut page, "700000");
-    assert_eq!(press(&mut page, NamedKey::Enter), SettingsOutcome::Pending);
-    assert_eq!(
-        error(&page).as_deref(),
-        Some("enter a whole number from 0 to 600000")
-    );
-    page.key(&ctrl('u'));
-    type_text(&mut page, "750");
-    assert_eq!(
-        press(&mut page, NamedKey::Enter),
-        save("prompt.duration_ms", Some(Value::Integer(750)))
-    );
 }
 
 #[test]

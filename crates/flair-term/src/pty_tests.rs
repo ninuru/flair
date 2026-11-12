@@ -345,12 +345,9 @@ fn zsh_default_prompt_leaves_a_plain_input_line_below_its_chip_anchor() {
     let mut terminal = crate::Terminal::new(spawn.size, 100);
     terminal.advance(text.as_bytes());
     let frame = terminal.snapshot(flair_core::ids::PaneId(1), true).unwrap();
-    assert!(
-        frame.cursor.point.row >= 2,
-        "divider needs a reserved blank row"
-    );
+    assert_eq!(frame.cursor.point.row, 1);
     assert_eq!(frame.cursor.point.col, 0);
-    assert_eq!(frame.flags.prompt_row, Some(frame.cursor.point.row - 1));
+    assert_eq!(frame.flags.prompt_row, Some(0));
     pty.kill();
     std::fs::remove_dir_all(root).unwrap();
 }
@@ -406,6 +403,60 @@ fn zsh_ctrl_x_ctrl_e_edits_the_command_line_in_editor_with_the_pane_cwd_and_env(
         text.contains("\u{1b}]133;C\u{7}edited:echo_original:project:pane-env\r\n"),
         "{text:?}"
     );
+    pty.kill();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn zsh_empty_enter_starts_a_timed_block_and_only_later_prompts_get_a_gap() {
+    if !std::path::Path::new("/bin/zsh").exists() {
+        eprintln!("skipping empty-enter PTY test: /bin/zsh unavailable");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("flair-zsh-enter-{}", std::process::id()));
+    std::fs::DirBuilder::new()
+        .mode(0o700)
+        .recursive(true)
+        .create(&root)
+        .unwrap();
+    let mut spawn = spec("");
+    spawn.program = "/bin/zsh".into();
+    spawn.args = vec!["-i".into()];
+    spawn.env.extend([
+        ("ZDOTDIR".into(), root.to_string_lossy().into_owned()),
+        ("HOME".into(), root.to_string_lossy().into_owned()),
+        ("FLAIR_PROMPT".into(), "chips".into()),
+        ("FLAIR_PROMPT_SEPARATOR".into(), "chevron".into()),
+    ]);
+    let mut pty = Pty::spawn(&spawn).unwrap();
+    let mut reader = pty.reader().unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    assert!(text.contains("\u{1b}]6973;prompt\u{7}"), "{text:?}");
+    assert!(!text.contains("\n\u{1b}]6973;prompt"), "{text:?}");
+    let mut writer = pty.writer().unwrap();
+    writer.write_all(b"\r").unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    let started = text.find("\u{1b}]133;C\u{7}").unwrap();
+    assert!(
+        started < text.find("\u{1b}]133;D;0\u{7}").unwrap(),
+        "{text:?}"
+    );
+    assert!(text.contains("\n\u{1b}]6973;prompt\u{7}"), "{text:?}");
+    writer.write_all(b"echo two \\\r").unwrap();
+    read_until(&mut reader, "> ");
+    writer.write_all(b"\r").unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    assert_eq!(text.matches("\u{1b}]133;C\u{7}").count(), 1, "{text:?}");
+    assert!(text.contains("\u{1b}]133;C\u{7}two\r\n"), "{text:?}");
+    writer
+        .write_all(b"vared -c answer; echo \"[$answer]\"\r")
+        .unwrap();
+    read_until(&mut reader, "vared");
+    thread::sleep(Duration::from_millis(100));
+    writer.write_all(b"\r").unwrap();
+    let text = read_until(&mut reader, "❯ ");
+    assert!(text.contains("[]\r\n"), "{text:?}");
+    assert!(!text.contains("\u{1b}]133;C"), "{text:?}");
     pty.kill();
     std::fs::remove_dir_all(root).unwrap();
 }

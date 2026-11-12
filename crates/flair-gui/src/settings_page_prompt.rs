@@ -85,7 +85,6 @@ impl SettingsPage {
             | PromptAction::GlobalAppearance
             | PromptAction::GlobalIcons
             | PromptAction::Style
-            | PromptAction::Duration(_)
             | PromptAction::Reset => {
                 self.prompt_editor.act(action);
                 let mut config = self.config.clone();

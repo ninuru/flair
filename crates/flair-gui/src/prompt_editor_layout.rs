@@ -369,11 +369,6 @@ impl PromptEditor {
                 ),
                 PromptAction::Style,
             ),
-            (
-                format!("Duration: {} ms −", self.draft.duration_ms),
-                PromptAction::Duration(-1),
-            ),
-            ("Duration +500 ms".into(), PromptAction::Duration(1)),
         ]
     }
 

@@ -245,7 +245,8 @@ impl Terminal {
             .collect()
     }
     pub(crate) fn current_prompt_row(&self) -> Option<u16> {
-        if self.modes().alt_screen || self.term.grid().display_offset() != 0 {
+        if !self.prompt_editing || self.modes().alt_screen || self.term.grid().display_offset() != 0
+        {
             return None;
         }
         (0..self.size.rows).find(|row| {

@@ -961,7 +961,7 @@ fn each_pane_uses_subtle_outlined_chips_on_its_prompt_row() {
     ]);
     let layout = band_layout(&window, &info, &plain_config());
     let chips = band_chips(&layout);
-    assert_eq!(chips.len(), 6);
+    assert_eq!(chips.len(), 4);
     for chip in &chips {
         assert_eq!(
             chip.color,
@@ -986,7 +986,7 @@ fn each_pane_uses_subtle_outlined_chips_on_its_prompt_row() {
     let text = band_text(&layout);
     assert_eq!(
         text.iter().map(|run| run.2).collect::<Vec<_>>(),
-        ["/srv/one", "main", "1", "/srv/two", "main", "1"]
+        ["/srv/one", "main", "/srv/two", "main"]
     );
     assert!(
         text.iter()
@@ -995,8 +995,7 @@ fn each_pane_uses_subtle_outlined_chips_on_its_prompt_row() {
 }
 
 #[test]
-fn successful_exit_uses_neutral_chrome_and_readable_status_text() {
-    let theme = Config::default().theme();
+fn the_last_exit_status_and_duration_draw_no_chip() {
     let window = banded(&[], &[(1, cells(0, 0, 98, 34))], 1);
     let info = BTreeMap::from([(
         PaneId(1),
@@ -1013,17 +1012,8 @@ fn successful_exit_uses_neutral_chrome_and_readable_status_text() {
         ..plain_config()
     };
     let layout = band_layout(&window, &info, &config);
-    let chips = band_chips(&layout);
-    assert_eq!(chips.len(), 1);
-    assert_eq!(
-        chips[0].color,
-        opaque(flair_core::theme::blend(
-            theme.background,
-            theme.foreground,
-            4
-        ))
-    );
-    assert_eq!(band_text(&layout), [(14.0, 80.0, "0.42s", TextFace::Mono)]);
+    assert!(band_chips(&layout).is_empty());
+    assert!(band_text(&layout).is_empty());
 }
 
 #[test]
@@ -1034,7 +1024,7 @@ fn prompt_icons_are_centered_beside_terminal_labels() {
     let text = band_text(&layout);
     assert_eq!(
         text.iter().map(|run| run.2).collect::<Vec<_>>(),
-        ["\u{f114}", "/srv/one", "\u{f418}", "main", "1"]
+        ["\u{f114}", "/srv/one", "\u{f418}", "main"]
     );
     for (index, run) in text.iter().enumerate() {
         let icon = index == 0 || index == 2;
@@ -1062,8 +1052,8 @@ fn a_narrow_pane_shortens_the_cwd_before_dropping_chips() {
             .map(|(_, _, text, _)| text.to_owned())
             .collect::<Vec<_>>()
     };
-    assert_eq!(texts(98), ["/srv/projects/flair", "main", "1"]);
-    assert_eq!(texts(20), ["…/flair", "main", "1"]);
+    assert_eq!(texts(98), ["/srv/projects/flair", "main"]);
+    assert_eq!(texts(20), ["…/flair", "main"]);
     assert_eq!(texts(15), ["…/flair", "main"]);
     assert_eq!(texts(12), ["…/flair"]);
     assert!(texts(2).is_empty());
@@ -1092,13 +1082,13 @@ fn chips_centre_on_the_shell_prompt_row_in_stacked_panes() {
     let (_, top) = grid_origin((800, 600), (8.0, 4.0), 1.0, false, metrics(1.0));
     let prompt_top = top + 16.0;
     let chips = band_chips(&layout);
-    assert_eq!(chips.len(), 6);
+    assert_eq!(chips.len(), 4);
     let upper = chips[0].rect;
     let middle = upper.y + upper.h / 2.0;
     let centre = prompt_top + 8.0;
     assert!((middle - centre).abs() <= 0.5, "{upper:?} centre {centre}");
-    assert!(chips[..3].iter().all(|chip| chip.rect.y == upper.y));
-    let lower = chips[3].rect;
+    assert!(chips[..2].iter().all(|chip| chip.rect.y == upper.y));
+    let lower = chips[2].rect;
     assert_eq!(lower.h, upper.h);
     let row = top + 18.0 * 16.0;
     assert_eq!(lower.y, row);
@@ -1138,7 +1128,7 @@ fn no_chips_without_a_band_without_info_or_with_ps1() {
             &plain_config()
         ))
         .len(),
-        3
+        2
     );
 }
 

@@ -72,7 +72,6 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "prompt.kube",
             "prompt.exit",
             "prompt.time",
-            "prompt.duration_ms",
             "prompt.appearance",
             "prompt.path",
             "prompt.time_format",
@@ -339,12 +338,12 @@ fn theme_cycles_with_wrap_around() {
 }
 
 #[test]
-fn the_prompt_section_lists_style_icons_one_toggle_per_chip_and_the_duration() {
+fn the_prompt_section_lists_style_icons_and_one_toggle_per_chip() {
     let prompt: Vec<_> = SETTINGS
         .iter()
         .filter(|setting| setting.section == Section::Prompt)
         .collect();
-    assert_eq!(prompt.len(), 21);
+    assert_eq!(prompt.len(), 20);
     assert_eq!(prompt[0].key, "prompt.style");
     assert_eq!(prompt[0].title, "Style");
     assert_eq!(prompt[0].kind, Kind::Choice(Choices::Of(&["chips", "ps1"])));
@@ -353,14 +352,11 @@ fn the_prompt_section_lists_style_icons_one_toggle_per_chip_and_the_duration() {
     for setting in &prompt[1..13] {
         assert_eq!(setting.kind, Kind::Toggle, "{}", setting.key);
     }
-    assert_eq!(prompt[13].key, "prompt.duration_ms");
-    assert_eq!(
-        prompt[13].kind,
-        Kind::Integer {
-            step: 500,
-            min: 0,
-            max: 600_000
-        }
+    assert_eq!(prompt[13].key, "prompt.appearance");
+    assert!(
+        prompt
+            .iter()
+            .all(|setting| setting.key != "prompt.duration_ms")
     );
     assert_eq!(setting("theme").kind, Kind::Choice(Choices::Themes));
 }
@@ -371,10 +367,6 @@ fn prompt_defaults_read_from_the_config() {
     assert_eq!(default_value(setting("prompt.icons")), Value::Bool(true));
     assert_eq!(default_value(setting("prompt.cwd")), Value::Bool(true));
     assert_eq!(default_value(setting("prompt.time")), Value::Bool(false));
-    assert_eq!(
-        default_value(setting("prompt.duration_ms")),
-        Value::Integer(2000)
-    );
 }
 
 #[test]
