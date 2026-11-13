@@ -355,21 +355,37 @@ fn cd_is_sent_only_at_a_prompt() {
 
 #[test]
 fn edit_splits_an_editor_at_the_explorer_root_and_blurs() {
-    let mut panels = opened(false);
+    let temp = TempDir::new();
+    let file = temp.file(&temp.dir("src"), "main.rs");
+    let mut panels = rooted(&temp.0);
     assert_eq!(
-        panels.act(ExplorerOutcome::Edit(PathBuf::from("/p/src/main.rs"))),
+        panels.act(ExplorerOutcome::Edit(file.clone())),
         ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
             argv: vec![
                 "/bin/sh".into(),
                 "-c".into(),
                 "exec ${EDITOR:-vi} \"$1\"".into(),
                 "flair-edit".into(),
-                "/p/src/main.rs".into(),
+                file.to_str().unwrap().into(),
             ],
-            cwd: PathBuf::from("/p"),
+            cwd: temp.0.clone(),
         }))
     );
     assert!(!panels.focused);
+}
+
+#[test]
+fn edit_of_a_vanished_file_or_folder_shows_a_notice() {
+    let temp = TempDir::new();
+    let src = temp.dir("src");
+    let mut panels = rooted(&temp.0);
+    assert!(refused(
+        panels.act(ExplorerOutcome::Edit(src.join("gone.rs")))
+    ));
+    let file = temp.file(&src, "main.rs");
+    fs::remove_dir_all(&temp.0).unwrap();
+    assert!(refused(panels.act(ExplorerOutcome::Edit(file))));
+    assert!(panels.focused);
 }
 
 #[test]

@@ -229,6 +229,7 @@ impl Server {
         {
             spec.program = program.clone();
             spec.args = args.to_vec();
+            self.runs.insert(new);
         }
         let placement = self
             .tree

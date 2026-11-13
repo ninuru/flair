@@ -322,6 +322,9 @@ impl Panels {
             (Ok(file), Ok(cwd)) => (file.to_owned(), PathBuf::from(cwd)),
             (Err(notice), _) | (_, Err(notice)) => return ExplorerAct::Notice(notice),
         };
+        if !cwd.is_dir() || !path.exists() {
+            return ExplorerAct::Notice(Notice::error(format!("{file} is gone")));
+        }
         self.focused = false;
         ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
             argv: vec![

@@ -342,3 +342,26 @@ fn a_split_run_into_a_pane_too_small_never_sends_an_error() {
     assert!(spawned < 10);
     assert_eq!(server.panes.len(), spawned + 1);
 }
+
+#[test]
+fn a_split_run_that_cannot_start_closes_its_pane_without_an_error() {
+    let (mut server, _) = setup();
+    let out = run(&mut server, 2, edit("/gone/f", "/gone"));
+    let (pane, _) = spawns(&out)[0];
+    let mut out = Vec::new();
+    server.handle(Millis(3), Event::PtySpawnFailed(pane), &mut out);
+    assert_eq!(errors(&out), 0);
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::KillPty(killed) if *killed == pane))
+    );
+    assert!(!server.panes.contains_key(&pane));
+    assert!(!server.runs_program(pane));
+    assert_eq!(
+        server.tree.window(WindowId(1)).unwrap().panes,
+        vec![PaneId(1)]
+    );
+    let mut out = Vec::new();
+    server.handle(Millis(4), Event::PtySpawnFailed(PaneId(1)), &mut out);
+    assert_eq!(errors(&out), 1);
+}
