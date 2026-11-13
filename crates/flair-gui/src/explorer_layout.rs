@@ -77,10 +77,11 @@ pub(crate) fn draw(
         ));
     }
     let first = explorer.scroll();
+    let selected = explorer.selected();
     for (index, row) in rows.iter().enumerate().skip(first).take(page) {
         let rect = row_rect(index - first);
         let state = RowState {
-            selected: explorer.selected() == Some(index),
+            selected: selected == Some(index),
             focused: panels.focused,
             hovered: input.hover.is_some_and(|point| inside(rect, point)),
         };
