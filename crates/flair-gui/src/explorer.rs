@@ -53,7 +53,7 @@ pub enum ExplorerOutcome {
     Blur,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Explorer {
     root: Option<PathBuf>,
     listings: BTreeMap<PathBuf, Listing>,
@@ -216,7 +216,7 @@ impl Explorer {
         };
         let (kind, path) = (target.kind.clone(), target.path.clone());
         match kind {
-            RowKind::Dir { .. } if row == 0 => {
+            RowKind::Dir { .. } if row == 0 || double => {
                 self.selected = Some(path);
                 ExplorerOutcome::Redraw
             }

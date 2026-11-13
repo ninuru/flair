@@ -538,13 +538,15 @@ fn keys_without_a_root_are_ignored() {
 }
 
 #[test]
-fn clicks_select_toggle_folders_and_double_click_edits_files() {
+fn clicks_select_toggle_folders_once_and_double_click_edits_files() {
     let mut explorer = project();
     assert_eq!(
         explorer.click(2, false),
         ExplorerOutcome::Load(paths(&["/p/src"]))
     );
     assert_eq!(selected_name(&explorer), "src");
+    assert_eq!(explorer.click(2, true), ExplorerOutcome::Redraw);
+    assert_eq!(lines(&explorer)[2], "  v src");
     assert_eq!(explorer.click(2, false), ExplorerOutcome::Redraw);
     assert_eq!(lines(&explorer)[2], "  > src");
     assert_eq!(explorer.click(6, false), ExplorerOutcome::Redraw);
