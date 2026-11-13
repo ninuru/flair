@@ -404,7 +404,7 @@ impl ApplicationHandler<UserEvent> for App {
                     self.request_redraw();
                 }
                 ServerMsg::ToggleTabs => {
-                    self.panels.toggle_tabs();
+                    self.panels.toggle_tabs(self.effective().tabs.position);
                     self.send(ClientMsg::Resize(self.size()));
                     self.request_redraw();
                 }

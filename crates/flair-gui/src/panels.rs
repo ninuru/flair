@@ -31,7 +31,7 @@ pub enum Drag {
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Panels {
-    pub flipped: bool,
+    pub flipped: Option<TabsPosition>,
     pub shown: PanelView,
     pub tabs_scroll: usize,
     pub drag: Option<Drag>,
@@ -45,7 +45,8 @@ impl Panels {
             Some((live, width)) if live == view => width,
             Some(_) | None => f32::from(configured),
         };
-        let side = match (config.tabs.position, self.flipped) {
+        let flipped = self.flipped == Some(config.tabs.position);
+        let side = match (config.tabs.position, flipped) {
             (TabsPosition::Top, false) | (TabsPosition::Left | TabsPosition::Right, true) => None,
             (TabsPosition::Top | TabsPosition::Left, _) => Some(Side::Left),
             (TabsPosition::Right, false) => Some(Side::Right),
@@ -59,8 +60,11 @@ impl Panels {
         }
     }
 
-    pub fn toggle_tabs(&mut self) {
-        self.flipped = !self.flipped;
+    pub fn toggle_tabs(&mut self, position: TabsPosition) {
+        self.flipped = match self.flipped == Some(position) {
+            true => None,
+            false => Some(position),
+        };
         self.drag = None;
         self.live_width = None;
     }

@@ -215,7 +215,7 @@ impl Capture {
                 }
             }
             ServerMsg::ToggleTabs => {
-                self.panels.toggle_tabs();
+                self.panels.toggle_tabs(self.effective().tabs.position);
                 if let Some(resize) = self.refit()? {
                     tx.send(resize).map_err(|e| e.to_string())?;
                 }

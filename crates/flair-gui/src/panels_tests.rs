@@ -38,7 +38,7 @@ fn the_dock_follows_position_and_flip() {
         (TabsPosition::Right, false, Some(Side::Right)),
         (TabsPosition::Right, true, None),
     ] {
-        panels.flipped = flipped;
+        panels.flipped = flipped.then_some(position);
         let dock = panels.dock(&config(position), false);
         assert_eq!(
             dock.tabs,
@@ -61,12 +61,12 @@ fn toggling_tabs_flips_and_forgets_a_drag() {
         live_width: Some((PanelView::Tabs, 300.0)),
         ..Panels::default()
     };
-    panels.toggle_tabs();
-    assert!(panels.flipped);
+    panels.toggle_tabs(TabsPosition::Left);
+    assert_eq!(panels.flipped, Some(TabsPosition::Left));
     assert_eq!(panels.drag, None);
     assert_eq!(panels.live_width, None);
-    panels.toggle_tabs();
-    assert!(!panels.flipped);
+    panels.toggle_tabs(TabsPosition::Left);
+    assert_eq!(panels.flipped, None);
 }
 
 #[test]
@@ -215,4 +215,22 @@ fn an_edge_drag_clamps_to_the_bounds_and_the_grid_limit() {
     assert!(!idle.drag_edge(PanelView::Tabs, 10.0, 1000.0, 1.0));
     assert_eq!(idle.live_width, None);
     assert_eq!(bounds(PanelView::Explorer), (160.0, 640.0));
+}
+
+#[test]
+fn a_flip_ends_when_the_configured_position_changes() {
+    let mut panels = Panels::default();
+    panels.toggle_tabs(TabsPosition::Left);
+    assert_eq!(panels.dock(&config(TabsPosition::Left), false).tabs, None);
+    assert_eq!(
+        panels.dock(&config(TabsPosition::Right), false).tabs,
+        Some((Side::Right, 220.0))
+    );
+    assert_eq!(panels.dock(&config(TabsPosition::Top), false).tabs, None);
+    panels.toggle_tabs(TabsPosition::Right);
+    assert_eq!(panels.dock(&config(TabsPosition::Right), false).tabs, None);
+    assert_eq!(
+        panels.dock(&config(TabsPosition::Left), false).tabs,
+        Some((Side::Left, 220.0))
+    );
 }
