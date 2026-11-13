@@ -59,3 +59,35 @@ fn programs_map_to_their_icons() {
         assert_eq!(process_icon(program), icon, "{program}");
     }
 }
+
+#[test]
+fn folders_get_the_folder_glyphs() {
+    assert_eq!(file_icon("src", true, false), '\u{ea83}');
+    assert_eq!(file_icon("src", true, true), '\u{eaf7}');
+    assert_eq!(file_icon(".git", true, false), '\u{ea83}');
+}
+
+#[test]
+fn files_map_by_extension_onto_process_families() {
+    let cases = [
+        ("main.rs", '\u{e7a8}'),
+        ("tool.py", '\u{e73c}'),
+        ("app.js", '\u{e718}'),
+        ("app.ts", '\u{e718}'),
+        ("package.json", '\u{e718}'),
+        ("main.go", '\u{e627}'),
+        ("App.java", '\u{e738}'),
+        ("task.rb", '\u{e739}'),
+        ("run.pl", '\u{e769}'),
+        ("install.sh", '\u{f120}'),
+        (".zshrc.zsh", '\u{f120}'),
+        ("schema.sql", '\u{f1c0}'),
+        ("MAIN.RS", '\u{e7a8}'),
+        ("README.md", '\u{ea7b}'),
+        ("Makefile", '\u{ea7b}'),
+        (".env", '\u{ea7b}'),
+    ];
+    for (name, icon) in cases {
+        assert_eq!(file_icon(name, false, false), icon, "{name}");
+    }
+}
