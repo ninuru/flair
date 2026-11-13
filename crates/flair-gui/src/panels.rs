@@ -68,7 +68,7 @@ pub struct Panels {
     pane: Option<ActivePane>,
     hidden: Option<bool>,
     armed: Option<Instant>,
-    last_click: Option<(usize, Instant)>,
+    last_click: Option<(PathBuf, Instant)>,
 }
 
 impl Panels {
@@ -278,10 +278,11 @@ impl Panels {
     }
 
     pub fn click(&mut self, row: usize, now: Instant) -> ExplorerOutcome {
-        let double = self
-            .last_click
-            .is_some_and(|(at, when)| at == row && now.duration_since(when) < DOUBLE_CLICK);
-        self.last_click = (!double).then_some((row, now));
+        let path = self.explorer.rows().get(row).map(|row| row.path.clone());
+        let double = self.last_click.as_ref().is_some_and(|(at, when)| {
+            path.as_ref() == Some(at) && now.duration_since(*when) < DOUBLE_CLICK
+        });
+        self.last_click = path.filter(|_| !double).map(|path| (path, now));
         self.focused = true;
         self.explorer.click(row, double)
     }

@@ -539,3 +539,23 @@ fn the_explorer_loses_focus_when_its_slot_is_gone() {
     });
     assert!(panels.open && !panels.focused);
 }
+
+#[test]
+fn a_listing_between_two_clicks_never_turns_them_into_a_double_click() {
+    let mut panels = opened(false);
+    let now = Instant::now();
+    assert_eq!(
+        panels.click(1, now),
+        ExplorerOutcome::Load(paths(&["/p/src"]))
+    );
+    assert_eq!(panels.click(3, now), ExplorerOutcome::Redraw);
+    assert!(
+        panels
+            .explorer
+            .insert(listing("/p/src", &[("a.rs", false), ("b.rs", false)]))
+    );
+    assert_eq!(
+        panels.click(3, now + Duration::from_millis(100)),
+        ExplorerOutcome::Redraw
+    );
+}
