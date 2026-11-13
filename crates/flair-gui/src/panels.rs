@@ -16,6 +16,7 @@ use flair_core::{
 use crate::{
     chrome_layout::{Dock, Frame, PanelView},
     explorer::{Explorer, ExplorerOutcome, quote},
+    notice::Notice,
     panel_layout::tab_rows,
     ui::{DRAG_START, px},
 };
@@ -48,7 +49,8 @@ pub enum ExplorerAct {
     Redraw,
     Load(Vec<PathBuf>),
     Send(ClientMsg),
-    Copy(PathBuf),
+    Copy(String),
+    Notice(Notice),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -285,35 +287,52 @@ impl Panels {
             ExplorerOutcome::Ignored => ExplorerAct::Ignored,
             ExplorerOutcome::Redraw => ExplorerAct::Redraw,
             ExplorerOutcome::Load(dirs) => ExplorerAct::Load(dirs),
-            ExplorerOutcome::Insert(path) => ExplorerAct::Send(ClientMsg::Input(
-                InputEvent::Paste(format!("{} ", quote(&path))),
-            )),
-            ExplorerOutcome::Cd(path) if self.at_prompt() => ExplorerAct::Send(ClientMsg::Input(
-                InputEvent::Text(format!("\u{15}cd -- {}\r", quote(&path))),
-            )),
-            ExplorerOutcome::Cd(_) => ExplorerAct::Ignored,
-            ExplorerOutcome::Edit(path) => match self.explorer.root().map(Path::to_path_buf) {
-                Some(root) => {
-                    self.focused = false;
-                    ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
-                        argv: vec![
-                            "/bin/sh".into(),
-                            "-c".into(),
-                            "exec ${EDITOR:-vi} \"$1\"".into(),
-                            "flair-edit".into(),
-                            path.to_string_lossy().into_owned(),
-                        ],
-                        cwd: root,
-                    }))
-                }
-                None => ExplorerAct::Ignored,
+            ExplorerOutcome::Insert(path) => match plain(&path) {
+                Ok(text) => ExplorerAct::Send(ClientMsg::Input(InputEvent::Paste(format!(
+                    "{} ",
+                    quote(text)
+                )))),
+                Err(notice) => ExplorerAct::Notice(notice),
             },
-            ExplorerOutcome::Copy(path) => ExplorerAct::Copy(path),
+            ExplorerOutcome::Cd(path) if self.at_prompt() => match plain(&path) {
+                Ok(text) => ExplorerAct::Send(ClientMsg::Input(InputEvent::Text(format!(
+                    "\u{15}cd -- {}\r",
+                    quote(text)
+                )))),
+                Err(notice) => ExplorerAct::Notice(notice),
+            },
+            ExplorerOutcome::Cd(_) => ExplorerAct::Ignored,
+            ExplorerOutcome::Edit(path) => self.edit(&path),
+            ExplorerOutcome::Copy(path) => match plain(&path) {
+                Ok(text) => ExplorerAct::Copy(text.to_owned()),
+                Err(notice) => ExplorerAct::Notice(notice),
+            },
             ExplorerOutcome::Blur => {
                 self.focused = false;
                 ExplorerAct::Redraw
             }
         }
+    }
+
+    fn edit(&mut self, path: &Path) -> ExplorerAct {
+        let Some(root) = self.explorer.root() else {
+            return ExplorerAct::Ignored;
+        };
+        let (file, cwd) = match (plain(path), plain(root)) {
+            (Ok(file), Ok(cwd)) => (file.to_owned(), PathBuf::from(cwd)),
+            (Err(notice), _) | (_, Err(notice)) => return ExplorerAct::Notice(notice),
+        };
+        self.focused = false;
+        ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
+            argv: vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "exec ${EDITOR:-vi} \"$1\"".into(),
+                "flair-edit".into(),
+                file,
+            ],
+            cwd,
+        }))
     }
 
     fn open_explorer(&mut self) -> Vec<PathBuf> {
@@ -336,6 +355,16 @@ impl Panels {
         if let Some((PanelView::Explorer, _)) = self.live_width {
             self.live_width = None;
         }
+    }
+}
+
+fn plain(path: &Path) -> Result<&str, Notice> {
+    let text = path
+        .to_str()
+        .ok_or_else(|| Notice::error("path is not valid UTF-8"))?;
+    match text.chars().any(char::is_control) {
+        true => Err(Notice::error("path has control characters")),
+        false => Ok(text),
     }
 }
 

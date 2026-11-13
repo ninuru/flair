@@ -1,6 +1,10 @@
 use std::{
-    ffi::OsString,
+    ffi::{OsStr, OsString},
+    fs::{self, DirBuilder, File},
+    os::unix::{ffi::OsStrExt, fs::DirBuilderExt},
     path::{Path, PathBuf},
+    process,
+    sync::atomic::{AtomicUsize, Ordering},
     time::{Duration, Instant},
 };
 
@@ -15,7 +19,10 @@ use flair_core::{
 };
 
 use super::super::*;
-use crate::explorer::{Entry, ExplorerOutcome, Listing, RowKind};
+use crate::{
+    explorer::{Entry, ExplorerOutcome, Listing, RowKind},
+    notice::Notice,
+};
 
 fn press(key: Key, mods: Mods) -> KeyInput {
     KeyInput {
@@ -99,6 +106,53 @@ fn opened(at_prompt: bool) -> Panels {
         explorer: 10,
     });
     panels
+}
+
+fn rooted(root: &Path) -> Panels {
+    let mut panels = Panels::default();
+    let cwd = Some(ActivePane {
+        pane: PaneId(1),
+        cwd: Some(root.to_path_buf()),
+        at_prompt: false,
+    });
+    panels.follow(cwd);
+    panels.explorer_command();
+    panels
+}
+
+fn refused(act: ExplorerAct) -> bool {
+    matches!(act, ExplorerAct::Notice(Notice { error: true, .. }))
+}
+
+static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+struct TempDir(PathBuf);
+
+impl TempDir {
+    fn new() -> TempDir {
+        let index = NEXT.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("flair-panels-{}-{index}", process::id()));
+        DirBuilder::new().mode(0o700).create(&path).unwrap();
+        TempDir(path)
+    }
+
+    fn dir(&self, name: &str) -> PathBuf {
+        let path = self.0.join(name);
+        fs::create_dir(&path).unwrap();
+        path
+    }
+
+    fn file(&self, dir: &Path, name: &str) -> PathBuf {
+        let path = dir.join(name);
+        File::create(&path).unwrap();
+        path
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
 }
 
 fn names(panels: &Panels) -> Vec<String> {
@@ -319,11 +373,62 @@ fn edit_splits_an_editor_at_the_explorer_root_and_blurs() {
 }
 
 #[test]
+fn paths_with_control_characters_never_reach_the_shell() {
+    let temp = TempDir::new();
+    for (index, control) in ["\u{1}", "\r", "\n", "\u{1b}", "\u{15}", "\u{3}"]
+        .into_iter()
+        .enumerate()
+    {
+        let name = format!("x{control}touch pwned{index};");
+        let dir = temp.dir(&name);
+        let file = temp.file(&temp.0, &format!("{name}.rs"));
+        let mut panels = rooted(&temp.0);
+        panels.follow(pane(temp.0.to_str(), true));
+        for outcome in [
+            ExplorerOutcome::Insert(dir.clone()),
+            ExplorerOutcome::Cd(dir),
+            ExplorerOutcome::Edit(file.clone()),
+            ExplorerOutcome::Insert(file.clone()),
+            ExplorerOutcome::Copy(file),
+        ] {
+            assert!(refused(panels.act(outcome)));
+        }
+        assert!(panels.focused);
+    }
+}
+
+#[test]
+fn paths_that_are_not_utf8_never_reach_the_server() {
+    let temp = TempDir::new();
+    let odd = OsStr::from_bytes(b"\xffodd");
+    let dir = temp.0.join(odd);
+    fs::create_dir(&dir).unwrap();
+    let file = temp.file(&temp.0, "main.rs");
+    let inner = temp.file(&dir, "inner.rs");
+    let mut panels = rooted(&temp.0);
+    panels.follow(pane(temp.0.to_str(), true));
+    for outcome in [
+        ExplorerOutcome::Insert(dir.clone()),
+        ExplorerOutcome::Cd(dir.clone()),
+        ExplorerOutcome::Copy(dir.clone()),
+        ExplorerOutcome::Edit(inner.clone()),
+    ] {
+        assert!(refused(panels.act(outcome)));
+    }
+    let mut odd_root = rooted(&dir);
+    assert!(refused(odd_root.act(ExplorerOutcome::Edit(inner))));
+    assert!(matches!(
+        panels.act(ExplorerOutcome::Edit(file)),
+        ExplorerAct::Send(_)
+    ));
+}
+
+#[test]
 fn copy_load_redraw_and_blur_map_through() {
     let mut panels = opened(false);
     assert_eq!(
         panels.act(ExplorerOutcome::Copy(PathBuf::from("/p/a"))),
-        ExplorerAct::Copy(PathBuf::from("/p/a"))
+        ExplorerAct::Copy("/p/a".into())
     );
     assert_eq!(
         panels.act(ExplorerOutcome::Load(paths(&["/p/src"]))),

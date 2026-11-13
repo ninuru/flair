@@ -80,11 +80,13 @@ impl App {
             }
             ExplorerAct::Copy(path) => {
                 if let Some(surface) = &self.surface {
-                    surface
-                        .clipboard
-                        .store(path.to_string_lossy().into_owned(), false);
+                    surface.clipboard.store(path, false);
                 }
                 self.overlays.set_notice(Notice::info("copied path"));
+                self.request_redraw();
+            }
+            ExplorerAct::Notice(notice) => {
+                self.overlays.set_notice(notice);
                 self.request_redraw();
             }
         }

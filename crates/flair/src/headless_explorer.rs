@@ -90,6 +90,10 @@ impl Capture {
                 self.overlays.set_notice(Notice::info("copied path"));
                 Vec::new()
             }
+            ExplorerAct::Notice(notice) => {
+                self.overlays.set_notice(notice);
+                Vec::new()
+            }
         }
     }
 

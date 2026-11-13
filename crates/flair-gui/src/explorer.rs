@@ -563,8 +563,8 @@ impl Explorer {
     }
 }
 
-pub fn quote(path: &Path) -> String {
-    let text = path.to_string_lossy().replace('\'', r"'\''");
+pub fn quote(path: &str) -> String {
+    let text = path.replace('\'', r"'\''");
     format!("'{text}'")
 }
 

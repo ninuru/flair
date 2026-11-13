@@ -792,9 +792,9 @@ fn the_selection_survives_a_new_listing_and_falls_back_to_the_parent() {
 
 #[test]
 fn quote_uses_posix_single_quotes() {
-    assert_eq!(quote(Path::new("/tmp/a")), "'/tmp/a'");
-    assert_eq!(quote(Path::new("/tmp/my file")), "'/tmp/my file'");
-    assert_eq!(quote(Path::new("/tmp/it's")), r"'/tmp/it'\''s'");
-    assert_eq!(quote(Path::new("/tmp/a\nb")), "'/tmp/a\nb'");
-    assert_eq!(quote(Path::new("/tmp/\"x\" $y")), "'/tmp/\"x\" $y'");
+    assert_eq!(quote("/tmp/a"), "'/tmp/a'");
+    assert_eq!(quote("/tmp/my file"), "'/tmp/my file'");
+    assert_eq!(quote("/tmp/it's"), r"'/tmp/it'\''s'");
+    assert_eq!(quote("/tmp/a\nb"), "'/tmp/a\nb'");
+    assert_eq!(quote("/tmp/\"x\" $y"), "'/tmp/\"x\" $y'");
 }
