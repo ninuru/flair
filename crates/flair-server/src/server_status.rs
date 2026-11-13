@@ -71,21 +71,25 @@ impl Server {
     }
 
     pub(super) fn alert(&mut self, pane: PaneId, bell: bool) {
-        let Some((session, window)) = self.tree.sessions.iter().find_map(|session| {
-            session
-                .windows
-                .iter()
-                .find(|window| window.panes.contains(&pane))
-                .map(|window| (session.id, window.id))
-        }) else {
-            return;
-        };
+        let tree = &self.tree;
         for client in self.clients.values_mut() {
-            if client.view.session == session && client.view.window != window {
-                client.activity_windows.insert(window);
-                if bell {
-                    client.bell_windows.insert(window);
-                }
+            if tree
+                .window(client.view.window)
+                .is_some_and(|window| window.panes.contains(&pane))
+            {
+                continue;
+            }
+            let Some(window) = tree.session(client.view.session).and_then(|session| {
+                session
+                    .windows
+                    .iter()
+                    .find(|window| window.panes.contains(&pane))
+            }) else {
+                continue;
+            };
+            client.activity_windows.insert(window.id);
+            if bell {
+                client.bell_windows.insert(window.id);
             }
         }
     }
@@ -182,18 +186,13 @@ impl Server {
 
     pub(super) fn flush_status(&mut self, out: &mut Vec<Effect>) {
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
-        let windows: BTreeSet<WindowId> = self
-            .tree
-            .sessions
-            .iter()
-            .flat_map(|session| session.windows.iter().map(|window| window.id))
-            .collect();
         for id in ids {
             let client = self.clients.get_mut(&id).unwrap();
             let current = client.view.session;
             client.finished.remove(&current);
             let shown = client.view.window;
-            let keep = |window: &WindowId| *window != shown && windows.contains(window);
+            let tree = &self.tree;
+            let keep = |window: &WindowId| *window != shown && tree.window(*window).is_some();
             client.activity_windows.retain(keep);
             client.bell_windows.retain(keep);
             let Some(line) = self.status_line(id) else {
