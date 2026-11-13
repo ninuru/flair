@@ -963,3 +963,154 @@ name = "{side}"
     }
     assert_ne!(images[0], images[1]);
 }
+
+fn explorer_tree(root: &Path) -> PathBuf {
+    let tree = root.join("tree");
+    fs::create_dir_all(tree.join("sub")).unwrap();
+    fs::write(tree.join("notes.txt"), "notes").unwrap();
+    fs::write(tree.join(".hidden"), "hidden").unwrap();
+    fs::write(tree.join("sub").join("inner.rs"), "fn main() {}").unwrap();
+    tree
+}
+
+fn steps(items: &[(&str, &str)]) -> String {
+    items
+        .iter()
+        .map(|(action, value)| match *action {
+            "prefix" => format!(
+                "[[steps]]\naction = \"key\"\nkey = \"a\"\nctrl = true\n[[steps]]\naction = \"key\"\nkey = \"{value}\"\n[[steps]]\naction = \"sleep\"\nms = 300\n"
+            ),
+            _ => {
+                let field = match *action {
+                    "key" => "key",
+                    "capture" => "name",
+                    _ => "text",
+                };
+                format!("[[steps]]\naction = \"{action}\"\n{field} = {value:?}\n")
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn the_explorer_follows_the_cwd_filters_inserts_and_keeps_the_prefix() {
+    let output = OutputDir::new();
+    let tree = explorer_tree(&output.0);
+    let script = output.0.join("shell.sh");
+    fs::write(
+        &script,
+        "printf 'ready> '\nread x\ncd sub\nprintf '\\033]7;file://%s\\033\\\\' \"$PWD\"\nprintf 'moved> '\nread y\nprintf 'got:%s|\\n' \"$y\"\nread z\n",
+    )
+    .unwrap();
+    let root = tree.display().to_string();
+    let inner = format!("got:'{root}/sub/inner.rs'|");
+    let header = format!("[explorer {root}/sub]");
+    let scenario = output.0.join("explorer.toml");
+    fs::write(
+        &scenario,
+        format!(
+            "program = \"/bin/sh\"\nargs = [{:?}]\ncwd = {root:?}\n{}",
+            script.display().to_string(),
+            steps(&[
+                ("wait", "ready> "),
+                ("prefix", "e"),
+                ("wait", "> sub"),
+                ("wait", " .hidden"),
+                ("text", "zzz"),
+                ("key", "Escape"),
+                ("text", "go\r"),
+                ("wait", &header),
+                ("wait", "inner.rs"),
+                ("prefix", "e"),
+                ("key", "/"),
+                ("text", "inn"),
+                ("wait", "*  inner.rs"),
+                ("key", "Enter"),
+                ("key", "q"),
+                ("key", "i"),
+                ("key", "Escape"),
+                ("key", "Enter"),
+                ("wait", &inner),
+                ("prefix", "e"),
+                ("prefix", "c"),
+                ("wait", "2:sh"),
+            ])
+        ),
+    )
+    .unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "20s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--scenario",
+        ])
+        .arg(&scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&run.stderr),
+        fs::read_to_string(output.0.join("frame.txt")).unwrap_or_default()
+    );
+    let frame = fs::read_to_string(output.0.join("frame.txt")).unwrap();
+    assert!(frame.contains(&format!("[explorer {root}]\n")), "{frame}");
+}
+
+#[test]
+fn pixel_capture_draws_the_explorer() {
+    let output = OutputDir::new();
+    let tree = explorer_tree(&output.0);
+    let scenario = output.0.join("explorer-pixels.toml");
+    fs::write(
+        &scenario,
+        format!(
+            "program = \"/bin/sh\"\nargs = [\"-c\", \"printf 'ready> '; read x\"]\ncwd = {:?}\n{}",
+            tree.display().to_string(),
+            steps(&[
+                ("wait", "ready> "),
+                ("prefix", "e"),
+                ("capture", "explorer"),
+            ])
+        ),
+    )
+    .unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "90s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--pixels",
+            "640x400",
+            "--scale",
+            "1",
+            "--timeout-ms",
+            "60000",
+            "--scenario",
+        ])
+        .arg(scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&run.stderr);
+    if !run.status.success() && stderr.contains("capture needs an EGL device") {
+        if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
+            panic!("required EGL unavailable: {stderr}");
+        }
+        eprintln!("skipped explorer pixel capture: {stderr}");
+        return;
+    }
+    assert!(run.status.success(), "{stderr}");
+    let image = fs::read(output.0.join("explorer.ppm")).unwrap();
+    let header = "P6\n640 400\n255\n";
+    assert!(image.starts_with(header.as_bytes()));
+    assert_eq!(image.len(), header.len() + 640 * 400 * 3);
+}
