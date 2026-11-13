@@ -39,7 +39,10 @@ use crate::{
     isles::{Isles, local_clock, next_minute},
     mirror::Mirror,
     mouse::{self, WheelAccumulator},
-    mouse_route::{Capture, MouseRoute, bar_command, capture_after, paste_target, route_mouse},
+    mouse_route::{
+        Capture, MouseRoute, bar_command, capture_after, overlay_takes_mouse, paste_target,
+        route_mouse,
+    },
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
     panels::Panels,
@@ -576,13 +579,13 @@ impl ApplicationHandler<UserEvent> for App {
                     self.request_redraw();
                 }
                 self.update_cursor();
-                if self.overlays.is_open() || self.capture == Capture::Overlay {
+                if overlay_takes_mouse(self.overlays.is_open(), self.capture) {
                     return;
                 }
                 self.mouse(self.button, MouseAction::Motion);
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                if self.overlays.is_open() || self.capture == Capture::Overlay {
+                if overlay_takes_mouse(self.overlays.is_open(), self.capture) {
                     if state == ElementState::Released {
                         self.capture = Capture::Idle;
                         self.button = MouseButton::NoButton;

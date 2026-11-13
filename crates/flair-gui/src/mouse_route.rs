@@ -41,6 +41,14 @@ pub(crate) fn route_mouse(
     }
 }
 
+pub(crate) fn overlay_takes_mouse(open: bool, capture: Capture) -> bool {
+    match capture {
+        Capture::Panel => false,
+        Capture::Overlay => true,
+        Capture::Idle | Capture::Server | Capture::Bar => open,
+    }
+}
+
 pub(crate) fn bar_command(target: HitTarget) -> Option<Command> {
     match target {
         HitTarget::Window(window) | HitTarget::Tab(window) => {

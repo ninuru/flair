@@ -329,3 +329,23 @@ fn panel_targets_map_to_window_commands() {
         assert_eq!(bar_command(target), None);
     }
 }
+
+#[test]
+fn an_open_overlay_leaves_a_panel_drag_to_the_panel() {
+    for (open, capture, overlay) in [
+        (true, Capture::Idle, true),
+        (true, Capture::Server, true),
+        (true, Capture::Bar, true),
+        (true, Capture::Overlay, true),
+        (true, Capture::Panel, false),
+        (false, Capture::Overlay, true),
+        (false, Capture::Panel, false),
+        (false, Capture::Idle, false),
+    ] {
+        assert_eq!(
+            overlay_takes_mouse(open, capture),
+            overlay,
+            "{open} {capture:?}"
+        );
+    }
+}
