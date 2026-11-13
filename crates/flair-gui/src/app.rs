@@ -400,7 +400,7 @@ impl ApplicationHandler<UserEvent> for App {
                         surface.window.set_title(&title);
                     }
                 }
-                ServerMsg::Bell => {}
+                ServerMsg::Bell | ServerMsg::Explorer => {}
                 ServerMsg::ToggleZen => {
                     self.zen = self.zen.toggled();
                     self.send(ClientMsg::Resize(self.size()));

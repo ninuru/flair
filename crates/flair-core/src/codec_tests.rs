@@ -16,7 +16,7 @@ use crate::{
         Ink, PaneFlags, PanePlacement, PanePreview, PaneUpdate, PromptSnapshot, Separator,
         ServerMsg, SessionNode, SessionPreview, Target, WindowLayout, WindowPreview,
     },
-    status::{StatusLine, StatusWindow},
+    status::{ActivePane, StatusLine, StatusWindow},
     time::Millis,
 };
 
@@ -144,6 +144,17 @@ fn client_messages() -> Vec<ClientMsg> {
             index: 2,
         }),
         ClientMsg::Command(Command::KillWindow(WindowId(6))),
+        ClientMsg::Command(Command::Explorer),
+        ClientMsg::Command(Command::SplitRun {
+            argv: vec![
+                "/bin/sh".to_owned(),
+                "-c".to_owned(),
+                "exec ${EDITOR:-vi} \"$1\"".to_owned(),
+                "flair-edit".to_owned(),
+                "/tmp/a b/ü.txt".to_owned(),
+            ],
+            cwd: PathBuf::from("/tmp/a b"),
+        }),
         ClientMsg::Palette(Config::default().theme()),
         ClientMsg::Command(Command::CopyMode),
         ClientMsg::Command(Command::Copy(CopyCommand::Cancel)),
@@ -295,12 +306,26 @@ fn server_messages() -> Vec<ServerMsg> {
             ],
             pending: Some("^A".to_owned()),
             copy: true,
+            pane: Some(ActivePane {
+                pane: PaneId(4),
+                cwd: Some(PathBuf::from("/home/user/projekt größe")),
+                at_prompt: true,
+            }),
+        }),
+        ServerMsg::Status(StatusLine {
+            pane: Some(ActivePane {
+                pane: PaneId(5),
+                cwd: None,
+                at_prompt: false,
+            }),
+            ..StatusLine::default()
         }),
         ServerMsg::ChooseWindow,
         ServerMsg::ChooseTheme,
         ServerMsg::Settings,
         ServerMsg::ToggleZen,
         ServerMsg::ToggleTabs,
+        ServerMsg::Explorer,
         ServerMsg::PasteClipboard,
         ServerMsg::PromptRename {
             current: "zsh".to_owned(),

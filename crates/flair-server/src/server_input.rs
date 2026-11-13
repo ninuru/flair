@@ -1,10 +1,14 @@
 use super::*;
 use flair_core::{
     command::{Command, WindowRef},
+    geom::Axis,
     key::InputEvent,
     proto::SessionPreview,
 };
 use flair_term::encode::{encode_key, encode_paste, encode_text_with_modes};
+
+const RUN_ARGS: usize = 64;
+const RUN_ARG_BYTES: usize = 4096;
 
 impl Server {
     pub(super) fn command(
@@ -100,6 +104,23 @@ impl Server {
             Command::Settings => out.push(Effect::Send(id, ServerMsg::Settings)),
             Command::ToggleZen => out.push(Effect::Send(id, ServerMsg::ToggleZen)),
             Command::ToggleTabs => out.push(Effect::Send(id, ServerMsg::ToggleTabs)),
+            Command::Explorer => out.push(Effect::Send(id, ServerMsg::Explorer)),
+            Command::SplitRun { argv, cwd } => {
+                if (1..=RUN_ARGS).contains(&argv.len())
+                    && argv
+                        .iter()
+                        .all(|arg| arg.len() <= RUN_ARG_BYTES && !arg.contains('\0'))
+                    && cwd.is_absolute()
+                {
+                    self.split(now, id, Axis::Horizontal, Some((argv, cwd)), out);
+                } else {
+                    log::warn!(
+                        "ignoring an invalid split-run request with {} arguments in {}",
+                        argv.len(),
+                        cwd.display()
+                    );
+                }
+            }
             Command::MoveWindow { window, index } => self.move_window(id, window, index),
             Command::RenameWindow(name) => {
                 let window = self.clients[&id].view.window;
@@ -135,7 +156,7 @@ impl Server {
                     self.close_window(now, window, out);
                 }
             }
-            Command::Split(axis) => self.split(now, id, axis, out),
+            Command::Split(axis) => self.split(now, id, axis, None, out),
             Command::SelectPane(target) => {
                 self.touch(now, id, out);
                 self.select_pane(id, target, out);
@@ -188,6 +209,8 @@ impl Server {
                         | Command::ToggleZoom
                         | Command::ToggleZen
                         | Command::ToggleTabs
+                        | Command::Explorer
+                        | Command::SplitRun { .. }
                         | Command::MoveWindow { .. }
                         | Command::KillWindow(_)
                         | Command::PasteClipboard

@@ -53,6 +53,7 @@ fn fixture() -> StatusLine {
         ],
         pending: None,
         copy: false,
+        pane: None,
     }
 }
 

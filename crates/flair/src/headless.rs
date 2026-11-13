@@ -207,6 +207,7 @@ impl Capture {
             | ServerMsg::PromptSearch { .. }
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::PaneProcesses(_)
+            | ServerMsg::Explorer
             | ServerMsg::Done => {}
             ServerMsg::ToggleZen => {
                 self.zen = !self.zen;

@@ -357,6 +357,7 @@ fn chrome_status() -> StatusLine {
         finished: false,
         pending: None,
         copy: false,
+        pane: None,
         windows: vec![
             StatusWindow {
                 id: WindowId(1),

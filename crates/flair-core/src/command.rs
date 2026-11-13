@@ -4,6 +4,7 @@ use crate::{
     proto::Target,
 };
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Command {
@@ -32,6 +33,8 @@ pub enum Command {
     ToggleTabs,
     MoveWindow { window: WindowId, index: u16 },
     KillWindow(WindowId),
+    Explorer,
+    SplitRun { argv: Vec<String>, cwd: PathBuf },
     ReloadConfig,
     ChooseSession,
     ChooseTheme,

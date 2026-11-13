@@ -44,6 +44,7 @@ impl Server {
                 process: None,
                 probed: None,
                 probe_due: None,
+                at_prompt: false,
             },
         );
         let mut pane_env: BTreeMap<_, _> = self.config.env.iter().cloned().collect();
@@ -181,7 +182,14 @@ impl Server {
         self.select_window(now, id, session.windows[index].id, out);
     }
 
-    pub(super) fn split(&mut self, now: Millis, id: ClientId, axis: Axis, out: &mut Vec<Effect>) {
+    pub(super) fn split(
+        &mut self,
+        now: Millis,
+        id: ClientId,
+        axis: Axis,
+        run: Option<(Vec<String>, PathBuf)>,
+        out: &mut Vec<Effect>,
+    ) {
         self.touch(now, id, out);
         let client = &self.clients[&id];
         let window_id = client.view.window;
@@ -191,10 +199,14 @@ impl Server {
         let window = self.tree.window_mut(window_id).unwrap();
         let area = window.area();
         if !window.layout.split(parent, new, axis, area) {
-            out.push(Effect::Send(
-                id,
-                ServerMsg::Error("pane is too small to split".into()),
-            ));
+            if run.is_some() {
+                log::warn!("pane is too small to split for a program");
+            } else {
+                out.push(Effect::Send(
+                    id,
+                    ServerMsg::Error("pane is too small to split".into()),
+                ));
+            }
             return;
         }
         self.next_id += 1;
@@ -203,11 +215,21 @@ impl Server {
         window.zoomed = false;
         let pane = &self.panes[&parent];
         let reported = pane.terminal.cwd().map(PathBuf::from);
-        let cwd = reported.clone().unwrap_or_else(|| pane.cwd.clone());
+        let inherit = run.is_none() && reported.is_none();
+        let cwd = match &run {
+            Some((_, cwd)) => cwd.clone(),
+            None => reported.unwrap_or_else(|| pane.cwd.clone()),
+        };
         let client = &self.clients[&id];
         let (size, env) = (client.size, client.env.clone());
         let no_history = self.tree.session(client.view.session).unwrap().name == "H";
         let mut spec = self.spawn_pane(new, cwd, size, &env, no_history);
+        if let Some((argv, _)) = &run
+            && let Some((program, args)) = argv.split_first()
+        {
+            spec.program = program.clone();
+            spec.args = args.to_vec();
+        }
         let placement = self
             .tree
             .window(window_id)
@@ -224,10 +246,10 @@ impl Server {
         let pane = self.panes.get_mut(&new).unwrap();
         pane.size = spec.size;
         pane.terminal.resize(spec.size);
-        out.push(if reported.is_some() {
-            Effect::Spawn(new, spec)
-        } else {
+        out.push(if inherit {
             Effect::SpawnSplit(new, parent, spec)
+        } else {
+            Effect::Spawn(new, spec)
         });
         self.invalidate_window(window_id, out);
     }
