@@ -1,13 +1,26 @@
+use std::{
+    path::PathBuf,
+    time::{Duration, Instant},
+};
+
 use flair_core::{
+    command::Command,
     config::{Config, EXPLORER_WIDTH, Side, TABS_WIDTH, TabsPosition},
     ids::WindowId,
+    key::{InputEvent, Key, KeyAction, KeyInput, NamedKey},
+    keys::{KeyChord, KeysConfig},
+    proto::ClientMsg,
+    status::ActivePane,
 };
 
 use crate::{
     chrome_layout::{Dock, Frame, PanelView},
+    explorer::{Explorer, ExplorerOutcome, quote},
     panel_layout::tab_rows,
     ui::{DRAG_START, px},
 };
+
+const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Pages {
@@ -29,6 +42,15 @@ pub enum Drag {
     },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExplorerAct {
+    Ignored,
+    Redraw,
+    Load(Vec<PathBuf>),
+    Send(ClientMsg),
+    Copy(PathBuf),
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Panels {
     pub flipped: Option<TabsPosition>,
@@ -36,8 +58,15 @@ pub struct Panels {
     pub tabs_scroll: usize,
     pub drag: Option<Drag>,
     pub live_width: Option<(PanelView, f32)>,
+    pub explorer: Explorer,
+    pub open: bool,
+    pub focused: bool,
     pages: Pages,
     reveal: Option<usize>,
+    pane: Option<ActivePane>,
+    hidden: Option<bool>,
+    armed: Option<Instant>,
+    last_click: Option<(usize, Instant)>,
 }
 
 impl Panels {
@@ -56,7 +85,12 @@ impl Panels {
             tabs: side
                 .filter(|_| !zen)
                 .map(|side| (side, width(PanelView::Tabs, config.tabs.width))),
-            explorer: None,
+            explorer: (self.open && !zen).then(|| {
+                (
+                    config.explorer.side,
+                    width(PanelView::Explorer, config.explorer.width),
+                )
+            }),
             shown: self.shown,
         }
     }
@@ -143,6 +177,182 @@ impl Panels {
         self.live_width = Some((view, next));
         changed
     }
+}
+
+impl Panels {
+    pub fn explorer_command(&mut self) -> Vec<PathBuf> {
+        match (self.open, self.focused) {
+            (true, true) => {
+                self.close();
+                Vec::new()
+            }
+            (true, false) => {
+                self.focused = true;
+                self.shown = PanelView::Explorer;
+                Vec::new()
+            }
+            (false, _) => self.open_explorer(),
+        }
+    }
+
+    pub fn toggle_explorer(&mut self) -> Vec<PathBuf> {
+        match self.open {
+            true => {
+                self.close();
+                Vec::new()
+            }
+            false => self.open_explorer(),
+        }
+    }
+
+    pub fn follow(&mut self, pane: Option<ActivePane>) -> Vec<PathBuf> {
+        let cwd = pane.as_ref().and_then(|pane| pane.cwd.clone());
+        self.pane = pane;
+        match cwd {
+            Some(cwd) if self.open && self.explorer.root() != Some(cwd.as_path()) => {
+                self.explorer.set_root(&cwd)
+            }
+            Some(_) | None => Vec::new(),
+        }
+    }
+
+    pub fn scroll_explorer(&mut self, rows: i32) {
+        self.explorer.wheel(rows, self.pages.explorer);
+    }
+
+    pub fn show_hidden(&mut self, show: bool) {
+        if self.hidden != Some(show) {
+            self.hidden = Some(show);
+            self.explorer.set_show_hidden(show);
+        }
+    }
+
+    pub fn at_prompt(&self) -> bool {
+        self.pane.as_ref().is_some_and(|pane| pane.at_prompt)
+    }
+
+    pub fn key(
+        &mut self,
+        key: &KeyInput,
+        keys: &KeysConfig,
+        now: Instant,
+    ) -> Option<ExplorerOutcome> {
+        if !self.open || !self.focused {
+            return None;
+        }
+        if self.armed.is_some_and(|until| now < until) {
+            if key.action == KeyAction::Press && !modifier(key.key) {
+                self.armed = None;
+            }
+            return None;
+        }
+        self.armed = None;
+        let prefix = keys.enabled
+            && keys
+                .key
+                .parse::<KeyChord>()
+                .is_ok_and(|chord| chord.matches(key));
+        if prefix {
+            if key.action == KeyAction::Press {
+                self.armed = Some(now + Duration::from_millis(keys.timeout_ms));
+            }
+            return None;
+        }
+        if keys.enabled && keys.binding(key, false).is_some() {
+            return None;
+        }
+        Some(
+            self.explorer
+                .key(key, self.at_prompt(), self.pages.explorer),
+        )
+    }
+
+    pub fn text(&mut self, text: &str) -> Option<ExplorerOutcome> {
+        (self.open && self.focused).then(|| self.explorer.text(text))
+    }
+
+    pub fn click(&mut self, row: usize, now: Instant) -> ExplorerOutcome {
+        let double = self
+            .last_click
+            .is_some_and(|(at, when)| at == row && now.duration_since(when) < DOUBLE_CLICK);
+        self.last_click = (!double).then_some((row, now));
+        self.focused = true;
+        self.explorer.click(row, double)
+    }
+
+    pub fn act(&mut self, outcome: ExplorerOutcome) -> ExplorerAct {
+        match outcome {
+            ExplorerOutcome::Ignored => ExplorerAct::Ignored,
+            ExplorerOutcome::Redraw => ExplorerAct::Redraw,
+            ExplorerOutcome::Load(dirs) => ExplorerAct::Load(dirs),
+            ExplorerOutcome::Insert(path) => ExplorerAct::Send(ClientMsg::Input(
+                InputEvent::Paste(format!("{} ", quote(&path))),
+            )),
+            ExplorerOutcome::Cd(path) if self.at_prompt() => ExplorerAct::Send(ClientMsg::Input(
+                InputEvent::Text(format!("\u{15}cd -- {}\r", quote(&path))),
+            )),
+            ExplorerOutcome::Cd(_) => ExplorerAct::Ignored,
+            ExplorerOutcome::Edit(path) => match path.parent() {
+                Some(dir) => {
+                    self.focused = false;
+                    ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
+                        argv: vec![
+                            "sh".into(),
+                            "-c".into(),
+                            "exec ${EDITOR:-vi} \"$1\"".into(),
+                            "sh".into(),
+                            path.to_string_lossy().into_owned(),
+                        ],
+                        cwd: dir.to_path_buf(),
+                    }))
+                }
+                None => ExplorerAct::Ignored,
+            },
+            ExplorerOutcome::Copy(path) => ExplorerAct::Copy(path),
+            ExplorerOutcome::Blur => {
+                self.focused = false;
+                ExplorerAct::Redraw
+            }
+        }
+    }
+
+    fn open_explorer(&mut self) -> Vec<PathBuf> {
+        self.open = true;
+        self.focused = true;
+        self.shown = PanelView::Explorer;
+        let cwd = self.pane.as_ref().and_then(|pane| pane.cwd.clone());
+        match cwd {
+            Some(cwd) if self.explorer.root() != Some(cwd.as_path()) => {
+                self.explorer.set_root(&cwd)
+            }
+            Some(_) | None => self.explorer.reload(),
+        }
+    }
+
+    fn close(&mut self) {
+        self.open = false;
+        self.focused = false;
+        self.armed = None;
+        if let Some((PanelView::Explorer, _)) = self.live_width {
+            self.live_width = None;
+        }
+    }
+}
+
+fn modifier(key: Key) -> bool {
+    matches!(
+        key,
+        Key::Named(
+            NamedKey::ShiftLeft
+                | NamedKey::ShiftRight
+                | NamedKey::ControlLeft
+                | NamedKey::ControlRight
+                | NamedKey::AltLeft
+                | NamedKey::AltRight
+                | NamedKey::SuperLeft
+                | NamedKey::SuperRight
+        )
+    )
 }
 
 pub fn bounds(view: PanelView) -> (f32, f32) {

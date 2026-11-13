@@ -5,6 +5,7 @@ use crate::{
         Scene, baseline, cap_centre, ellipsize, fill, icon_text, rounded, small_text, ui_text,
     },
     chrome_layout::{ChromeInput, Hit, HitTarget, PanelView, Slot},
+    explorer_layout,
     font::PROMPT_ICON_SCALE,
     isles::icon_width,
     overlay_layout::inside,
@@ -40,13 +41,17 @@ pub(crate) fn content(slot: Slot, scale: f32) -> PxRect {
     }
 }
 
-pub(crate) fn tab_rows(slot: Slot, scale: f32) -> TabRows {
-    let area = content(slot, scale);
+pub(crate) fn body_top(slot: Slot, scale: f32) -> f32 {
     let band = match slot.shared {
         true => px(SWITCHER, scale) + px(LINE, scale),
         false => 0.0,
     };
-    let top = area.y + band + px(INSET, scale);
+    slot.rect.y + band + px(INSET, scale)
+}
+
+pub(crate) fn tab_rows(slot: Slot, scale: f32) -> TabRows {
+    let area = content(slot, scale);
+    let top = body_top(slot, scale);
     let bottom = area.y + area.h - px(INSET, scale);
     let height = px(PANEL_ROW, scale);
     let pitch = height + px(ROW_GAP, scale);
@@ -99,7 +104,7 @@ pub(crate) fn draw(
     }
     let rows = match slot.view {
         PanelView::Tabs => tabs(input, slot, scene, measure),
-        PanelView::Explorer => 0,
+        PanelView::Explorer => explorer_layout::draw(input, slot, scene, measure),
     };
     scene.hits.push(Hit {
         rect,
@@ -398,7 +403,7 @@ fn plus_row(input: &ChromeInput, rect: PxRect, hovered: bool, scene: &mut Scene)
     });
 }
 
-fn icon_column(input: &ChromeInput) -> f32 {
+pub(crate) fn icon_column(input: &ChromeInput) -> f32 {
     (input.metrics.width * PROMPT_ICON_SCALE).round() + px(PROCESS_ICON_GAP, input.scale)
 }
 

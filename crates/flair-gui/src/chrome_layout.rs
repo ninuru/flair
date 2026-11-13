@@ -103,6 +103,8 @@ pub enum HitTarget {
     Edge(Side),
     Switch(PanelView),
     PanelBody,
+    Row(usize),
+    ExplorerButton,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -12,7 +12,7 @@ fn icons(layout: &ChromeLayout) -> Vec<&TextRun> {
         .chrome
         .text
         .iter()
-        .filter(|run| run.face == TextFace::PromptIcon)
+        .filter(|run| run.face == TextFace::PromptIcon && run.text != FILES_KEY.to_string())
         .collect()
 }
 
@@ -38,6 +38,7 @@ fn a_tab_icon_sits_between_the_index_and_the_name_and_widens_the_tab() {
     let order: Vec<&str> = layout.chrome.text[2..]
         .iter()
         .map(|run| run.text.as_str())
+        .filter(|text| *text != FILES_KEY.to_string())
         .collect();
     assert_eq!(order, ["1", "\u{f120}", "shell", "2", "\u{f308}", "editor"]);
     let shell = text(&layout, "shell").unwrap();
@@ -81,6 +82,7 @@ fn overflowing_and_ellipsized_tabs_keep_their_icons_inside_the_tab() {
         (991, 2),
     ] {
         let status = with_icons(many(30, active), '\u{f120}');
+        let width = width + 30;
         let layout = Case {
             width,
             ..Case::new(&status)

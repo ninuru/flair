@@ -9,6 +9,7 @@ pub mod cursor;
 pub mod drive;
 pub mod explorer;
 pub mod explorer_fs;
+mod explorer_layout;
 mod font;
 pub mod input;
 pub mod isles;

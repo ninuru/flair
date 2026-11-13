@@ -35,6 +35,8 @@ use crate::{
     clipboard::Clipboard,
     compose::{compose, compose_frame},
     drive::Drive,
+    explorer::Listing,
+    explorer_fs::FsWorker,
     input::InputState,
     isles::{Isles, local_clock, next_minute},
     mirror::Mirror,
@@ -56,6 +58,8 @@ use crate::{
 
 #[path = "app_config.rs"]
 mod config;
+#[path = "app_explorer.rs"]
+mod explorer_app;
 #[path = "app_panel.rs"]
 mod panel;
 #[path = "app_prompt_actions.rs"]
@@ -79,6 +83,7 @@ enum UserEvent {
         result: Result<Vec<String>, String>,
     },
     PromptActionFinished(Result<(), String>),
+    Listing(Listing),
 }
 
 struct Surface {
@@ -118,6 +123,7 @@ struct App {
     zen: Zen,
     panels: Panels,
     resize_cursor: bool,
+    fs: Option<FsWorker>,
 }
 
 impl App {
@@ -157,37 +163,11 @@ impl App {
             self.send(ClientMsg::Input(InputEvent::Ime(active)));
         }
     }
-    fn reload(&mut self, config: Config) {
-        let fonts_changed = config.font != self.effective().font;
-        self.preview = None;
-        self.config = config;
-        let (theme, notice) = resolve_theme(&self.config, &self.config_path);
-        if let Some(notice) = notice {
-            self.overlays.set_notice(notice);
-        }
-        if theme != self.theme {
-            self.theme = theme;
-            self.send(ClientMsg::Palette(self.theme.clone()));
-        }
-        if fonts_changed && let Some(surface) = &mut self.surface {
-            match Fonts::load(&self.config.font, surface.window.scale_factor()) {
-                Ok(fonts) => {
-                    surface.renderer.set_metrics(fonts.metrics());
-                    surface.fonts = fonts;
-                }
-                Err(error) => {
-                    log::warn!("could not load the configured font: {error}");
-                    self.overlays
-                        .set_notice(Notice::error(format!("font not loaded: {error}")));
-                }
-            }
-        }
-        self.send(ClientMsg::Resize(self.size()));
-        self.request_redraw();
-    }
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let started = self.probe.as_ref().map(|_| Instant::now());
         self.panels.follow_position(self.effective().tabs.position);
+        self.panels
+            .show_hidden(self.effective().explorer.show_hidden);
         let theme = self
             .preview
             .as_ref()
@@ -294,6 +274,7 @@ impl App {
         self.set_ime(false);
         match self.overlays.text(&text) {
             Some(event) => self.overlay_event(event),
+            None if self.explorer_text(&text) => {}
             None => self.send(ClientMsg::Input(InputEvent::Text(text))),
         }
     }
@@ -307,6 +288,7 @@ impl App {
             .key(&key, || surface.as_ref().and_then(|s| s.clipboard.load()))
         {
             Some(event) => self.overlay_event(event),
+            None if self.explorer_key(&key) => {}
             None => self.send(ClientMsg::Input(InputEvent::Key(key))),
         }
     }
@@ -400,7 +382,8 @@ impl ApplicationHandler<UserEvent> for App {
                         surface.window.set_title(&title);
                     }
                 }
-                ServerMsg::Bell | ServerMsg::Explorer => {}
+                ServerMsg::Bell => {}
+                ServerMsg::Explorer => self.explorer_command(),
                 ServerMsg::ToggleZen => {
                     self.zen = self.zen.toggled();
                     self.send(ClientMsg::Resize(self.size()));
@@ -442,6 +425,7 @@ impl ApplicationHandler<UserEvent> for App {
                     {
                         self.panels.reveal_tab(index);
                     }
+                    self.follow_pane(status.pane.clone());
                     self.status = status;
                     self.request_redraw();
                 }
@@ -491,6 +475,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             UserEvent::PromptActionFinished(result) => self.prompt_action_finished(result),
+            UserEvent::Listing(listing) => self.listing(listing),
             UserEvent::Disconnected => event_loop.exit(),
             UserEvent::Drive(Drive::Key(key)) => self.key(key),
             UserEvent::Drive(Drive::Text(text)) => self.text(text),
@@ -769,6 +754,7 @@ pub fn run_target(
         zen: Zen::default(),
         panels: Panels::default(),
         resize_cursor: false,
+        fs: None,
     };
     if let Some(notice) = notice {
         app.overlays.set_notice(notice);
