@@ -1,18 +1,16 @@
-use flair_core::{
-    monogram::monogram,
-    theme::{Rgb, Rgba},
-};
+use flair_core::theme::{Rgb, Rgba};
 
 use crate::{
-    UiMetrics,
+    CellMetrics, UiMetrics,
     chrome_layout::{BarField, ChromeInput, Hit, HitTarget, bar_height},
+    isles::{icon_baseline, icon_width},
     notice::Notice,
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, TabParts},
     ui::{
-        CAP_HEIGHT, CAP_PAD, CAP_RADIUS, DOT, ELLIPSIS, FIELD_RADIUS, INSET, ITEM_GAP, ITEM_HEIGHT,
-        ITEM_PAD, ITEM_RADIUS, LINE, MONOGRAM, MONOGRAM_GAP, MONOGRAM_PAD, MONOGRAM_RADIUS,
-        NOTICE_FIELD_MIN, SESSION_NAME_MAX, TAB_NAME_MAX, px,
+        CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CRUMB_GAP, DOT, ELLIPSIS, FIELD_RADIUS, INSET, ITEM_GAP,
+        ITEM_HEIGHT, ITEM_PAD, LINE, NOTICE_FIELD_MIN, PROCESS_ICON_GAP, SESSION_NAME_MAX,
+        TAB_NAME_MAX, UNDERLINE, UNDERLINE_INSET, px,
     },
 };
 
@@ -133,15 +131,11 @@ fn session(
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> f32 {
     let scale = input.scale;
-    let theme = input.theme;
-    let surfaces = theme.surfaces();
-    let chip = &input.status.chip;
     let left = px(INSET, scale);
-    let mono = px(MONOGRAM, scale);
-    let mark_x = left + px(MONOGRAM_PAD, scale);
-    let name_x = mark_x + mono + px(MONOGRAM_GAP, scale);
-    let room = (limit - name_x - px(ITEM_PAD, scale)).min(px(SESSION_NAME_MAX, scale));
-    let name = ellipsize(&chip.session, room, true, measure);
+    let name_x = left + px(ITEM_PAD, scale);
+    let crumb_width = measure(CRUMB_GAP, false);
+    let room = (limit - name_x - crumb_width).min(px(SESSION_NAME_MAX, scale));
+    let name = ellipsize(&input.status.chip.session, room, true, measure);
     let right = name_x + measure(&name, true);
     let rect = bar_item(
         left,
@@ -149,55 +143,22 @@ fn session(
         ITEM_HEIGHT,
         scale,
     );
-    let hit = full_height(rect, scale);
-    if hovered(input, hit) {
-        scene
-            .quads
-            .push(rounded(rect, surfaces.surface2, ITEM_RADIUS, scale));
-    }
-    let mark = monogram(&chip.session);
-    let mark_rect = bar_item(mark_x, mono, MONOGRAM, scale);
+    let base = baseline(rect, input.ui);
     scene
-        .quads
-        .push(rounded(mark_rect, mark.hue, MONOGRAM_RADIUS, scale));
-    let small = input.ui.small;
-    let letters = fit_letters(&mark.letters, mono, small, measure);
-    let letters_width = measure(&letters, true) * small;
-    scene.text.push(TextRun {
-        face: TextFace::Small,
-        ..ui_text(
-            (mark_x + (mono - letters_width) / 2.0).round(),
-            (mark_rect.y + (mark_rect.h - input.ui.height * small) / 2.0 + input.ui.ascent * small)
-                .round(),
-            letters,
-            mark.text,
-            true,
-        )
-    });
+        .text
+        .push(ui_text(name_x, base, name, input.theme.foreground, true));
     scene.text.push(ui_text(
-        name_x,
-        baseline(rect, input.ui),
-        name,
-        theme.foreground,
-        true,
+        right.round(),
+        base,
+        CRUMB_GAP.to_owned(),
+        input.theme.surfaces().faint,
+        false,
     ));
     scene.hits.push(Hit {
-        rect: hit,
+        rect: full_height(rect, scale),
         target: HitTarget::Session,
     });
-    rect.x + rect.w
-}
-
-pub(crate) fn fit_letters(
-    letters: &str,
-    room: f32,
-    small: f32,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) -> String {
-    if measure(letters, true) * small <= room * 1.05 {
-        return letters.to_owned();
-    }
-    letters.chars().take(1).collect()
+    right.round() + crumb_width
 }
 
 fn badges(
@@ -274,12 +235,18 @@ fn tabs(
             format!("{} {name}", tab.index)
         })
         .collect();
+    let extras: Vec<f32> = tabs
+        .iter()
+        .map(|tab| icon_lead(tab.icon, input.metrics, scale))
+        .collect();
     let widths: Vec<f32> = labels
         .iter()
-        .map(|label| (measure(label, false) + pad * 2.0).round())
+        .zip(&extras)
+        .map(|(label, extra)| (measure(label, false) + extra + pad * 2.0).round())
         .collect();
+    let sizes = (widths.as_slice(), extras.as_slice());
     let active = tabs.iter().position(|tab| tab.active).unwrap_or(0);
-    let mut placed = place(&labels, &widths, active, (start, end), pad, gap, measure);
+    let mut placed = place(&labels, sizes, active, (start, end), (pad, gap), measure);
     let mut lead = false;
     if placed.len() < tabs.len() {
         let widest = (measure(&format!("+{}", tabs.len()), false) + pad * 2.0).round() + gap;
@@ -290,11 +257,11 @@ fn tabs(
             )
         };
         let mut sides = hidden(&placed, tabs.len());
-        let mut reserved = place(&labels, &widths, active, room(sides), pad, gap, measure);
+        let mut reserved = place(&labels, sizes, active, room(sides), (pad, gap), measure);
         let more = hidden(&reserved, tabs.len());
         if (more.0 && !sides.0) || (more.1 && !sides.1) {
             sides = (sides.0 || more.0, sides.1 || more.1);
-            reserved = place(&labels, &widths, active, room(sides), pad, gap, measure);
+            reserved = place(&labels, sizes, active, room(sides), (pad, gap), measure);
         }
         let index_width = format!("{} ", tabs[active].index).len();
         if reserved.iter().any(|item| {
@@ -312,7 +279,7 @@ fn tabs(
     }
     for item in &placed {
         let rect = bar_item(x, item.width, ITEM_HEIGHT, scale);
-        draw_tab(input, &tabs[item.index], rect, item.label.clone(), scene);
+        draw_tab(input, &tabs[item.index], rect, &item.label, scene, measure);
         x += item.width + gap;
     }
     if after > 0 {
@@ -354,14 +321,15 @@ fn overflow(
 
 fn place(
     labels: &[String],
-    widths: &[f32],
+    sizes: (&[f32], &[f32]),
     active: usize,
     room: (f32, f32),
-    pad: f32,
-    gap: f32,
+    spacing: (f32, f32),
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> Vec<Placed> {
     let (start, end) = room;
+    let (widths, extras) = sizes;
+    let (pad, gap) = spacing;
     let mut first = 0;
     while first < active && span(&widths[first..=active], gap) > end - start {
         first += 1;
@@ -372,8 +340,9 @@ fn place(
         let (label, width) = if x + width <= end {
             (label.clone(), *width)
         } else if x == start {
-            let label = ellipsize(label, end - start - pad * 2.0, false, measure);
-            let width = (measure(&label, false) + pad * 2.0).round();
+            let extra = extras[index];
+            let label = ellipsize(label, end - start - pad * 2.0 - extra, false, measure);
+            let width = (measure(&label, false) + extra + pad * 2.0).round();
             (label, width)
         } else {
             break;
@@ -391,35 +360,77 @@ fn place(
     placed
 }
 
-fn draw_tab(input: &ChromeInput, tab: &TabParts, rect: PxRect, label: String, scene: &mut Scene) {
-    let surfaces = input.theme.surfaces();
-    let hit = full_height(rect, input.scale);
-    let fill_color = if tab.active {
-        Some(surfaces.surface3)
-    } else if hovered(input, hit) {
-        Some(surfaces.surface2)
-    } else {
-        None
-    };
-    if let Some(color) = fill_color {
-        scene
-            .quads
-            .push(rounded(rect, color, ITEM_RADIUS, input.scale));
+fn draw_tab(
+    input: &ChromeInput,
+    tab: &TabParts,
+    rect: PxRect,
+    label: &str,
+    scene: &mut Scene,
+    measure: &mut impl FnMut(&str, bool) -> f32,
+) {
+    let scale = input.scale;
+    let theme = input.theme;
+    let surfaces = theme.surfaces();
+    let hit = full_height(rect, scale);
+    let prefix = format!("{} ", tab.index);
+    let split = label
+        .char_indices()
+        .zip(prefix.chars())
+        .find(|((_, ours), theirs)| ours != theirs)
+        .map_or_else(|| label.len().min(prefix.len()), |((index, _), _)| index);
+    let (index, name) = label.split_at(split);
+    let x = rect.x + px(ITEM_PAD, scale);
+    let base = baseline(rect, input.ui);
+    let index_text = index.trim_end();
+    if !index_text.is_empty() {
+        scene.text.push(ui_text(
+            x,
+            base,
+            index_text.to_owned(),
+            surfaces.faint,
+            false,
+        ));
     }
-    let color = if tab.active {
-        input.theme.foreground
-    } else if tab.last {
-        surfaces.bright
-    } else {
-        surfaces.muted
-    };
-    scene.text.push(ui_text(
-        rect.x + px(ITEM_PAD, input.scale),
-        baseline(rect, input.ui),
-        label,
-        color,
-        false,
-    ));
+    if !name.is_empty() {
+        let color = if tab.active {
+            theme.foreground
+        } else if hovered(input, hit) {
+            surfaces.bright
+        } else {
+            surfaces.muted
+        };
+        let name_x = (x + measure(index, false)).round();
+        if let Some(icon) = tab.icon {
+            let quiet = match tab.active {
+                true => surfaces.bright,
+                false => surfaces.muted,
+            };
+            scene.text.push(icon_text(
+                name_x,
+                cap_centre(rect, input.ui),
+                icon,
+                quiet,
+                input.metrics,
+            ));
+        }
+        let name_x = (name_x + icon_lead(tab.icon, input.metrics, scale)).round();
+        scene
+            .text
+            .push(ui_text(name_x, base, name.to_owned(), color, false));
+    }
+    if tab.active {
+        let inset = px(UNDERLINE_INSET, scale);
+        let height = px(UNDERLINE, scale);
+        scene.quads.push(fill(
+            PxRect {
+                x: rect.x + inset,
+                y: bar_height(scale) - height,
+                w: (rect.w - inset * 2.0).max(0.0),
+                h: height,
+            },
+            theme.accent,
+        ));
+    }
     scene.hits.push(Hit {
         rect: hit,
         target: HitTarget::Window(tab.window),
@@ -516,6 +527,10 @@ pub(crate) fn baseline(rect: PxRect, ui: UiMetrics) -> f32 {
     (rect.y + (rect.h - ui.height) / 2.0 + ui.ascent).round()
 }
 
+pub(crate) fn cap_centre(rect: PxRect, ui: UiMetrics) -> f32 {
+    baseline(rect, ui) - ui.cap / ui.small / 2.0
+}
+
 pub(crate) fn ui_text(x: f32, baseline: f32, text: String, color: Rgb, bold: bool) -> TextRun {
     TextRun {
         x,
@@ -524,6 +539,29 @@ pub(crate) fn ui_text(x: f32, baseline: f32, text: String, color: Rgb, bold: boo
         color,
         bold,
         face: TextFace::Ui,
+    }
+}
+
+pub(crate) fn icon_lead(icon: Option<char>, metrics: CellMetrics, scale: f32) -> f32 {
+    icon.map_or(0.0, |icon| {
+        icon_width(icon, metrics) + px(PROCESS_ICON_GAP, scale)
+    })
+}
+
+pub(crate) fn icon_text(
+    x: f32,
+    centre: f32,
+    icon: char,
+    color: Rgb,
+    metrics: CellMetrics,
+) -> TextRun {
+    TextRun {
+        x: x.round(),
+        baseline: icon_baseline(centre, metrics),
+        text: icon.to_string(),
+        color,
+        bold: false,
+        face: TextFace::PromptIcon,
     }
 }
 

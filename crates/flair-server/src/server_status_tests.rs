@@ -102,13 +102,10 @@ fn status_follows_windows_titles_renames_and_last_window() {
     assert!(!line.windows[0].active && line.windows[0].last);
     assert!(line.windows[1].active && !line.windows[1].last);
     let first_pane = server.tree.sessions[0].windows[0].active_pane;
-    let mut out = Vec::new();
-    server.handle(
-        Millis(2),
-        Event::PtyOutput(first_pane, b"\x1b]2;nvim\x07".to_vec()),
-        &mut out,
-    );
-    assert_eq!(status(&out).unwrap().windows[0].name, "nvim");
+    let out = process_read(&mut server, 2, first_pane, &["nvim", "notes.md"]);
+    let line = status(&out).unwrap();
+    assert_eq!(line.windows[0].name, "nvim notes.md");
+    assert_eq!(line.windows[0].program, "nvim");
     let out = send(
         &mut server,
         3,
@@ -457,25 +454,21 @@ fn set_title(server: &mut Server, now: u64, title: &str) -> Vec<Effect> {
 }
 
 #[test]
-fn prompt_title_names_the_window_after_its_directory() {
+fn a_title_no_longer_names_the_window() {
     let mut server = setup();
-    let out = set_title(&mut server, 1, "user@host:~/IdeaProjects/flair");
-    assert_eq!(status(&out).unwrap().windows[0].name, "flair");
-    let out = set_title(&mut server, 2, "user@host: ~");
-    assert_eq!(status(&out).unwrap().windows[0].name, "~");
-    let out = set_title(&mut server, 3, "user@host:/");
-    assert_eq!(status(&out).unwrap().windows[0].name, "/");
-    let out = set_title(&mut server, 4, "/srv/www/");
-    assert_eq!(status(&out).unwrap().windows[0].name, "www");
+    for (now, title) in [
+        (1, "user@host:~/IdeaProjects/flair"),
+        (2, "/usr/bin/htop -d 5"),
+    ] {
+        assert_eq!(status(&set_title(&mut server, now, title)), None);
+    }
 }
 
-#[test]
-fn command_title_names_the_window_after_the_program() {
-    let mut server = setup();
-    let out = set_title(&mut server, 1, "/usr/bin/htop -d 5");
-    assert_eq!(status(&out).unwrap().windows[0].name, "htop");
-    let out = set_title(&mut server, 2, "cargo build");
-    assert_eq!(status(&out).unwrap().windows[0].name, "cargo");
+fn process_read(server: &mut Server, now: u64, pane: PaneId, argv: &[&str]) -> Vec<Effect> {
+    let mut out = Vec::new();
+    let argv = argv.iter().map(|arg| (*arg).to_owned()).collect();
+    server.handle(Millis(now), Event::ProcessRead(pane, argv), &mut out);
+    out
 }
 
 #[test]
@@ -493,19 +486,10 @@ fn rename_wins_over_a_verbose_title() {
 }
 
 #[test]
-fn blank_title_falls_back_to_the_program_name() {
-    let mut server = setup();
-    set_title(&mut server, 1, "nvim");
-    let out = set_title(&mut server, 2, "   ");
-    assert_eq!(status(&out).unwrap().windows[0].name, "zsh");
-}
-
-#[test]
 fn os_title_keeps_the_full_pane_title() {
     let mut server = setup();
     let out = set_title(&mut server, 1, "user@host:~/IdeaProjects/flair");
     assert!(out.iter().any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::Title(title)) if title == "user@host:~/IdeaProjects/flair")));
-    assert_eq!(status(&out).unwrap().windows[0].name, "flair");
 }
 
 fn status_for(out: &[Effect], id: ClientId) -> Option<&StatusLine> {
@@ -727,3 +711,6 @@ fn killing_the_last_running_pane_forgets_the_reaped_session() {
     assert!(!line.running && !line.finished);
     assert!(server.clients[&ClientId(1)].finished.is_empty());
 }
+
+#[path = "server_status_process_tests.rs"]
+mod process;

@@ -513,6 +513,12 @@ fn run(
                     ));
                 }
                 Effect::ReadContexts => unanswered.extend(request(&jobs, Job::Contexts)),
+                Effect::ReadProcess(id) => {
+                    if let Some(worker) = workers.get(&id) {
+                        let argv = worker.pty.foreground_argv();
+                        server.handle(now, Event::ProcessRead(id, argv), &mut pending_effects);
+                    }
+                }
                 Effect::PaneProcesses { client, panes } => {
                     let mut pids = Vec::new();
                     for worker in panes.iter().filter_map(|pane| workers.get(pane)) {

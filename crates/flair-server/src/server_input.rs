@@ -1,5 +1,9 @@
 use super::*;
-use flair_core::{command::Command, key::InputEvent};
+use flair_core::{
+    command::{Command, WindowRef},
+    key::InputEvent,
+    proto::SessionPreview,
+};
 use flair_term::encode::{encode_key, encode_paste, encode_text_with_modes};
 
 impl Server {
@@ -16,7 +20,7 @@ impl Server {
                 let size = state.size;
                 let env = state.env.clone();
                 match self.resolve_target(target, size, &env, out) {
-                    Ok(session) => self.switch_to(now, id, session, out),
+                    Ok(session) => self.switch_to(now, id, session, None, out),
                     Err(error) => out.push(Effect::Send(id, ServerMsg::Error(error))),
                 }
             }
@@ -24,7 +28,7 @@ impl Server {
                 if let Some(session) = self.clients[&id].view.last_session
                     && self.tree.session(session).is_some()
                 {
-                    self.switch_to(now, id, session, out);
+                    self.switch_to(now, id, session, None, out);
                 }
             }
             Command::Sessionizer => {
@@ -45,13 +49,17 @@ impl Server {
                 ));
             }
             Command::ChooseSession => {
-                let session = self.clients[&id].view.session;
-                let current = self.tree.session(session).unwrap().name.clone();
+                let current = self.clients[&id].view.session;
+                let preview = self.watch(now, id, current).unwrap_or(SessionPreview {
+                    session: current,
+                    windows: Vec::new(),
+                });
                 out.push(Effect::Send(
                     id,
                     ServerMsg::ChooseSession {
-                        sessions: self.session_infos(),
+                        sessions: self.session_nodes(id),
                         current,
+                        preview,
                     },
                 ));
             }
@@ -69,8 +77,22 @@ impl Server {
                 }
             }
             Command::SelectWindow(target) => {
-                if let Some(window) = self.window_target(id, target) {
-                    self.select_window(now, id, window, out);
+                let other = match target {
+                    WindowRef::Id(window) => self
+                        .window_session(window)
+                        .filter(|session| *session != self.clients[&id].view.session)
+                        .map(|session| (session, window)),
+                    WindowRef::Index(_) => None,
+                };
+                match other {
+                    Some((session, window)) => {
+                        self.switch_to(now, id, session, Some(window), out);
+                    }
+                    None => {
+                        if let Some(window) = self.window_target(id, target) {
+                            self.select_window(now, id, window, out);
+                        }
+                    }
                 }
             }
             Command::ChooseWindow => out.push(Effect::Send(id, ServerMsg::ChooseWindow)),

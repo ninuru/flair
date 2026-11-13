@@ -5,6 +5,7 @@ pub mod event;
 pub mod facts;
 mod git;
 mod pane;
+mod process;
 pub mod runtime;
 pub mod server;
 

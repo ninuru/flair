@@ -1,7 +1,7 @@
 use flair_core::key::{Key, KeyAction, KeyInput, NamedKey};
 
 use crate::{
-    overlay_layout::{Field, Mark, Placement, Row, Sheet},
+    overlay_layout::{Field, Placement, Row, Sheet},
     ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
 
@@ -91,24 +91,27 @@ impl ThemePicker {
     }
 
     pub fn sheet(&self) -> Sheet {
+        let rows: Vec<Row> = self
+            .matches()
+            .into_iter()
+            .map(|name| Row {
+                name: name.to_owned(),
+                name_matches: substring(name, &self.query),
+                label: (name == self.current).then_some("saved"),
+                ..Row::default()
+            })
+            .collect();
         Sheet {
+            strip: None,
             placement: Placement::Docked,
-            title: "Themes",
+            title: None,
             field: Some(Field {
                 text: self.query.clone(),
                 cursor: self.query.chars().count(),
                 placeholder: "Search themes",
             }),
-            rows: self
-                .matches()
-                .into_iter()
-                .map(|name| Row {
-                    mark: Mark::Blank,
-                    name: name.to_owned(),
-                    detail: None,
-                    label: (name == self.current).then_some("saved"),
-                })
-                .collect(),
+            count: (rows.len(), self.names.len()),
+            rows,
             selected: self.selected,
             keys: vec![
                 (ENTER_KEY, "save".to_owned()),
@@ -148,6 +151,21 @@ impl ThemePicker {
             ThemeOutcome::Preview(name.to_owned())
         })
     }
+}
+
+fn substring(name: &str, query: &str) -> Vec<usize> {
+    let fold = |text: &str| -> Vec<char> {
+        text.chars()
+            .map(|c| c.to_lowercase().next().unwrap_or(c))
+            .collect()
+    };
+    let (name, query) = (fold(name), fold(query));
+    if query.is_empty() {
+        return Vec::new();
+    }
+    name.windows(query.len())
+        .position(|window| window == query.as_slice())
+        .map_or_else(Vec::new, |start| (start..start + query.len()).collect())
 }
 
 #[cfg(test)]

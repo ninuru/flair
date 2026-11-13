@@ -56,14 +56,20 @@ impl Server {
         }
     }
 
-    pub(super) fn flush_frames(&mut self, out: &mut Vec<Effect>) -> BTreeSet<ClientId> {
-        let mut ready = BTreeSet::new();
+    pub(super) fn refresh_panes(&mut self) -> BTreeSet<PaneId> {
+        let mut changed = BTreeSet::new();
         for (id, pane) in &mut self.panes {
             if pane.dirty {
                 pane.cached = pane.terminal.snapshot(*id, true);
                 pane.dirty = false;
+                changed.insert(*id);
             }
         }
+        changed
+    }
+
+    pub(super) fn flush_frames(&mut self, out: &mut Vec<Effect>) -> BTreeSet<ClientId> {
+        let mut ready = BTreeSet::new();
         let band = 0;
         for (id, client) in &mut self.clients {
             if client.awaiting_ack.is_some() {

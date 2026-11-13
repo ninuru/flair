@@ -3,34 +3,19 @@ use flair_core::{
     key::{InputEvent, KeyInput},
     prefix::PrefixResult,
     status::{StatusLine, StatusWindow},
+    tree::Session,
 };
+
+use crate::process::process_name;
+
+const PROCESS_SETTLE: Millis = Millis(150);
+const PROCESS_INTERVAL: Millis = Millis(1000);
 
 impl Server {
     pub(super) fn status_line(&self, id: ClientId) -> Option<StatusLine> {
         let client = self.clients.get(&id)?;
         let session = self.tree.session(client.view.session)?;
-        let windows = session
-            .windows
-            .iter()
-            .enumerate()
-            .map(|(index, window)| StatusWindow {
-                id: window.id,
-                index: u16::try_from(index + 1).unwrap_or(u16::MAX),
-                name: window
-                    .name
-                    .clone()
-                    .or_else(|| {
-                        self.panes
-                            .get(&window.active_pane)
-                            .and_then(|pane| pane.terminal.title())
-                            .and_then(window_label)
-                            .map(str::to_owned)
-                    })
-                    .unwrap_or_else(|| self.program_name()),
-                active: window.id == client.view.window,
-                last: Some(window.id) == client.view.last_window,
-            })
-            .collect();
+        let windows = self.window_entries(session, client.view.window, client.view.last_window);
         Some(StatusLine {
             session: session.name.clone(),
             hidden: u16::try_from(self.tree.sessions.len() - 1).unwrap_or(u16::MAX),
@@ -56,13 +41,76 @@ impl Server {
         })
     }
 
-    fn program_name(&self) -> String {
-        self.config
-            .program
-            .rsplit('/')
-            .next()
-            .unwrap_or(&self.config.program)
-            .to_owned()
+    pub(super) fn window_entries(
+        &self,
+        session: &Session,
+        active: WindowId,
+        last: Option<WindowId>,
+    ) -> Vec<StatusWindow> {
+        session
+            .windows
+            .iter()
+            .enumerate()
+            .map(|(index, window)| {
+                let (program, label) = self.process(window.active_pane);
+                StatusWindow {
+                    id: window.id,
+                    index: u16::try_from(index + 1).unwrap_or(u16::MAX),
+                    name: window.name.clone().unwrap_or(label),
+                    program,
+                    active: window.id == active,
+                    last: Some(window.id) == last,
+                }
+            })
+            .collect()
+    }
+
+    fn process(&self, pane: PaneId) -> (String, String) {
+        self.panes
+            .get(&pane)
+            .and_then(|pane| pane.process.clone())
+            .filter(|(program, _)| !program.is_empty())
+            .unwrap_or_else(|| {
+                let program = self
+                    .config
+                    .program
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(&self.config.program)
+                    .to_owned();
+                (program.clone(), program)
+            })
+    }
+
+    pub(super) fn want_process(&mut self, now: Millis, pane: PaneId, out: &mut Vec<Effect>) {
+        let Some(state) = self.panes.get_mut(&pane) else {
+            return;
+        };
+        if state.exited || state.probe_due.is_some() {
+            return;
+        }
+        let soonest = now + PROCESS_SETTLE;
+        let due = state
+            .probed
+            .map_or(soonest, |last| soonest.max(last + PROCESS_INTERVAL));
+        state.probe_due = Some(due);
+        out.push(Effect::SetTimer(Timer::Process(pane), due));
+    }
+
+    pub(super) fn process_timer(&mut self, now: Millis, pane: PaneId, out: &mut Vec<Effect>) {
+        let Some(state) = self.panes.get_mut(&pane) else {
+            return;
+        };
+        if state.probe_due.take().is_some() && !state.exited {
+            state.probed = Some(now);
+            out.push(Effect::ReadProcess(pane));
+        }
+    }
+
+    pub(super) fn process_read(&mut self, pane: PaneId, argv: &[String]) {
+        if let Some(state) = self.panes.get_mut(&pane) {
+            state.process = Some(process_name(argv));
+        }
     }
 
     fn session_running(&self, session: SessionId) -> bool {
@@ -235,32 +283,6 @@ impl Server {
             ));
         }
     }
-}
-
-fn window_label(title: &str) -> Option<&str> {
-    let title = title.trim();
-    let path = match title.split_once(':') {
-        Some((prompt, path)) if prompt.contains('@') && !prompt.contains(char::is_whitespace) => {
-            Some(path.trim_start())
-        }
-        Some(_) | None => {
-            (title.starts_with(['~', '/']) && !title.contains(char::is_whitespace)).then_some(title)
-        }
-    };
-    let label = match path {
-        Some(path) if path.starts_with('/') && path.trim_matches('/').is_empty() => "/",
-        Some(path) => path
-            .trim_end_matches('/')
-            .rsplit('/')
-            .next()
-            .unwrap_or_default(),
-        None => title
-            .split_whitespace()
-            .next()
-            .and_then(|word| word.rsplit('/').next())
-            .unwrap_or_default(),
-    };
-    (!label.is_empty()).then_some(label)
 }
 
 #[cfg(test)]

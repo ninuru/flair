@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
     CellMetrics, Fonts,
+    chrome_bar::opaque,
     chrome_layout::{self, ChromeInput, ChromeLayout, bar_height, grid_origin, grid_size},
     isles::Isles,
     overlays::Overlays,
@@ -10,11 +11,11 @@ use crate::{
 use flair_core::{
     config::{Config, PromptConfig},
     geom::{Axis, CellPoint, CellRect, GridSize},
-    ids::WindowId,
+    ids::{SessionId, WindowId},
     isles::{AheadBehind, Changes, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
     proto::{
         Cell, Cursor, CursorShape, PaneFlags, PanePlacement, PaneUpdate, PromptSnapshot,
-        SelectionSpan, Separator, ServerMsg, SessionInfo, WindowLayout,
+        SelectionSpan, Separator, ServerMsg, SessionNode, WindowLayout,
     },
     status::{StatusLine, StatusWindow},
     time::Millis,
@@ -361,6 +362,7 @@ fn chrome_status() -> StatusLine {
                 id: WindowId(1),
                 index: 1,
                 name: "shell".into(),
+                program: String::new(),
                 active: false,
                 last: true,
             },
@@ -368,6 +370,7 @@ fn chrome_status() -> StatusLine {
                 id: WindowId(2),
                 index: 2,
                 name: "editor".into(),
+                program: String::new(),
                 active: true,
                 last: false,
             },
@@ -489,13 +492,19 @@ fn draw_chrome_frame(
                 &ServerMsg::ChooseSession {
                     sessions: ["main", "notes", "work"]
                         .into_iter()
-                        .map(|name| SessionInfo {
+                        .zip(1..)
+                        .map(|(name, id)| SessionNode {
+                            id: SessionId(id),
                             name: name.into(),
                             root: format!("/tmp/{name}").into(),
-                            windows: 1,
+                            windows: Vec::new(),
                         })
                         .collect(),
-                    current: "main".into(),
+                    current: SessionId(1),
+                    preview: flair_core::proto::SessionPreview {
+                        session: SessionId(1),
+                        windows: Vec::new(),
+                    },
                 },
                 &StatusLine::default(),
                 &config,
@@ -552,26 +561,36 @@ fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
         assert_eq!(frame.at(x, bar - 1.0), rgb(surfaces.surface1), "bar at {x}");
         assert_eq!(frame.at(x, bar), rgb(surfaces.outline), "border at {x}");
     }
-    let mark = chrome
+    let underline = chrome
         .chrome
         .quads
         .iter()
-        .find(|quad| quad.rect.w == 18.0 && quad.radius == 4.0)
-        .expect("session monogram");
+        .find(|quad| quad.color == opaque(theme.accent) && quad.rect.y == bar - 2.0)
+        .expect("active tab underline");
+    let tab = chrome
+        .hits
+        .iter()
+        .map(|hit| hit.rect)
+        .find(|rect| rect.x < underline.rect.x && underline.rect.x < rect.x + rect.w)
+        .unwrap();
     assert_eq!(
-        frame.at(mark.rect.x + 2.0, mark.rect.y + 2.0),
-        [mark.color.r, mark.color.g, mark.color.b]
+        (underline.rect.x, underline.rect.w, underline.rect.h),
+        (tab.x + 8.0, tab.w - 16.0, 2.0)
     );
-    let right = mark.rect.x + mark.rect.w;
-    for y in mark.rect.y as usize..(mark.rect.y + mark.rect.h) as usize {
-        for x in [mark.rect.x - 2.0, mark.rect.x - 1.0, right, right + 1.0] {
-            assert_eq!(
-                frame.at(x, y as f32),
-                rgb(surfaces.surface1),
-                "monogram letters spill at {x},{y}"
-            );
-        }
+    let accent = rgb(theme.accent);
+    let left = underline.rect.x;
+    let right = left + underline.rect.w;
+    for y in [bar - 2.0, bar - 1.0] {
+        assert_eq!(frame.at(left + 1.0, y), accent, "underline at {y}");
+        assert_eq!(frame.at(right - 1.0, y), accent, "underline at {y}");
+        assert_eq!(
+            frame.at(left - 1.0, y),
+            rgb(surfaces.surface1),
+            "inset at {y}"
+        );
+        assert_eq!(frame.at(right, y), rgb(surfaces.surface1), "inset at {y}");
     }
+    assert_eq!(frame.at(left + 1.0, bar - 3.0), rgb(surfaces.surface1));
     let padding = (
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
@@ -697,7 +716,7 @@ fn gpu_frame_draws_a_picker_in_a_rounded_modal_over_a_backdrop() {
     assert_eq!(index, 0);
     assert_eq!(
         frame.at(row.x + row.w / 2.0, row.y + row.h - 3.0),
-        rgb(surfaces.surface3)
+        rgb(surfaces.accent_soft)
     );
     assert_eq!(
         frame.at(row.x + row.w / 2.0, row.y + row.h + 1.0),

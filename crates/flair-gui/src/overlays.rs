@@ -20,6 +20,7 @@ use crate::{
     picker::{self, Picker},
     prompt::{Outcome, Prompt},
     prompt_actions::{MenuOutcome, PromptAction, PromptMenu},
+    session_tree::{SessionTree, TreeOutcome},
     settings_layout,
     settings_page::{SettingsOutcome, SettingsPage},
     theme_picker::{ThemeOutcome, ThemePicker},
@@ -30,6 +31,7 @@ pub struct Overlays {
     prompt_menu: Option<PromptMenu>,
     prompt_generation: u64,
     picker: Option<Picker>,
+    tree: Option<SessionTree>,
     prompt: Option<Prompt>,
     theme_picker: Option<ThemePicker>,
     settings: Option<SettingsPage>,
@@ -42,7 +44,7 @@ pub struct Overlays {
 pub enum OverlayEvent {
     Ignored,
     Redraw,
-    Send(ClientMsg),
+    Send(Vec<ClientMsg>),
     Theme(ThemeOutcome),
     Settings(SettingsOutcome),
     Prompt(PromptAction),
@@ -89,8 +91,22 @@ impl Overlays {
                     picker::directories(),
                 ));
             }
-            ServerMsg::ChooseSession { sessions, current } => {
-                self.picker = Some(Picker::sessions(sessions.clone(), current));
+            ServerMsg::ChooseSession {
+                sessions,
+                current,
+                preview,
+            } => {
+                self.tree = Some(SessionTree::new(
+                    sessions.clone(),
+                    *current,
+                    preview.clone(),
+                ));
+            }
+            ServerMsg::Preview(preview) => {
+                return self
+                    .tree
+                    .as_mut()
+                    .is_some_and(|tree| tree.set_preview(preview.clone()));
             }
             ServerMsg::ChooseWindow => self.prompt = Some(Prompt::choose(status)),
             ServerMsg::PromptRename { current } => {
@@ -168,6 +184,7 @@ impl Overlays {
         self.prompt_menu.is_some()
             || self.settings.is_some()
             || self.picker.is_some()
+            || self.tree.is_some()
             || self.prompt.is_some()
             || self.theme_picker.is_some()
     }
@@ -271,6 +288,17 @@ impl Overlays {
             }
             return Some(self.picker_key(key));
         }
+        if let Some(tree) = &mut self.tree {
+            if input::local_action(key) == Some(LocalAction::Paste) && tree.is_searching() {
+                let outcome = match clipboard() {
+                    Some(text) => tree.insert(&text),
+                    None => TreeOutcome::Ignored,
+                };
+                return Some(self.tree(outcome));
+            }
+            let outcome = tree.key(key);
+            return Some(self.tree(outcome));
+        }
         let prompt = self.prompt.as_mut()?;
         if input::local_action(key) == Some(LocalAction::Paste) {
             return Some(match clipboard() {
@@ -293,7 +321,7 @@ impl Overlays {
             }
             Outcome::Run(command) => {
                 self.prompt = None;
-                OverlayEvent::Send(ClientMsg::Command(command))
+                OverlayEvent::Send(vec![ClientMsg::Command(command)])
             }
         })
     }
@@ -314,6 +342,10 @@ impl Overlays {
         if let Some(picker) = &mut self.picker {
             picker.insert(text);
             return Some(OverlayEvent::Redraw);
+        }
+        if let Some(tree) = &mut self.tree {
+            let outcome = tree.insert(text);
+            return Some(self.tree(outcome));
         }
         let prompt = self.prompt.as_mut()?;
         prompt.insert(text);
@@ -361,13 +393,15 @@ impl Overlays {
             let outcome = match hit {
                 OverlayHit::Row(index) => menu.choose(index),
                 OverlayHit::Outside => MenuOutcome::Close,
-                OverlayHit::Panel | OverlayHit::Settings(_) => MenuOutcome::Pending,
+                OverlayHit::Panel | OverlayHit::Window(_) | OverlayHit::Settings(_) => {
+                    MenuOutcome::Pending
+                }
             };
             return self.prompt_outcome(outcome);
         }
         if let Some(page) = &mut self.settings {
             let outcome = match hit {
-                OverlayHit::Panel | OverlayHit::Outside => {
+                OverlayHit::Panel | OverlayHit::Window(_) | OverlayHit::Outside => {
                     return if page.dismiss_dropdown() {
                         OverlayEvent::Redraw
                     } else {
@@ -383,6 +417,12 @@ impl Overlays {
             OverlayHit::Panel | OverlayHit::Settings(_) => OverlayEvent::Ignored,
             OverlayHit::Outside => self.dismiss(),
             OverlayHit::Row(index) => self.choose(index),
+            OverlayHit::Window(window) => match self.tree {
+                Some(_) => self.tree(TreeOutcome::Run(Command::SelectWindow(WindowRef::Id(
+                    window,
+                )))),
+                None => OverlayEvent::Ignored,
+            },
         }
     }
 
@@ -403,6 +443,10 @@ impl Overlays {
         if let Some(picker) = &mut self.picker {
             picker.move_selection(rows);
             return OverlayEvent::Redraw;
+        }
+        if let Some(tree) = &mut self.tree {
+            let outcome = tree.step(delta);
+            return self.tree(outcome);
         }
         match &mut self.prompt {
             Some(prompt @ Prompt::Choose { .. }) => {
@@ -433,6 +477,9 @@ impl Overlays {
         if let Some(picker) = &self.picker {
             return Some(picker.sheet(self.home.as_deref()));
         }
+        if let Some(tree) = &self.tree {
+            return Some(tree.sheet());
+        }
         self.prompt.as_ref().and_then(Prompt::sheet)
     }
 
@@ -441,6 +488,7 @@ impl Overlays {
             || self.settings.is_some()
             || self.theme_picker.is_some()
             || self.picker.is_some()
+            || self.tree.is_some()
             || matches!(self.prompt, Some(Prompt::Choose { .. }))
     }
 
@@ -450,6 +498,9 @@ impl Overlays {
         }
         if self.theme_picker.is_some() {
             return self.theme(ThemeOutcome::Cancel);
+        }
+        if self.tree.take().is_some() {
+            return OverlayEvent::Send(vec![ClientMsg::Preview(None)]);
         }
         if self.picker.take().is_none() {
             self.prompt = None;
@@ -464,12 +515,18 @@ impl Overlays {
         }
         if let Some(picker) = self.picker.take() {
             return match picker.target(index) {
-                Some(target) => OverlayEvent::Send(ClientMsg::Command(Command::Switch(target))),
+                Some(target) => {
+                    OverlayEvent::Send(vec![ClientMsg::Command(Command::Switch(target))])
+                }
                 None => {
                     self.picker = Some(picker);
                     OverlayEvent::Ignored
                 }
             };
+        }
+        if let Some(tree) = &mut self.tree {
+            let outcome = tree.choose(index);
+            return self.tree(outcome);
         }
         let window = match &self.prompt {
             Some(Prompt::Choose { windows, .. }) => windows.get(index).map(|window| window.id),
@@ -478,7 +535,9 @@ impl Overlays {
         match window {
             Some(id) => {
                 self.prompt = None;
-                OverlayEvent::Send(ClientMsg::Command(Command::SelectWindow(WindowRef::Id(id))))
+                OverlayEvent::Send(vec![ClientMsg::Command(Command::SelectWindow(
+                    WindowRef::Id(id),
+                ))])
             }
             None => OverlayEvent::Ignored,
         }
@@ -490,6 +549,24 @@ impl Overlays {
             ThemeOutcome::Pending | ThemeOutcome::Preview(_) => {}
         }
         OverlayEvent::Theme(outcome)
+    }
+
+    fn tree(&mut self, outcome: TreeOutcome) -> OverlayEvent {
+        match outcome {
+            TreeOutcome::Pending => OverlayEvent::Redraw,
+            TreeOutcome::Ignored => OverlayEvent::Ignored,
+            TreeOutcome::Close => {
+                self.tree = None;
+                OverlayEvent::Send(vec![ClientMsg::Preview(None)])
+            }
+            TreeOutcome::Run(command) => {
+                self.tree = None;
+                OverlayEvent::Send(vec![ClientMsg::Preview(None), ClientMsg::Command(command)])
+            }
+            TreeOutcome::Watch(session) => {
+                OverlayEvent::Send(vec![ClientMsg::Preview(Some(session))])
+            }
+        }
     }
 
     fn settings(&mut self, outcome: SettingsOutcome) -> OverlayEvent {
@@ -526,7 +603,7 @@ impl Overlays {
             self.picker = None;
         }
         match target {
-            Some(target) => OverlayEvent::Send(ClientMsg::Command(Command::Switch(target))),
+            Some(target) => OverlayEvent::Send(vec![ClientMsg::Command(Command::Switch(target))]),
             None => OverlayEvent::Redraw,
         }
     }

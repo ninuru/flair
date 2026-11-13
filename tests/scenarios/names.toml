@@ -12,11 +12,11 @@ text = "ready> "
 
 [[steps]]
 action = "text"
-text = "printf '\\033]0;user@host:~/x/flair\\007'\r"
+text = "sleep 30\r"
 
 [[steps]]
 action = "wait"
-text = "1:flair"
+text = "1:sleep"
 
 [[steps]]
 action = "key"
@@ -29,12 +29,12 @@ key = "c"
 
 [[steps]]
 action = "wait"
-text = "2:env"
+text = "2:sh"
 
 [[steps]]
 action = "text"
-text = "printf '\\033]0;/usr/bin/htop -d 5\\007'\r"
+text = "cat\r"
 
 [[steps]]
 action = "wait"
-text = "2:htop"
+text = "2:cat"

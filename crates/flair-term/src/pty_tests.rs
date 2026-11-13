@@ -207,6 +207,36 @@ fn the_foreground_process_group_leader_is_the_running_job() {
 }
 
 #[test]
+fn the_foreground_argv_names_the_running_job() {
+    if !std::path::Path::new("/bin/sh").exists() {
+        eprintln!("skipping foreground argv PTY test: /bin/sh unavailable");
+        return;
+    }
+    let mut pty = Pty::spawn(&spec("set -m; sleep 30 & printf go; fg %1 >/dev/null")).unwrap();
+    assert!(read_until(&mut pty.reader().unwrap(), "go").contains("go"));
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while pty.foreground_argv().first().map(String::as_str) != Some("sleep")
+        && Instant::now() < deadline
+    {
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(pty.foreground_argv(), ["sleep", "30"]);
+    pty.kill();
+}
+
+#[test]
+fn cmdline_bytes_split_into_arguments() {
+    assert_eq!(
+        split_cmdline(b"ssh\0-p\x0022\0host\0"),
+        ["ssh", "-p", "22", "host"]
+    );
+    assert_eq!(split_cmdline(b"zsh"), ["zsh"]);
+    assert_eq!(split_cmdline(b"a\0\0b\0"), ["a", "", "b"]);
+    assert!(split_cmdline(b"").is_empty());
+    assert!(split_cmdline(b"\0").is_empty());
+}
+
+#[test]
 fn zsh_chips_loads_integration_after_user_startup_without_dotfile_changes() {
     if !std::path::Path::new("/bin/zsh").exists() {
         eprintln!("skipping automatic shell integration test: /bin/zsh unavailable");

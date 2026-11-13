@@ -129,7 +129,7 @@ fn copy_scenario_shows_the_badge_jumps_through_history_and_swallows_keys_until_q
 }
 
 #[test]
-fn status_names_windows_after_directory_and_command_at_any_width() {
+fn status_names_windows_after_the_foreground_process_at_any_width() {
     let fixture = fs::read_to_string(
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/names.toml"),
     )
@@ -164,7 +164,7 @@ fn status_names_windows_after_directory_and_command_at_any_width() {
         let frame = fs::read_to_string(output.0.join("frame.txt")).unwrap();
         let status = frame.lines().next().unwrap();
         assert_eq!(status.chars().count(), cols);
-        assert!(status.starts_with(" 1:flair 2:htop "), "{status:?}");
+        assert!(status.starts_with(" 1:sleep 2:cat "), "{status:?}");
         assert!(status.ends_with(end), "{status:?}");
     }
 }
@@ -338,6 +338,21 @@ key = "s"
 action = "capture"
 name = "chooser"
 [[steps]]
+action = "key"
+key = "l"
+[[steps]]
+action = "capture"
+name = "window"
+[[steps]]
+action = "key"
+key = "/"
+[[steps]]
+action = "text"
+text = "ma"
+[[steps]]
+action = "capture"
+name = "search"
+[[steps]]
 action = "window"
 width = 320
 height = 400
@@ -374,7 +389,12 @@ name = "narrow"
         return;
     }
     assert!(run.status.success(), "{stderr}");
-    for (name, width, height) in [("chooser", 640, 400), ("narrow", 320, 400)] {
+    for (name, width, height) in [
+        ("chooser", 640, 400),
+        ("window", 640, 400),
+        ("search", 640, 400),
+        ("narrow", 320, 400),
+    ] {
         let image = fs::read(output.0.join(format!("{name}.ppm"))).unwrap();
         let header = format!("P6\n{width} {height}\n255\n");
         assert!(image.starts_with(header.as_bytes()), "{name}");

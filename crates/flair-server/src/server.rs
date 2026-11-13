@@ -33,6 +33,8 @@ mod input;
 mod lifecycle;
 #[path = "server_mouse.rs"]
 mod mouse;
+#[path = "server_preview.rs"]
+mod preview;
 #[path = "server_prompt.rs"]
 mod prompt;
 #[path = "server_sessions.rs"]
@@ -92,6 +94,7 @@ impl Server {
                     pane.terminal.advance(&bytes);
                     pane.dirty = true;
                     self.terminal_events(now, id, before, out);
+                    self.want_process(now, id, out);
                 }
             }
             Event::PtySpawnFailed(id) => {
@@ -122,13 +125,18 @@ impl Server {
                 self.prefix_timer(now, client, generation, out);
             }
             Event::Timer(Timer::Prompt) => self.prompt_timer(out),
+            Event::Timer(Timer::Preview(client)) => self.preview_timer(client),
+            Event::Timer(Timer::Process(pane)) => self.process_timer(now, pane, out),
+            Event::ProcessRead(pane, argv) => self.process_read(pane, &argv),
             Event::GitRead(cwd, info) => self.git_read(cwd, info, out),
             Event::ContextsRead(contexts) => self.contexts_read(contexts, out),
             Event::ConfigRead(result) => self.config_read(result, out),
         }
         if !self.stopping {
             self.reap_sessions(now, out);
+            let changed = self.refresh_panes();
             let ready = self.flush_frames(out);
+            self.flush_previews(now, &changed, out);
             self.flush_status(out);
             self.flush_prompts(&ready, out);
             self.arm_refresh(now, out);
@@ -193,6 +201,7 @@ impl Server {
                         mouse: None,
                         prompts: BTreeMap::new(),
                         prompt_history: BTreeMap::new(),
+                        preview: None,
                     },
                 );
                 out.push(Effect::Send(id, ServerMsg::Welcome { client: id }));
@@ -261,6 +270,7 @@ impl Server {
                 self.command(now, id, command, out);
             }
             ClientMsg::Palette(palette) => self.set_palette(palette),
+            ClientMsg::Preview(session) => self.watch_preview(now, id, session, out),
             ClientMsg::Detach => {
                 self.remove_client(id, out);
                 out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::Detached)));

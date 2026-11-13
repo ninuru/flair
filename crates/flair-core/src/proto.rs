@@ -8,14 +8,14 @@ use serde::{Deserialize, Serialize};
 use crate::{
     command::Command,
     geom::{Axis, CellPoint, CellRect, GridSize},
-    ids::{ClientId, PaneId, WindowId},
+    ids::{ClientId, PaneId, SessionId, WindowId},
     isles::PromptInfo,
     key::InputEvent,
-    status::StatusLine,
+    status::{StatusLine, StatusWindow},
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 12;
+pub const PROTOCOL: u32 = 15;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -37,6 +37,7 @@ pub enum ClientMsg {
     Palette(Theme),
     Detach,
     Control(Control),
+    Preview(Option<SessionId>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -80,8 +81,9 @@ pub enum ServerMsg {
     Error(String),
     Exit(ExitReason),
     ChooseSession {
-        sessions: Vec<SessionInfo>,
-        current: String,
+        sessions: Vec<SessionNode>,
+        current: SessionId,
+        preview: SessionPreview,
     },
     PromptInfo {
         pane: PaneId,
@@ -92,6 +94,7 @@ pub enum ServerMsg {
         prompts: Vec<PromptSnapshot>,
     },
     PaneProcesses(Vec<u32>),
+    Preview(SessionPreview),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -261,6 +264,41 @@ pub struct SessionInfo {
     pub name: String,
     pub root: PathBuf,
     pub windows: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionNode {
+    pub id: SessionId,
+    pub name: String,
+    pub root: PathBuf,
+    pub windows: Vec<StatusWindow>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionPreview {
+    pub session: SessionId,
+    pub windows: Vec<WindowPreview>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WindowPreview {
+    pub window: WindowId,
+    pub layout: WindowLayout,
+    pub panes: Vec<PanePreview>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PanePreview {
+    pub pane: PaneId,
+    pub rows: Vec<Vec<Ink>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Ink {
+    pub col: u16,
+    pub len: u16,
+    pub fg: Option<Color>,
+    pub bg: Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

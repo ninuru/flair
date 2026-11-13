@@ -11,7 +11,7 @@ use flair_core::{
 
 use crate::{
     cursor::{Edit, TextCursor},
-    overlay_layout::{Field, Mark, Placement, Row, Sheet},
+    overlay_layout::{Field, Placement, Row, Sheet},
     ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
 
@@ -20,7 +20,6 @@ pub struct Picker {
     entries: Vec<Candidate>,
     selected: usize,
     last: Option<Target>,
-    current: Option<String>,
 }
 
 impl Picker {
@@ -35,29 +34,6 @@ impl Picker {
             entries: sessionizer::candidates(&sessions, current, directories),
             selected: 0,
             last,
-            current: None,
-        }
-    }
-
-    pub fn sessions(sessions: Vec<SessionInfo>, current: &str) -> Self {
-        let entries: Vec<_> = sessions
-            .into_iter()
-            .map(|session| Candidate {
-                name: session.name,
-                root: session.root,
-                open: true,
-            })
-            .collect();
-        let selected = sessionizer::rank(&entries, "")
-            .iter()
-            .position(|entry| entry.name == current)
-            .unwrap_or(0);
-        Self {
-            query: TextCursor::new(""),
-            entries,
-            selected,
-            last: None,
-            current: Some(current.to_owned()),
         }
     }
 
@@ -101,63 +77,101 @@ impl Picker {
         }
         sessionizer::rank(&self.entries, self.query.text())
             .get(self.selected)
-            .map(|entry| entry.target())
+            .map(|ranked| ranked.entry.target())
     }
 
     pub fn target(&self, index: usize) -> Option<Target> {
         sessionizer::rank(&self.entries, self.query.text())
             .get(index)
-            .map(|entry| entry.target())
+            .map(|ranked| ranked.entry.target())
     }
 
     pub fn sheet(&self, home: Option<&Path>) -> Sheet {
-        let rows = sessionizer::rank(&self.entries, self.query.text())
-            .into_iter()
-            .map(|entry| Row {
-                mark: Mark::Monogram(entry.name.clone()),
-                name: entry.name.clone(),
-                detail: Some(display_path(&entry.root, home)),
-                label: match &self.current {
-                    Some(current) => (entry.name == *current).then_some("current"),
-                    None => entry.open.then_some("open"),
-                },
-            })
-            .collect();
-        let (title, placeholder) = match self.current {
-            Some(_) => ("Sessions", "Search sessions"),
-            None => ("Sessionizer", "Search projects"),
-        };
+        let ranked = sessionizer::rank(&self.entries, self.query.text());
         let enter = match (&self.last, self.query.is_empty()) {
             (Some(Target::Name(name)), true) => format!("last: {name}"),
             (Some(_), true) => "last".to_owned(),
-            (Some(_) | None, false) | (None, true) => "switch".to_owned(),
+            (Some(_) | None, false) | (None, true) => match ranked.get(self.selected) {
+                Some(ranked) if !ranked.entry.open => "open".to_owned(),
+                Some(_) | None => "switch".to_owned(),
+            },
         };
+        let rows: Vec<Row> = ranked
+            .into_iter()
+            .map(|ranked| {
+                let (detail, detail_matches) =
+                    display_matches(&ranked.entry.root, home, &ranked.root);
+                Row {
+                    name: ranked.entry.name.clone(),
+                    name_matches: ranked.name,
+                    detail: Some(detail),
+                    detail_matches,
+                    label: ranked.entry.open.then_some("open"),
+                    ..Row::default()
+                }
+            })
+            .collect();
         Sheet {
+            strip: None,
             placement: Placement::Centred,
-            title,
+            title: None,
             field: Some(Field {
                 text: self.query.text().to_owned(),
                 cursor: self.query.cursor(),
-                placeholder,
+                placeholder: "Search projects",
             }),
+            count: (rows.len(), self.entries.len()),
             rows,
             selected: self.selected,
             keys: vec![
                 (ENTER_KEY, enter),
                 (MOVE_KEY, "move".to_owned()),
-                (ESCAPE_KEY, "cancel".to_owned()),
+                (ESCAPE_KEY, "close".to_owned()),
             ],
         }
     }
 }
 
 pub fn display_path(path: &Path, home: Option<&Path>) -> String {
-    let text = match home.and_then(|home| path.strip_prefix(home).ok()) {
-        Some(rest) if rest.as_os_str().is_empty() => "~".to_owned(),
-        Some(rest) => format!("~/{}", rest.display()),
-        None => path.display().to_string(),
+    display_matches(path, home, &[]).0
+}
+
+fn display_matches(path: &Path, home: Option<&Path>, matches: &[usize]) -> (String, Vec<usize>) {
+    let full: Vec<char> = path.display().to_string().chars().collect();
+    let chars: Vec<(Option<usize>, char)> = match home.and_then(|home| path.strip_prefix(home).ok())
+    {
+        Some(rest) if rest.as_os_str().is_empty() => vec![(None, '~')],
+        Some(rest) => {
+            let start = full
+                .len()
+                .saturating_sub(rest.display().to_string().chars().count());
+            [(None, '~'), (None, '/')]
+                .into_iter()
+                .chain(
+                    full[start..]
+                        .iter()
+                        .enumerate()
+                        .map(|(index, c)| (Some(start + index), *c)),
+                )
+                .collect()
+        }
+        None => full
+            .iter()
+            .enumerate()
+            .map(|(index, c)| (Some(index), *c))
+            .collect(),
     };
-    text.chars().filter(|c| !c.is_control()).collect()
+    let shown: Vec<(Option<usize>, char)> =
+        chars.into_iter().filter(|(_, c)| !c.is_control()).collect();
+    (
+        shown.iter().map(|(_, c)| c).collect(),
+        shown
+            .iter()
+            .enumerate()
+            .filter(|(_, (source, _))| source.is_some_and(|source| matches.contains(&source)))
+            .map(|(index, _)| index)
+            .collect(),
+    )
 }
 
 pub fn directories() -> Vec<PathBuf> {

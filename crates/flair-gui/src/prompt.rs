@@ -6,7 +6,8 @@ use flair_core::{
 
 use crate::{
     cursor::TextCursor,
-    overlay_layout::{Mark, Placement, Row, Sheet},
+    overlay_layout::{Placement, Row, Sheet},
+    process_icon::process_icon,
     ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
 
@@ -130,15 +131,17 @@ impl Prompt {
     pub fn sheet(&self) -> Option<Sheet> {
         match self {
             Prompt::Choose { windows, selected } => Some(Sheet {
+                strip: None,
                 placement: Placement::Centred,
-                title: "Windows",
+                title: Some("Windows"),
                 field: None,
+                count: (windows.len(), windows.len()),
                 rows: windows
                     .iter()
                     .map(|window| Row {
-                        mark: Mark::Index(window.index),
+                        number: Some(window.index),
+                        icon: process_icon(&window.program),
                         name: window.name.chars().filter(|c| !c.is_control()).collect(),
-                        detail: None,
                         label: if window.active {
                             Some("active")
                         } else if window.last {
@@ -146,6 +149,7 @@ impl Prompt {
                         } else {
                             None
                         },
+                        ..Row::default()
                     })
                     .collect(),
                 selected: *selected,

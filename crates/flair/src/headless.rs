@@ -187,6 +187,7 @@ impl Capture {
             | ServerMsg::SetClipboard { .. }
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::ChooseSession { .. }
+            | ServerMsg::Preview(_)
             | ServerMsg::Sessions(_)
             | ServerMsg::ChooseWindow
             | ServerMsg::ChooseTheme
@@ -339,7 +340,7 @@ impl Capture {
         match event {
             None => Ok(vec![fallback]),
             Some(OverlayEvent::Ignored | OverlayEvent::Redraw) => Ok(Vec::new()),
-            Some(OverlayEvent::Send(message)) => Ok(vec![message]),
+            Some(OverlayEvent::Send(messages)) => Ok(messages),
             Some(OverlayEvent::Theme(outcome)) => Ok(self.theme_outcome(outcome)),
             Some(OverlayEvent::Settings(outcome)) => self.settings(outcome),
             Some(OverlayEvent::Prompt(_)) => Err("Prompt actions require the native client".into()),
