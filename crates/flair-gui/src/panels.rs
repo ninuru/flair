@@ -1,5 +1,5 @@
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
@@ -292,8 +292,8 @@ impl Panels {
                 InputEvent::Text(format!("\u{15}cd -- {}\r", quote(&path))),
             )),
             ExplorerOutcome::Cd(_) => ExplorerAct::Ignored,
-            ExplorerOutcome::Edit(path) => match path.parent() {
-                Some(dir) => {
+            ExplorerOutcome::Edit(path) => match self.explorer.root().map(Path::to_path_buf) {
+                Some(root) => {
                     self.focused = false;
                     ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
                         argv: vec![
@@ -303,7 +303,7 @@ impl Panels {
                             "flair-edit".into(),
                             path.to_string_lossy().into_owned(),
                         ],
-                        cwd: dir.to_path_buf(),
+                        cwd: root,
                     }))
                 }
                 None => ExplorerAct::Ignored,

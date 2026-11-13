@@ -300,7 +300,7 @@ fn cd_is_sent_only_at_a_prompt() {
 }
 
 #[test]
-fn edit_splits_an_editor_in_the_listed_directory_and_blurs() {
+fn edit_splits_an_editor_at_the_explorer_root_and_blurs() {
     let mut panels = opened(false);
     assert_eq!(
         panels.act(ExplorerOutcome::Edit(PathBuf::from("/p/src/main.rs"))),
@@ -312,7 +312,7 @@ fn edit_splits_an_editor_in_the_listed_directory_and_blurs() {
                 "flair-edit".into(),
                 "/p/src/main.rs".into(),
             ],
-            cwd: PathBuf::from("/p/src"),
+            cwd: PathBuf::from("/p"),
         }))
     );
     assert!(!panels.focused);
