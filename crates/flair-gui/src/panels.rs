@@ -297,10 +297,10 @@ impl Panels {
                     self.focused = false;
                     ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
                         argv: vec![
-                            "sh".into(),
+                            "/bin/sh".into(),
                             "-c".into(),
                             "exec ${EDITOR:-vi} \"$1\"".into(),
-                            "sh".into(),
+                            "flair-edit".into(),
                             path.to_string_lossy().into_owned(),
                         ],
                         cwd: dir.to_path_buf(),

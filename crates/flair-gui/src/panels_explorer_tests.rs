@@ -306,10 +306,10 @@ fn edit_splits_an_editor_in_the_listed_directory_and_blurs() {
         panels.act(ExplorerOutcome::Edit(PathBuf::from("/p/src/main.rs"))),
         ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
             argv: vec![
-                "sh".into(),
+                "/bin/sh".into(),
                 "-c".into(),
                 "exec ${EDITOR:-vi} \"$1\"".into(),
-                "sh".into(),
+                "flair-edit".into(),
                 "/p/src/main.rs".into(),
             ],
             cwd: PathBuf::from("/p/src"),
