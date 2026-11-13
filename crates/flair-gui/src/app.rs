@@ -386,6 +386,7 @@ impl ApplicationHandler<UserEvent> for App {
                 ServerMsg::Explorer => self.explorer_command(),
                 ServerMsg::ToggleZen => {
                     self.zen = self.zen.toggled();
+                    self.panels.focused = false;
                     self.send(ClientMsg::Resize(self.size()));
                     self.request_redraw();
                 }

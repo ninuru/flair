@@ -528,3 +528,14 @@ fn keys_after_a_prefix_the_server_reports_go_to_the_server() {
         Some(ExplorerOutcome::Redraw)
     );
 }
+
+#[test]
+fn the_explorer_loses_focus_when_its_slot_is_gone() {
+    let mut panels = opened(false);
+    assert!(panels.focused);
+    panels.place(Pages {
+        tabs: 4,
+        explorer: 0,
+    });
+    assert!(panels.open && !panels.focused);
+}

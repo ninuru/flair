@@ -218,6 +218,7 @@ impl Capture {
             }
             ServerMsg::ToggleZen => {
                 self.zen = !self.zen;
+                self.panels.focused = false;
                 if let Some(resize) = self.refit()? {
                     tx.send(resize).map_err(|e| e.to_string())?;
                 }

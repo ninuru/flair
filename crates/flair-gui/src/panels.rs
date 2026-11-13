@@ -115,6 +115,9 @@ impl Panels {
 
     pub fn place(&mut self, pages: Pages) -> bool {
         self.pages = pages;
+        if pages.explorer == 0 {
+            self.focused = false;
+        }
         let before = self.tabs_scroll;
         if let Some(active) = self.reveal.take() {
             self.reveal_tab(active);
