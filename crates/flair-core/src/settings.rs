@@ -2,8 +2,8 @@ use toml_edit::Array;
 
 use crate::{
     config::{
-        Config, PromptAppearance, PromptDateFormat, PromptOrder, PromptPath, PromptSeparator,
-        PromptStyle, PromptTimeFormat, TABS_WIDTH, TabsPosition,
+        Config, EXPLORER_WIDTH, PromptAppearance, PromptDateFormat, PromptOrder, PromptPath,
+        PromptSeparator, PromptStyle, PromptTimeFormat, Side, TABS_WIDTH, TabsPosition,
     },
     config_edit::{contains, document},
     theme::{Rgb, Rgba, Theme},
@@ -364,6 +364,34 @@ pub const SETTINGS: &[Setting] = &[
         },
         description: "Width of the side tab panel in logical pixels.",
         read: |config, _| Value::Integer(i64::from(config.tabs.width)),
+    },
+    Setting {
+        key: "explorer.side",
+        title: "Explorer side",
+        section: Section::Panels,
+        kind: Kind::Choice(Choices::Of(&Side::NAMES)),
+        description: "Shows the file explorer on the left or on the right.",
+        read: |config, _| Value::Text(config.explorer.side.name().to_owned()),
+    },
+    Setting {
+        key: "explorer.width",
+        title: "Explorer width",
+        section: Section::Panels,
+        kind: Kind::Integer {
+            step: 10,
+            min: EXPLORER_WIDTH.0 as i64,
+            max: EXPLORER_WIDTH.1 as i64,
+        },
+        description: "Width of the file explorer in logical pixels.",
+        read: |config, _| Value::Integer(i64::from(config.explorer.width)),
+    },
+    Setting {
+        key: "explorer.show_hidden",
+        title: "Hidden files",
+        section: Section::Panels,
+        kind: Kind::Toggle,
+        description: "Lists dotfiles in the file explorer.",
+        read: |config, _| Value::Bool(config.explorer.show_hidden),
     },
     Setting {
         key: "shell.program",

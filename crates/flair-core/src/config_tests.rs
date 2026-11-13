@@ -746,3 +746,56 @@ fn panel_position_names() {
     assert_eq!(Side::Left.name(), "left");
     assert_eq!(Side::Right.name(), "right");
 }
+
+#[test]
+fn explorer_defaults_to_the_left_two_hundred_eighty_wide_with_hidden_files() {
+    let explorer = Config::default().explorer;
+    assert_eq!(explorer.side, Side::Left);
+    assert_eq!(explorer.width, 280);
+    assert!(explorer.show_hidden);
+    assert_eq!(EXPLORER_WIDTH, (160, 640));
+}
+
+#[test]
+fn explorer_table_reads_side_width_and_hidden_files() {
+    let config =
+        Config::from_toml("[explorer]\nside = \"right\"\nwidth = 320\nshow_hidden = false\n")
+            .unwrap();
+    assert_eq!(config.explorer.side, Side::Right);
+    assert_eq!(config.explorer.width, 320);
+    assert!(!config.explorer.show_hidden);
+    let config = Config::from_toml("[explorer]\nside = \"left\"\n").unwrap();
+    assert_eq!(config.explorer, ExplorerConfig::default());
+    assert!(Config::from_toml("[explorer]\nside = \"top\"\n").is_err());
+    assert!(Config::from_toml("[explorer]\nside = \"Left\"\n").is_err());
+    assert!(Config::from_toml("[explorer]\nhidden = true\n").is_err());
+}
+
+#[test]
+fn explorer_width_bounds_are_inclusive_and_checked() {
+    for width in [160, 640] {
+        let config = Config::from_toml(&format!("[explorer]\nwidth = {width}\n")).unwrap();
+        assert_eq!(config.explorer.width, width);
+    }
+    for width in [0, 159, 641] {
+        let error = Config::from_toml(&format!("[explorer]\nwidth = {width}\n")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConfigError::Range {
+                    key: "explorer.width",
+                    value,
+                    min: 160,
+                    max: 640,
+                } if value == width
+            ),
+            "{error}"
+        );
+    }
+    assert_eq!(
+        Config::from_toml("[explorer]\nwidth = 100\n")
+            .unwrap_err()
+            .to_string(),
+        "invalid config: explorer.width must be from 160 to 640, got 100"
+    );
+}

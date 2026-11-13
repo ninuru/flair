@@ -58,6 +58,9 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "window.padding_y",
             "tabs.position",
             "tabs.width",
+            "explorer.side",
+            "explorer.width",
+            "explorer.show_hidden",
             "shell.program",
             "shell.args",
             "scrollback.lines",
@@ -615,4 +618,44 @@ fn the_panels_section_sets_the_tab_bar_position_and_width() {
 fn an_out_of_range_tabs_width_in_the_file_is_an_edit_error() {
     assert!(apply("", "tabs.width", Some(&Value::Integer(90))).is_err());
     assert!(apply("", "tabs.width", Some(&Value::Integer(480))).is_ok());
+}
+
+#[test]
+fn the_panels_section_sets_the_explorer_side_width_and_hidden_files() {
+    let side = setting("explorer.side");
+    assert_eq!(side.section, Section::Panels);
+    assert_eq!(side.title, "Explorer side");
+    assert_eq!(side.kind, Kind::Choice(Choices::Of(&["left", "right"])));
+    assert_eq!(default_value(side), text("left"));
+    assert_eq!(side.step(&text("left"), 1, &[]), Some(text("right")));
+    let width = setting("explorer.width");
+    assert_eq!(width.section, Section::Panels);
+    assert_eq!(width.title, "Explorer width");
+    assert_eq!(
+        width.kind,
+        Kind::Integer {
+            step: 10,
+            min: 160,
+            max: 640
+        }
+    );
+    assert_eq!(default_value(width), Value::Integer(280));
+    assert_eq!(
+        width.parse("100"),
+        Err("enter a whole number from 160 to 640".to_owned())
+    );
+    let hidden = setting("explorer.show_hidden");
+    assert_eq!(hidden.section, Section::Panels);
+    assert_eq!(hidden.title, "Hidden files");
+    assert_eq!(hidden.kind, Kind::Toggle);
+    assert_eq!(default_value(hidden), Value::Bool(true));
+    let mut config = Config::default();
+    config.explorer.side = Side::Right;
+    config.explorer.width = 400;
+    config.explorer.show_hidden = false;
+    assert_eq!(side.value(&config, &config.theme()), text("right"));
+    assert_eq!(width.value(&config, &config.theme()), Value::Integer(400));
+    assert_eq!(hidden.value(&config, &config.theme()), Value::Bool(false));
+    assert!(apply("", "explorer.width", Some(&Value::Integer(100))).is_err());
+    assert!(apply("", "explorer.width", Some(&Value::Integer(640))).is_ok());
 }
