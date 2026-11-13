@@ -37,6 +37,7 @@ pub struct Panels {
     pub drag: Option<Drag>,
     pub live_width: Option<(PanelView, f32)>,
     pages: Pages,
+    reveal: Option<usize>,
 }
 
 impl Panels {
@@ -67,15 +68,22 @@ impl Panels {
         };
         self.drag = None;
         self.live_width = None;
+        self.pages = Pages::default();
     }
 
-    pub fn place(&mut self, pages: Pages) {
+    pub fn place(&mut self, pages: Pages) -> bool {
         self.pages = pages;
+        let before = self.tabs_scroll;
+        if let Some(active) = self.reveal.take() {
+            self.reveal_tab(active);
+        }
+        self.tabs_scroll != before
     }
 
     pub fn reveal_tab(&mut self, active: usize) {
         let page = self.pages.tabs;
         if page == 0 {
+            self.reveal = Some(active);
             return;
         }
         if active < self.tabs_scroll {

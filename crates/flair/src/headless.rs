@@ -216,6 +216,9 @@ impl Capture {
             }
             ServerMsg::ToggleTabs => {
                 self.panels.toggle_tabs(self.effective().tabs.position);
+                if let Some(index) = self.status.windows.iter().position(|window| window.active) {
+                    self.panels.reveal_tab(index);
+                }
                 if let Some(resize) = self.refit()? {
                     tx.send(resize).map_err(|e| e.to_string())?;
                 }
@@ -586,7 +589,9 @@ impl Capture {
         } = chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
         let image = pixels.render(&grid, &chrome, theme.background)?;
         self.overlays.place(overlay);
-        self.panels.place(pages);
+        if self.panels.place(pages) {
+            return self.capture(output, name);
+        }
         fs::write(output.join(format!("{name}.ppm")), image).map_err(|e| e.to_string())
     }
 

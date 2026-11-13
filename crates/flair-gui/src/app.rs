@@ -247,7 +247,9 @@ impl App {
             pages,
         } = chrome_layout::layout(&input, |text, bold| surface.fonts.ui_width(text, bold));
         self.hits = hits;
-        self.panels.place(pages);
+        if self.panels.place(pages) {
+            surface.window.request_redraw();
+        }
         self.overlays.place(overlay);
         let drawn =
             surface
@@ -405,6 +407,10 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 ServerMsg::ToggleTabs => {
                     self.panels.toggle_tabs(self.effective().tabs.position);
+                    if let Some(index) = self.status.windows.iter().position(|window| window.active)
+                    {
+                        self.panels.reveal_tab(index);
+                    }
                     self.send(ClientMsg::Resize(self.size()));
                     self.request_redraw();
                 }

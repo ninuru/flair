@@ -252,3 +252,28 @@ fn an_edge_drag_past_a_limit_below_the_minimum_keeps_no_width() {
     assert!(!panels.drag_edge(PanelView::Tabs, 300.0, 100.0, 1.0));
     assert_eq!(panels.live_width, None);
 }
+
+#[test]
+fn a_reveal_before_the_panel_is_placed_applies_on_the_next_place() {
+    let mut panels = Panels::default();
+    panels.place(Pages {
+        tabs: 4,
+        explorer: 0,
+    });
+    panels.toggle_tabs(TabsPosition::Top);
+    panels.reveal_tab(9);
+    assert_eq!(panels.tabs_scroll, 0);
+    assert!(!panels.place(Pages::default()));
+    assert_eq!(panels.tabs_scroll, 0);
+    assert!(panels.place(Pages {
+        tabs: 4,
+        explorer: 0,
+    }));
+    assert_eq!(panels.tabs_scroll, 6);
+    panels.scroll_tabs(-6, 10);
+    assert!(!panels.place(Pages {
+        tabs: 4,
+        explorer: 0,
+    }));
+    assert_eq!(panels.tabs_scroll, 0);
+}
