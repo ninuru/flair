@@ -180,14 +180,16 @@ fn order(server: &Server) -> Vec<WindowId> {
 }
 
 fn sent_order(out: &[Effect], id: ClientId) -> Option<Vec<(WindowId, u16)>> {
-    out.iter().find_map(|effect| match effect {
-        Effect::Send(client, ServerMsg::Status(line)) if *client == id => Some(
+    out.iter().find_map(|effect| {
+        let Effect::Send(client, ServerMsg::Status(line)) = effect else {
+            return None;
+        };
+        (*client == id).then(|| {
             line.windows
                 .iter()
                 .map(|window| (window.id, window.index))
-                .collect(),
-        ),
-        _ => None,
+                .collect()
+        })
     })
 }
 
@@ -272,9 +274,11 @@ fn foreign_window(server: &mut Server) -> (WindowId, PaneId) {
 
 fn killed(out: &[Effect]) -> Vec<PaneId> {
     out.iter()
-        .filter_map(|effect| match effect {
-            Effect::KillPty(pane) => Some(*pane),
-            _ => None,
+        .filter_map(|effect| {
+            let Effect::KillPty(pane) = effect else {
+                return None;
+            };
+            Some(*pane)
         })
         .collect()
 }
