@@ -267,7 +267,7 @@ fn ink_runs_become_thin_bars_and_backgrounds_become_cell_fills() {
 }
 
 #[test]
-fn the_quad_count_is_capped() {
+fn the_quad_count_is_capped_per_thumbnail() {
     let busy: Vec<Vec<Ink>> = (0..47)
         .map(|_| {
             (0..48)
@@ -290,7 +290,19 @@ fn the_quad_count_is_capped() {
     let scene = draw(&strip, rect(0.0, 0.0, 2000.0, 1000.0), (1000, 500));
     let ink = scene.quads.len() - frames(&scene).len();
     assert!(ink <= 4000, "{ink}");
-    assert!(ink > 3900, "{ink}");
+    assert!(ink > 3400, "{ink}");
+    for frame in frames(&scene) {
+        let inside = scene
+            .quads
+            .iter()
+            .filter(|quad| {
+                quad.rect.w < frame.rect.w
+                    && quad.rect.x >= frame.rect.x
+                    && quad.rect.x < frame.rect.x + frame.rect.w
+            })
+            .count();
+        assert!(inside > 300, "{inside}");
+    }
 }
 
 fn tree_sheet(rows: usize) -> Sheet {

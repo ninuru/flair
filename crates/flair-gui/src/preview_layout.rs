@@ -50,7 +50,7 @@ pub(crate) fn strip(
     let room = (area.h - label).max(0.0);
     let screen = input.px.1 as f32 / input.px.0.max(1) as f32;
     let mut x = area.x.round();
-    let mut budget = QUAD_CAP;
+    let budget = QUAD_CAP / windows.len();
     for window in windows {
         let preview = strip
             .preview
@@ -66,7 +66,7 @@ pub(crate) fn strip(
         };
         frame(thumb, window.active, input, scene);
         if let Some(preview) = preview {
-            budget = minimap(preview, thumb, budget, input, scene);
+            minimap(preview, thumb, budget, input, scene);
         }
         caption(window, thumb, label, input, scene, measure);
         scene.hits.windows.push((
@@ -106,7 +106,7 @@ fn minimap(
     budget: usize,
     input: &OverlayInput,
     scene: &mut OverlayScene,
-) -> usize {
+) {
     let scale = input.scale;
     let theme = input.theme;
     let inset = px(THUMB_PAD, scale);
@@ -156,7 +156,7 @@ fn minimap(
         let top = f32::from(placement.rect.origin.row.saturating_sub(area.origin.row));
         for (row, runs) in pane.rows.iter().enumerate() {
             if runs.len() * 2 > budget {
-                return 0;
+                return;
             }
             let y = inner.y + (top + row as f32) * sy;
             for run in runs {
@@ -176,7 +176,6 @@ fn minimap(
             }
         }
     }
-    budget
 }
 
 fn snap(quad: (f32, f32, f32, f32)) -> PxRect {
