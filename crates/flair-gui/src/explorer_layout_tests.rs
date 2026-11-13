@@ -431,7 +431,7 @@ fn footer_caps_that_do_not_fit_are_dropped_from_the_right() {
 fn the_filter_field_sits_above_the_rows_with_a_caret_and_bold_matches() {
     let mut panels = panels(false);
     let keys = KeysConfig::default();
-    panels.key(&key('/'), &keys, Instant::now());
+    panels.key(&key('/'), &keys, false, Instant::now());
     let theme = theme();
     let empty = Case::new(panels.clone()).run();
     let field = rect(8.0, 43.0, 263.0, 28.0);
@@ -473,6 +473,7 @@ fn the_filter_field_sits_above_the_rows_with_a_caret_and_bold_matches() {
             ..key('x')
         },
         &keys,
+        false,
         Instant::now(),
     );
     let kept = Case::new(panels).run();

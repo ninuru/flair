@@ -237,12 +237,13 @@ impl Panels {
         &mut self,
         key: &KeyInput,
         keys: &KeysConfig,
+        pending: bool,
         now: Instant,
     ) -> Option<ExplorerOutcome> {
         if !self.open || !self.focused {
             return None;
         }
-        if self.armed.is_some_and(|until| now < until) {
+        if pending || self.armed.is_some_and(|until| now < until) {
             if key.action == KeyAction::Press && !modifier(key.key) {
                 self.armed = None;
             }

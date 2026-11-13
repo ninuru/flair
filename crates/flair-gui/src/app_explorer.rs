@@ -44,7 +44,8 @@ impl App {
             .preview
             .as_ref()
             .map_or(&self.config, |preview| &preview.config);
-        match self.panels.key(key, &config.keys, Instant::now()) {
+        let pending = self.status.pending.is_some();
+        match self.panels.key(key, &config.keys, pending, Instant::now()) {
             Some(outcome) => {
                 self.explorer_outcome(outcome);
                 true

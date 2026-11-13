@@ -31,7 +31,10 @@ impl Capture {
             .preview
             .as_ref()
             .map_or(&self.config, |preview| &preview.config);
-        let outcome = self.panels.key(key, &config.keys, Instant::now())?;
+        let pending = self.status.pending.is_some();
+        let outcome = self
+            .panels
+            .key(key, &config.keys, pending, Instant::now())?;
         Some(self.explorer_outcome(outcome))
     }
 

@@ -248,15 +248,15 @@ fn keys_go_to_the_explorer_only_while_it_is_focused() {
     let now = Instant::now();
     let mut panels = opened(false);
     assert_eq!(
-        panels.key(&char('j'), &keys, now),
+        panels.key(&char('j'), &keys, false, now),
         Some(ExplorerOutcome::Redraw)
     );
     assert_eq!(
-        panels.key(&char('z'), &keys, now),
+        panels.key(&char('z'), &keys, false, now),
         Some(ExplorerOutcome::Ignored)
     );
     panels.focused = false;
-    assert_eq!(panels.key(&char('j'), &keys, now), None);
+    assert_eq!(panels.key(&char('j'), &keys, false, now), None);
     assert_eq!(panels.text("abc"), None);
 }
 
@@ -272,17 +272,17 @@ fn the_prefix_and_the_key_after_it_go_to_the_server() {
             ..Mods::default()
         },
     );
-    assert_eq!(panels.key(&ctrl('a'), &keys, now), None);
-    assert_eq!(panels.key(&shift, &keys, now), None);
-    assert_eq!(panels.key(&char('c'), &keys, now), None);
+    assert_eq!(panels.key(&ctrl('a'), &keys, false, now), None);
+    assert_eq!(panels.key(&shift, &keys, false, now), None);
+    assert_eq!(panels.key(&char('c'), &keys, false, now), None);
     assert_eq!(
-        panels.key(&char('j'), &keys, now),
+        panels.key(&char('j'), &keys, false, now),
         Some(ExplorerOutcome::Redraw)
     );
-    assert_eq!(panels.key(&ctrl('a'), &keys, now), None);
+    assert_eq!(panels.key(&ctrl('a'), &keys, false, now), None);
     let late = now + Duration::from_millis(keys.timeout_ms + 1);
     assert_eq!(
-        panels.key(&char('k'), &keys, late),
+        panels.key(&char('k'), &keys, false, late),
         Some(ExplorerOutcome::Redraw)
     );
 }
@@ -291,17 +291,17 @@ fn the_prefix_and_the_key_after_it_go_to_the_server() {
 fn root_bindings_still_reach_the_server() {
     let keys = KeysConfig::default();
     let mut panels = opened(false);
-    assert_eq!(panels.key(&alt('1'), &keys, Instant::now()), None);
+    assert_eq!(panels.key(&alt('1'), &keys, false, Instant::now()), None);
     let disabled = KeysConfig {
         enabled: false,
         ..KeysConfig::default()
     };
     assert_eq!(
-        panels.key(&alt('1'), &disabled, Instant::now()),
+        panels.key(&alt('1'), &disabled, false, Instant::now()),
         Some(ExplorerOutcome::Ignored)
     );
     assert_eq!(
-        panels.key(&ctrl('a'), &disabled, Instant::now()),
+        panels.key(&ctrl('a'), &disabled, false, Instant::now()),
         Some(ExplorerOutcome::Ignored)
     );
 }
@@ -311,12 +311,13 @@ fn keys_ignored_while_editing_the_filter_are_swallowed() {
     let keys = KeysConfig::default();
     let now = Instant::now();
     let mut panels = opened(false);
-    panels.key(&char('/'), &keys, now);
+    panels.key(&char('/'), &keys, false, now);
     assert!(panels.explorer.editing());
     assert_eq!(
         panels.key(
             &press(Key::Named(NamedKey::Tab), Mods::default()),
             &keys,
+            false,
             now
         ),
         Some(ExplorerOutcome::Ignored)
@@ -496,7 +497,7 @@ fn the_configured_hidden_setting_applies_when_it_changes() {
     assert!(names(&panels).contains(&".env".to_owned()));
     panels.show_hidden(false);
     assert!(!names(&panels).contains(&".env".to_owned()));
-    panels.key(&char('.'), &KeysConfig::default(), Instant::now());
+    panels.key(&char('.'), &KeysConfig::default(), false, Instant::now());
     assert!(names(&panels).contains(&".env".to_owned()));
     panels.show_hidden(false);
     assert!(names(&panels).contains(&".env".to_owned()));
@@ -514,4 +515,16 @@ fn the_wheel_scrolls_the_tree_by_the_placed_page() {
     assert_eq!(panels.explorer.scroll(), 2);
     panels.scroll_explorer(-1);
     assert_eq!(panels.explorer.scroll(), 1);
+}
+
+#[test]
+fn keys_after_a_prefix_the_server_reports_go_to_the_server() {
+    let keys = KeysConfig::default();
+    let now = Instant::now();
+    let mut panels = opened(false);
+    assert_eq!(panels.key(&char('c'), &keys, true, now), None);
+    assert_eq!(
+        panels.key(&char('j'), &keys, false, now),
+        Some(ExplorerOutcome::Redraw)
+    );
 }
