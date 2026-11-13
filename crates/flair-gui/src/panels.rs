@@ -116,6 +116,9 @@ impl Panels {
             return false;
         };
         let (min, max) = bounds(view);
+        if limit < min {
+            return self.live_width.take().is_some();
+        }
         let delta = (x - from) / scale;
         let wanted = match side {
             Side::Left => width + delta,

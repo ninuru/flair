@@ -234,3 +234,21 @@ fn a_flip_ends_when_the_configured_position_changes() {
         Some((Side::Left, 220.0))
     );
 }
+
+#[test]
+fn an_edge_drag_past_a_limit_below_the_minimum_keeps_no_width() {
+    let mut panels = Panels {
+        drag: Some(Drag::Edge {
+            side: Side::Left,
+            from: 400.0,
+            width: 200.0,
+        }),
+        ..Panels::default()
+    };
+    assert!(panels.drag_edge(PanelView::Tabs, 420.0, 300.0, 1.0));
+    assert_eq!(panels.live_width, Some((PanelView::Tabs, 220.0)));
+    assert!(panels.drag_edge(PanelView::Tabs, 420.0, 100.0, 1.0));
+    assert_eq!(panels.live_width, None);
+    assert!(!panels.drag_edge(PanelView::Tabs, 300.0, 100.0, 1.0));
+    assert_eq!(panels.live_width, None);
+}
