@@ -119,6 +119,15 @@ impl App {
                     log::warn!("could not start the explorer reader: {error}");
                     self.overlays
                         .set_notice(Notice::error(format!("explorer not started: {error}")));
+                    for dir in dirs {
+                        self.panels.explorer.insert(Listing {
+                            dir,
+                            entries: Vec::new(),
+                            more: 0,
+                            error: Some(error.to_string()),
+                        });
+                    }
+                    self.request_redraw();
                     return;
                 }
             }
