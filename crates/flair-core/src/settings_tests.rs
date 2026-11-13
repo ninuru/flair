@@ -56,6 +56,8 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "font.ligatures",
             "window.padding_x",
             "window.padding_y",
+            "tabs.position",
+            "tabs.width",
             "shell.program",
             "shell.args",
             "scrollback.lines",
@@ -100,7 +102,15 @@ fn every_section_has_an_entry_and_entries_are_grouped() {
     assert_eq!(sections, sorted);
     assert_eq!(
         Section::ALL.map(Section::title),
-        ["Appearance", "Font", "Window", "Terminal", "Prompt", "Keys"]
+        [
+            "Appearance",
+            "Font",
+            "Window",
+            "Panels",
+            "Terminal",
+            "Prompt",
+            "Keys"
+        ]
     );
     assert_eq!(setting("shell.program").section, Section::Terminal);
     assert_eq!(setting("scrollback.lines").section, Section::Terminal);
@@ -559,4 +569,50 @@ fn prompt_order_editing_validates_and_normalizes_segment_names() {
     assert_eq!(default_value(setting("prompt.time_format")), text("24h"));
     assert_eq!(default_value(setting("prompt.date_format")), text("iso"));
     assert_eq!(default_value(setting("prompt.date")), Value::Bool(false));
+}
+
+#[test]
+fn the_panels_section_sets_the_tab_bar_position_and_width() {
+    let position = setting("tabs.position");
+    assert_eq!(position.section, Section::Panels);
+    assert_eq!(position.title, "Tab bar");
+    assert_eq!(
+        position.kind,
+        Kind::Choice(Choices::Of(&["top", "left", "right"]))
+    );
+    assert_eq!(default_value(position), text("top"));
+    assert_eq!(position.step(&text("top"), 1, &[]), Some(text("left")));
+    assert_eq!(position.step(&text("top"), -1, &[]), Some(text("right")));
+    let width = setting("tabs.width");
+    assert_eq!(width.section, Section::Panels);
+    assert_eq!(width.title, "Tab panel width");
+    assert_eq!(
+        width.kind,
+        Kind::Integer {
+            step: 10,
+            min: 120,
+            max: 480
+        }
+    );
+    assert_eq!(default_value(width), Value::Integer(200));
+    assert_eq!(
+        width.parse("90"),
+        Err("enter a whole number from 120 to 480".to_owned())
+    );
+    assert_eq!(width.parse("300"), Ok(Some(Value::Integer(300))));
+    assert_eq!(
+        width.step(&Value::Integer(475), 1, &[]),
+        Some(Value::Integer(480))
+    );
+    let mut config = Config::default();
+    config.tabs.position = TabsPosition::Right;
+    config.tabs.width = 320;
+    assert_eq!(position.value(&config, &config.theme()), text("right"));
+    assert_eq!(width.value(&config, &config.theme()), Value::Integer(320));
+}
+
+#[test]
+fn an_out_of_range_tabs_width_in_the_file_is_an_edit_error() {
+    assert!(apply("", "tabs.width", Some(&Value::Integer(90))).is_err());
+    assert!(apply("", "tabs.width", Some(&Value::Integer(480))).is_ok());
 }

@@ -365,6 +365,8 @@ fn chrome_status() -> StatusLine {
                 program: String::new(),
                 active: false,
                 last: true,
+                activity: false,
+                bell: false,
             },
             StatusWindow {
                 id: WindowId(2),
@@ -373,6 +375,8 @@ fn chrome_status() -> StatusLine {
                 program: String::new(),
                 active: true,
                 last: false,
+                activity: false,
+                bell: false,
             },
         ],
     }

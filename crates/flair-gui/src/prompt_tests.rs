@@ -33,6 +33,8 @@ fn status() -> StatusLine {
                 program: String::new(),
                 active: index == 2,
                 last: false,
+                activity: false,
+                bell: false,
             })
             .collect(),
         pending: None,

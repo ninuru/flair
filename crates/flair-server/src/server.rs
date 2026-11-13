@@ -93,6 +93,7 @@ impl Server {
                 if let Some(pane) = self.panes.get_mut(&id) {
                     pane.terminal.advance(&bytes);
                     pane.dirty = true;
+                    self.alert(id, false);
                     self.terminal_events(now, id, before, out);
                     self.want_process(now, id, out);
                 }
@@ -196,6 +197,8 @@ impl Server {
                         prefix: PrefixMachine::default(),
                         status: None,
                         finished: BTreeSet::new(),
+                        activity_windows: BTreeSet::new(),
+                        bell_windows: BTreeSet::new(),
                         last_click: None,
                         selecting: false,
                         mouse: None,
@@ -341,6 +344,7 @@ impl Server {
                     }
                 }
                 TermEvent::Bell => {
+                    self.alert(pane, true);
                     for id in self
                         .clients
                         .keys()

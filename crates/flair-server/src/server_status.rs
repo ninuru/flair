@@ -15,7 +15,7 @@ impl Server {
     pub(super) fn status_line(&self, id: ClientId) -> Option<StatusLine> {
         let client = self.clients.get(&id)?;
         let session = self.tree.session(client.view.session)?;
-        let windows = self.window_entries(session, client.view.window, client.view.last_window);
+        let windows = self.window_entries(id, session, client.view.window, client.view.last_window);
         Some(StatusLine {
             session: session.name.clone(),
             hidden: u16::try_from(self.tree.sessions.len() - 1).unwrap_or(u16::MAX),
@@ -43,10 +43,12 @@ impl Server {
 
     pub(super) fn window_entries(
         &self,
+        id: ClientId,
         session: &Session,
         active: WindowId,
         last: Option<WindowId>,
     ) -> Vec<StatusWindow> {
+        let client = self.clients.get(&id);
         session
             .windows
             .iter()
@@ -60,9 +62,32 @@ impl Server {
                     program,
                     active: window.id == active,
                     last: Some(window.id) == last,
+                    activity: client
+                        .is_some_and(|client| client.activity_windows.contains(&window.id)),
+                    bell: client.is_some_and(|client| client.bell_windows.contains(&window.id)),
                 }
             })
             .collect()
+    }
+
+    pub(super) fn alert(&mut self, pane: PaneId, bell: bool) {
+        let Some((session, window)) = self.tree.sessions.iter().find_map(|session| {
+            session
+                .windows
+                .iter()
+                .find(|window| window.panes.contains(&pane))
+                .map(|window| (session.id, window.id))
+        }) else {
+            return;
+        };
+        for client in self.clients.values_mut() {
+            if client.view.session == session && client.view.window != window {
+                client.activity_windows.insert(window);
+                if bell {
+                    client.bell_windows.insert(window);
+                }
+            }
+        }
     }
 
     fn process(&self, pane: PaneId) -> (String, String) {
@@ -157,10 +182,20 @@ impl Server {
 
     pub(super) fn flush_status(&mut self, out: &mut Vec<Effect>) {
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
+        let windows: BTreeSet<WindowId> = self
+            .tree
+            .sessions
+            .iter()
+            .flat_map(|session| session.windows.iter().map(|window| window.id))
+            .collect();
         for id in ids {
             let client = self.clients.get_mut(&id).unwrap();
             let current = client.view.session;
             client.finished.remove(&current);
+            let shown = client.view.window;
+            let keep = |window: &WindowId| *window != shown && windows.contains(window);
+            client.activity_windows.retain(keep);
+            client.bell_windows.retain(keep);
             let Some(line) = self.status_line(id) else {
                 continue;
             };

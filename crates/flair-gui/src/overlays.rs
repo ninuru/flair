@@ -151,6 +151,7 @@ impl Overlays {
             | ServerMsg::Title(_)
             | ServerMsg::Bell
             | ServerMsg::ToggleZen
+            | ServerMsg::ToggleTabs
             | ServerMsg::SetClipboard { .. }
             | ServerMsg::Layout(_)
             | ServerMsg::Status(_)

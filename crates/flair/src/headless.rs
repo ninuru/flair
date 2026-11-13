@@ -192,6 +192,7 @@ impl Capture {
             | ServerMsg::ChooseWindow
             | ServerMsg::ChooseTheme
             | ServerMsg::Settings
+            | ServerMsg::ToggleTabs
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }

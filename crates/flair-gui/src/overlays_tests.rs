@@ -161,6 +161,8 @@ fn sessions() -> ServerMsg {
                     program: String::new(),
                     active: true,
                     last: false,
+                    activity: false,
+                    bell: false,
                 }],
             })
             .collect(),
@@ -208,6 +210,8 @@ fn windows() -> StatusLine {
                 program: String::new(),
                 active: index == 1,
                 last: false,
+                activity: false,
+                bell: false,
             })
             .collect(),
         ..StatusLine::default()
@@ -556,7 +560,7 @@ fn settings_hits_and_rows_route_to_the_page() {
     );
     assert_eq!(settings_page(&mut overlays).focus, Some(2));
     assert_eq!(
-        overlays.click(OverlayHit::Settings(SettingsHit::Section(5))),
+        overlays.click(OverlayHit::Settings(SettingsHit::Section(6))),
         OverlayEvent::Settings(SettingsOutcome::Pending)
     );
     assert_eq!(settings_page(&mut overlays).crumb, "Keys");

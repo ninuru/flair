@@ -1,6 +1,6 @@
 use super::*;
 use flair_core::{
-    command::Command,
+    command::{Command, WindowRef},
     geom::{Axis, CellPoint, GridSize},
     key::{Key, KeyAction, Locks, Mods, NamedKey},
     proto::ClientKind,
@@ -112,12 +112,9 @@ fn status_follows_windows_titles_renames_and_last_window() {
         ClientMsg::Command(Command::RenameWindow(Some("edit".into()))),
     );
     assert_eq!(status(&out).unwrap().windows[1].name, "edit");
-    let mut out = Vec::new();
-    server.handle(
-        Millis(4),
-        Event::PtyOutput(first_pane, b"x".to_vec()),
-        &mut out,
-    );
+    let out = output(&mut server, 4, first_pane, b"x");
+    assert!(status(&out).unwrap().windows[0].activity);
+    let out = output(&mut server, 5, first_pane, b"y");
     assert_eq!(status(&out), None);
 }
 
@@ -710,6 +707,114 @@ fn killing_the_last_running_pane_forgets_the_reaped_session() {
     let line = status(&out).unwrap();
     assert!(!line.running && !line.finished);
     assert!(server.clients[&ClientId(1)].finished.is_empty());
+}
+
+fn flags(line: &StatusLine) -> Vec<(bool, bool)> {
+    line.windows
+        .iter()
+        .map(|window| (window.activity, window.bell))
+        .collect()
+}
+
+fn hello_main(server: &mut Server, now: u64) {
+    let mut out = Vec::new();
+    server.handle(Millis(now), Event::Client(ClientId(2), hello()), &mut out);
+}
+
+#[test]
+fn output_in_a_background_window_marks_activity_only_where_it_is_hidden() {
+    let mut server = setup();
+    hello_main(&mut server, 1);
+    let out = send(&mut server, 2, ClientMsg::Command(Command::NewWindow));
+    assert_eq!(flags(status(&out).unwrap()), [(false, false); 2]);
+    let out = output(&mut server, 3, PaneId(1), b"build done");
+    assert_eq!(
+        flags(status(&out).unwrap()),
+        [(true, false), (false, false)]
+    );
+    assert_eq!(status_for(&out, ClientId(2)), None);
+    assert!(server.clients[&ClientId(2)].activity_windows.is_empty());
+    let out = output(&mut server, 4, PaneId(2), b"prompt");
+    assert_eq!(status(&out), None);
+    assert_eq!(
+        flags(status_for(&out, ClientId(2)).unwrap()),
+        [(false, false), (true, false)]
+    );
+}
+
+#[test]
+fn a_bell_in_a_background_window_marks_bell_and_activity() {
+    let mut server = setup();
+    send(&mut server, 1, ClientMsg::Command(Command::NewWindow));
+    let out = output(&mut server, 2, PaneId(1), b"\x07");
+    assert_eq!(flags(status(&out).unwrap()), [(true, true), (false, false)]);
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::Send(_, ServerMsg::Bell)))
+    );
+    let out = output(&mut server, 3, PaneId(2), b"\x07");
+    assert_eq!(status(&out), None);
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::Bell)))
+    );
+}
+
+#[test]
+fn selecting_a_marked_window_clears_its_marks() {
+    let mut server = setup();
+    send(&mut server, 1, ClientMsg::Command(Command::NewWindow));
+    output(&mut server, 2, PaneId(1), b"\x07");
+    let out = send(
+        &mut server,
+        3,
+        ClientMsg::Command(Command::SelectWindow(WindowRef::Index(1))),
+    );
+    assert_eq!(flags(status(&out).unwrap()), [(false, false); 2]);
+    let client = &server.clients[&ClientId(1)];
+    assert!(client.activity_windows.is_empty() && client.bell_windows.is_empty());
+    let out = send(&mut server, 4, ClientMsg::Command(Command::LastWindow));
+    assert_eq!(flags(status(&out).unwrap()), [(false, false); 2]);
+}
+
+#[test]
+fn a_client_in_another_session_is_not_marked() {
+    let mut server = setup();
+    create_work(&mut server);
+    attach_work(&mut server, 2);
+    send(&mut server, 3, ClientMsg::Command(Command::NewWindow));
+    let out = output(&mut server, 4, PaneId(1), b"\x07");
+    assert_eq!(flags(status(&out).unwrap()), [(true, true), (false, false)]);
+    assert_eq!(status_for(&out, ClientId(2)), None);
+    let out = output(&mut server, 5, PaneId(2), b"\x07");
+    assert_eq!(status(&out), None);
+    let work = &server.clients[&ClientId(2)];
+    assert!(work.activity_windows.is_empty() && work.bell_windows.is_empty());
+    assert!(
+        !server.clients[&ClientId(1)]
+            .activity_windows
+            .contains(&WindowId(2))
+    );
+}
+
+#[test]
+fn marks_of_a_closed_window_are_dropped() {
+    let mut server = setup();
+    send(&mut server, 1, ClientMsg::Command(Command::NewWindow));
+    send(&mut server, 2, ClientMsg::Command(Command::NewWindow));
+    output(&mut server, 3, PaneId(1), b"\x07");
+    assert!(
+        server.clients[&ClientId(1)]
+            .bell_windows
+            .contains(&WindowId(1))
+    );
+    send(
+        &mut server,
+        4,
+        ClientMsg::Command(Command::KillWindow(WindowId(1))),
+    );
+    let client = &server.clients[&ClientId(1)];
+    assert!(client.activity_windows.is_empty() && client.bell_windows.is_empty());
 }
 
 #[path = "server_status_process_tests.rs"]

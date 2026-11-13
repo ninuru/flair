@@ -60,7 +60,7 @@ fn reset_removes_overrides_and_cancel_restores_saved_prompt() {
 fn editor_actions_reach_the_settings_save_and_cancel_flow() {
     let config = Config::default();
     let mut page = SettingsPage::new(&config, config.theme(), String::new(), Vec::new());
-    page.click(SettingsHit::Section(4));
+    page.click(SettingsHit::Section(5));
     assert!(page.is_prompt_editor());
     page.click(SettingsHit::PromptEditor(PromptAction::Select(Chip::Date)));
     let preview = page.click(SettingsHit::PromptEditor(PromptAction::Toggle));
@@ -90,7 +90,7 @@ fn compact_editor_keeps_save_visible_and_scrolls_to_every_option() {
     let mut config = Config::default();
     config.prompt.path = flair_core::config::PromptPath::Full;
     let mut page = SettingsPage::new(&config, config.theme(), String::new(), Vec::new());
-    page.click(SettingsHit::Section(4));
+    page.click(SettingsHit::Section(5));
     page.click(SettingsHit::PromptEditor(PromptAction::Path));
     page.click(SettingsHit::PromptEditor(PromptAction::Colour));
     let theme = config.theme();
@@ -187,7 +187,7 @@ fn the_tray_offers_every_segment_but_the_exit_status() {
 fn search_typing_from_the_prompt_editor_never_runs_segment_shortcuts() {
     let config = Config::default();
     let mut page = SettingsPage::new(&config, config.theme(), String::new(), Vec::new());
-    page.click(SettingsHit::Section(4));
+    page.click(SettingsHit::Section(5));
     page.click(SettingsHit::PromptEditor(PromptAction::Colour));
     let draft = page.prompt_editor().draft.clone();
     page.click(SettingsHit::Search);
@@ -229,7 +229,7 @@ fn editor_disables_unchanged_save_and_moves_past_the_first_segment() {
 fn polished_scene(editor: &PromptEditor, hover: Option<(f32, f32)>) -> OverlayScene {
     let config = Config::default();
     let mut page = SettingsPage::new(&config, config.theme(), String::new(), Vec::new());
-    page.click(SettingsHit::Section(4));
+    page.click(SettingsHit::Section(5));
     let theme = config.theme();
     let metrics = CellMetrics {
         width: 8.0,
@@ -325,7 +325,7 @@ fn every_option_remains_reachable_in_narrow_and_short_windows() {
     for size in [(640, 600), (960, 500)] {
         let config = Config::default();
         let mut page = SettingsPage::new(&config, config.theme(), String::new(), Vec::new());
-        page.click(SettingsHit::Section(4));
+        page.click(SettingsHit::Section(5));
         page.click(SettingsHit::PromptEditor(PromptAction::Path));
         let theme = config.theme();
         let metrics = CellMetrics {
@@ -397,7 +397,7 @@ fn rendered_scroll_bounds_reach_the_end_and_reverse_without_a_dead_zone() {
         Path::new("/nonexistent/flair.toml"),
     );
     let page = overlays.settings_mut().unwrap();
-    page.click(SettingsHit::Section(4));
+    page.click(SettingsHit::Section(5));
     page.click(SettingsHit::PromptEditor(PromptAction::Path));
     let theme = config.theme();
     let metrics = CellMetrics {

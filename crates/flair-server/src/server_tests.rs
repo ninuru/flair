@@ -850,6 +850,47 @@ fn mouse_selection_sends_primary_and_clipboard_and_typing_clears_overlay() {
     assert!(server.panes[&PaneId(1)].terminal.selection_text().is_none());
 }
 
+#[test]
+fn prefix_b_toggles_tabs_only_for_the_issuing_client() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut second = Vec::new();
+    server.handle(Millis(2), Event::Client(ClientId(2), hello()), &mut second);
+    ack(&mut server, &second);
+    let mut out = Vec::new();
+    server.handle(
+        Millis(3),
+        Event::Client(ClientId(1), key('a', true)),
+        &mut out,
+    );
+    out.clear();
+    server.handle(
+        Millis(4),
+        Event::Client(ClientId(1), key('b', false)),
+        &mut out,
+    );
+    server.handle(
+        Millis(5),
+        Event::Client(ClientId(2), ClientMsg::Command(Command::ToggleTabs)),
+        &mut out,
+    );
+    let tabs: Vec<_> = out
+        .iter()
+        .filter_map(|effect| {
+            if let Effect::Send(client, ServerMsg::ToggleTabs) = effect {
+                Some(*client)
+            } else {
+                None
+            }
+        })
+        .collect();
+    assert_eq!(tabs, [ClientId(1), ClientId(2)]);
+    assert!(!out.iter().any(|effect| matches!(
+        effect,
+        Effect::Send(_, ServerMsg::Layout(_)) | Effect::ResizePty(..) | Effect::WritePty(..)
+    )));
+}
+
 #[path = "server_windows_tests.rs"]
 mod windows;
 

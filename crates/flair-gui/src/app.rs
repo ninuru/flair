@@ -484,6 +484,7 @@ impl ApplicationHandler<UserEvent> for App {
                 | ServerMsg::PromptSearch { .. }
                 | ServerMsg::ChooseTheme
                 | ServerMsg::Settings
+                | ServerMsg::ToggleTabs
                 | ServerMsg::Sessions(_)
                 | ServerMsg::PaneProcesses(_)
                 | ServerMsg::Done => {}

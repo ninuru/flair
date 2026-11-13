@@ -37,6 +37,8 @@ fn fixture() -> StatusLine {
                 program: String::new(),
                 active: true,
                 last: false,
+                activity: false,
+                bell: false,
             },
             StatusWindow {
                 id: WindowId(2),
@@ -45,6 +47,8 @@ fn fixture() -> StatusLine {
                 program: String::new(),
                 active: false,
                 last: true,
+                activity: false,
+                bell: false,
             },
         ],
         pending: None,
@@ -78,6 +82,8 @@ fn overflow_keeps_the_active_window_visible_and_hides_others() {
                 program: String::new(),
                 active: index == 30,
                 last: false,
+                activity: false,
+                bell: false,
             })
             .collect(),
         ..fixture()
@@ -245,6 +251,8 @@ fn status_text_keeps_wide_and_combining_characters_whole() {
                 program: String::new(),
                 active: false,
                 last: false,
+                activity: false,
+                bell: false,
             },
             StatusWindow {
                 id: WindowId(2),
@@ -253,6 +261,8 @@ fn status_text_keeps_wide_and_combining_characters_whole() {
                 program: String::new(),
                 active: true,
                 last: false,
+                activity: false,
+                bell: false,
             },
         ],
         pending: Some("^A".into()),

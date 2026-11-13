@@ -461,6 +461,8 @@ fn scaled_status() -> StatusLine {
                 program: String::new(),
                 active: index == 2,
                 last: index == 1,
+                activity: false,
+                bell: false,
             })
             .collect(),
         pending: Some("^A".into()),
@@ -487,6 +489,8 @@ fn overlay_messages() -> [ServerMsg; 3] {
                             program: String::new(),
                             active: index == 1,
                             last: false,
+                            activity: false,
+                            bell: false,
                         })
                         .collect(),
                 })
