@@ -118,11 +118,12 @@ impl Panels {
         if pages.explorer == 0 {
             self.focused = false;
         }
-        let before = self.tabs_scroll;
+        let before = (self.tabs_scroll, self.explorer.scroll());
         if let Some(active) = self.reveal.take() {
             self.reveal_tab(active);
         }
-        self.tabs_scroll != before
+        self.explorer.set_page(pages.explorer);
+        (self.tabs_scroll, self.explorer.scroll()) != before
     }
 
     pub fn reveal_tab(&mut self, active: usize) {

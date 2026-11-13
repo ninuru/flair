@@ -559,3 +559,24 @@ fn a_listing_between_two_clicks_never_turns_them_into_a_double_click() {
         ExplorerOutcome::Redraw
     );
 }
+
+#[test]
+fn the_tree_scroll_never_leaves_blank_rows_below_the_last_entry() {
+    let mut panels = opened(false);
+    panels.show_hidden(true);
+    panels.place(Pages {
+        tabs: 0,
+        explorer: 2,
+    });
+    panels.scroll_explorer(5);
+    assert_eq!(panels.explorer.scroll(), 2);
+    panels.show_hidden(false);
+    assert_eq!(panels.explorer.scroll(), 1);
+    panels.show_hidden(true);
+    panels.scroll_explorer(5);
+    assert!(panels.place(Pages {
+        tabs: 0,
+        explorer: 4,
+    }));
+    assert_eq!(panels.explorer.scroll(), 0);
+}

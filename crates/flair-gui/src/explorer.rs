@@ -61,6 +61,7 @@ pub struct Explorer {
     expanded: BTreeSet<PathBuf>,
     selected: Option<PathBuf>,
     scroll: usize,
+    page: usize,
     show_hidden: bool,
     filter: Option<String>,
     editing: bool,
@@ -127,6 +128,11 @@ impl Explorer {
         self.rows
             .iter()
             .position(|row| entry(&row.kind) && row.path == *selected)
+    }
+
+    pub fn set_page(&mut self, page: usize) {
+        self.page = page;
+        self.scroll = self.scroll.min(self.rows.len().saturating_sub(page.max(1)));
     }
 
     pub fn scroll(&self) -> usize {
@@ -457,7 +463,7 @@ impl Explorer {
             .and_then(|selected| selected.ancestors().find(|path| found(path)))
             .unwrap_or(root)
             .to_path_buf();
-        self.scroll = self.scroll.min(rows.len() - 1);
+        self.scroll = self.scroll.min(rows.len().saturating_sub(self.page.max(1)));
         self.selected = Some(selected);
         self.rows = rows;
     }
