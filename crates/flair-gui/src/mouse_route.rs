@@ -20,19 +20,20 @@ pub(crate) enum Capture {
     Idle,
     Server,
     Bar,
+    Panel,
     Overlay,
 }
 
 pub(crate) fn route_mouse(
-    in_bar: bool,
+    in_chrome: bool,
     button: MouseButton,
     action: MouseAction,
     capture: Capture,
 ) -> MouseRoute {
     match capture {
         Capture::Server => MouseRoute::Server,
-        Capture::Bar | Capture::Overlay => MouseRoute::Drop,
-        Capture::Idle if !in_bar => MouseRoute::Server,
+        Capture::Bar | Capture::Panel | Capture::Overlay => MouseRoute::Drop,
+        Capture::Idle if !in_chrome => MouseRoute::Server,
         Capture::Idle if button == MouseButton::Left && action == MouseAction::Press => {
             MouseRoute::Bar
         }
@@ -42,9 +43,16 @@ pub(crate) fn route_mouse(
 
 pub(crate) fn bar_command(target: HitTarget) -> Option<Command> {
     match target {
-        HitTarget::Window(window) => Some(Command::SelectWindow(WindowRef::Id(window))),
+        HitTarget::Window(window) | HitTarget::Tab(window) => {
+            Some(Command::SelectWindow(WindowRef::Id(window)))
+        }
         HitTarget::Session => Some(Command::ChooseSession),
-        HitTarget::Prompt { .. } => None,
+        HitTarget::NewTab => Some(Command::NewWindow),
+        HitTarget::CloseTab(window) => Some(Command::KillWindow(window)),
+        HitTarget::Prompt { .. }
+        | HitTarget::Edge(_)
+        | HitTarget::Switch(_)
+        | HitTarget::PanelBody => None,
     }
 }
 
@@ -57,7 +65,11 @@ pub(crate) fn capture_after(
     match (action, capture, route) {
         (MouseAction::Release, _, _) => Capture::Idle,
         (MouseAction::Motion, _, _)
-        | (MouseAction::Press, Capture::Server | Capture::Bar | Capture::Overlay, _) => capture,
+        | (
+            MouseAction::Press,
+            Capture::Server | Capture::Bar | Capture::Panel | Capture::Overlay,
+            _,
+        ) => capture,
         (MouseAction::Press, Capture::Idle, MouseRoute::Bar) => Capture::Bar,
         (MouseAction::Press, Capture::Idle, MouseRoute::Server)
             if matches!(

@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     CellMetrics, Fonts,
     chrome_bar::opaque,
-    chrome_layout::{self, ChromeInput, ChromeLayout, bar_height, grid_origin, grid_size},
+    chrome_layout::{self, ChromeInput, ChromeLayout, Dock, bar_height, grid_origin, grid_size},
     isles::Isles,
     overlays::Overlays,
     renderer::{HeadlessContext, Renderer},
@@ -477,7 +477,11 @@ fn draw_chrome_frame(
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
     );
-    let size = grid_size((W, H), padding, 1.0, false, metrics);
+    let size = grid_size(
+        &chrome_layout::frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        padding,
+        metrics,
+    );
     let (mirror, layout) = split_frame(size);
     let mut grid = compose_frame(&mirror, &layout, size, &theme, true);
     if let Some((first, rest)) = paint {
@@ -532,6 +536,8 @@ fn draw_chrome_frame(
         overlays: Some(&overlays),
         notice: None,
         isles: None,
+        frame: chrome_layout::frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        panels: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -599,7 +605,11 @@ fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
     );
-    let origin = grid_origin((800, 300), padding, 1.0, false, metrics);
+    let origin = grid_origin(
+        &chrome_layout::frame((800, 300), 1.0, false, padding, metrics, Dock::default()),
+        padding,
+        metrics,
+    );
     assert!(
         origin.0 >= padding.0 && origin.1 >= 35.0 + padding.1,
         "{origin:?}"
@@ -618,7 +628,11 @@ fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
         frame.at(origin.0 - 1.0, origin.1 + 1.0),
         rgb(theme.foreground)
     );
-    let size = grid_size((800, 300), padding, 1.0, false, metrics);
+    let size = grid_size(
+        &chrome_layout::frame((800, 300), 1.0, false, padding, metrics, Dock::default()),
+        padding,
+        metrics,
+    );
     let bottom = origin.1 + f32::from(size.rows) * metrics.height;
     assert!(
         (300.0 - padding.1 - bottom).abs() < 1.0,
@@ -660,7 +674,11 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
     );
-    let size = grid_size((800, 300), padding, 1.0, false, metrics);
+    let size = grid_size(
+        &chrome_layout::frame((800, 300), 1.0, false, padding, metrics, Dock::default()),
+        padding,
+        metrics,
+    );
     let right = origin.0 + f32::from(size.cols) * metrics.width;
     let bottom = origin.1 + f32::from(size.rows) * metrics.height;
     let row = origin.1 + metrics.height * 3.5;
@@ -922,7 +940,11 @@ fn gpu_frame_draws_chips_on_each_panes_shell_prompt_row() {
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
     );
-    let size = grid_size((W, H), padding, 1.0, false, metrics);
+    let size = grid_size(
+        &chrome_layout::frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        padding,
+        metrics,
+    );
     let (mut mirror, layout) = split_frame(size);
     let updates: Vec<_> = layout
         .panes
@@ -979,6 +1001,8 @@ fn gpu_frame_draws_chips_on_each_panes_shell_prompt_row() {
             date: Some((2026, 11, 10)),
             home: Some(Path::new("/home/ada")),
         }),
+        frame: chrome_layout::frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        panels: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -994,7 +1018,11 @@ fn gpu_frame_draws_chips_on_each_panes_shell_prompt_row() {
     drop(renderer);
     drop(ctx);
     frame.dump("FLAIR_BAND_PPM");
-    let origin = grid_origin((W, H), padding, 1.0, false, metrics);
+    let origin = grid_origin(
+        &chrome_layout::frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        padding,
+        metrics,
+    );
     let prompt_y = origin.1 + 2.0 * metrics.height;
     let chips: Vec<_> = chrome
         .chrome

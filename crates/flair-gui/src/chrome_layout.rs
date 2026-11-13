@@ -1,5 +1,5 @@
 use flair_core::{
-    config::WindowConfig,
+    config::{EXPLORER_WIDTH, Side, TABS_WIDTH, WindowConfig},
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::{PaneId, WindowId},
     isles::Chip,
@@ -14,10 +14,57 @@ use crate::{
     notice::Notice,
     overlay_layout::{OverlayHits, OverlayInput},
     overlays::Overlays,
+    panel_layout,
+    panels::{Pages, Panels},
     renderer::{Chrome, PxRect},
     status::StatusParts,
     ui::{BAR, LINE, px},
 };
+
+pub const MIN_GRID_COLS: u16 = 20;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PanelView {
+    #[default]
+    Tabs,
+    Explorer,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Dock {
+    pub tabs: Option<(Side, f32)>,
+    pub explorer: Option<(Side, f32)>,
+    pub shown: PanelView,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Slot {
+    pub side: Side,
+    pub rect: PxRect,
+    pub view: PanelView,
+    pub shared: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Frame {
+    pub left: Option<Slot>,
+    pub right: Option<Slot>,
+    pub grid: PxRect,
+    pub bar_tabs: bool,
+}
+
+impl Frame {
+    pub fn slots(&self) -> impl Iterator<Item = Slot> {
+        self.left.into_iter().chain(self.right)
+    }
+
+    pub fn slot(&self, side: Side) -> Option<Slot> {
+        match side {
+            Side::Left => self.left,
+            Side::Right => self.right,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BarField<'a> {
@@ -41,6 +88,8 @@ pub struct ChromeInput<'a> {
     pub overlays: Option<&'a Overlays>,
     pub notice: Option<&'a Notice>,
     pub isles: Option<Isles<'a>>,
+    pub frame: Frame,
+    pub panels: Option<&'a Panels>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,6 +97,12 @@ pub enum HitTarget {
     Window(WindowId),
     Session,
     Prompt { pane: PaneId, row: u16, chip: Chip },
+    Tab(WindowId),
+    NewTab,
+    CloseTab(WindowId),
+    Edge(Side),
+    Switch(PanelView),
+    PanelBody,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -61,6 +116,7 @@ pub struct ChromeLayout {
     pub chrome: Chrome,
     pub hits: Vec<Hit>,
     pub overlay: Option<OverlayHits>,
+    pub pages: Pages,
 }
 
 pub fn bar_height(scale: f32) -> f32 {
@@ -84,32 +140,138 @@ pub fn padding(window: &WindowConfig, scale: f64, zen: bool) -> (f32, f32) {
     }
 }
 
-pub fn grid_origin(
+pub fn frame(
     px: (u32, u32),
-    padding: (f32, f32),
     scale: f32,
     zen: bool,
+    padding: (f32, f32),
     metrics: CellMetrics,
-) -> (f32, f32) {
-    let size = grid_size(px, padding, scale, zen, metrics);
-    let top = chrome_top(scale, zen) + padding.1;
-    let width = px.0 as f32 - padding.0 * 2.0 - f32::from(size.cols) * metrics.width;
-    let height = px.1 as f32 - top - padding.1 - f32::from(size.rows) * metrics.height;
+    dock: Dock,
+) -> Frame {
+    let top = chrome_top(scale, zen);
+    let width = px.0 as f32;
+    let height = (px.1 as f32 - top).max(0.0);
+    let room = width - padding.0 * 2.0 - f32::from(MIN_GRID_COLS) * metrics.width;
+    let mut dock = match zen {
+        true => Dock::default(),
+        false => dock,
+    };
+    let mut sides = (wants(dock, Side::Left), wants(dock, Side::Right));
+    while sides.0.map_or(0.0, |want| want.min(scale)) + sides.1.map_or(0.0, |want| want.min(scale))
+        > room
+    {
+        match (dock.explorer.is_some(), dock.tabs.is_some()) {
+            (true, _) => dock.explorer = None,
+            (false, true) => dock.tabs = None,
+            (false, false) => break,
+        }
+        sides = (wants(dock, Side::Left), wants(dock, Side::Right));
+    }
+    let left = sides.0.map(|want| {
+        want.width(scale)
+            .min(room - sides.1.map_or(0.0, |want| want.min(scale)))
+    });
+    let right = sides
+        .1
+        .map(|want| want.width(scale).min(room - left.unwrap_or(0.0)));
+    let slot = |side, want: Option<Want>, w: Option<f32>, x: f32| {
+        want.zip(w).map(|(want, w)| Slot {
+            side,
+            rect: PxRect {
+                x,
+                y: top,
+                w,
+                h: height,
+            },
+            view: want.view,
+            shared: want.shared,
+        })
+    };
+    let left_width = left.unwrap_or(0.0);
+    let right_width = right.unwrap_or(0.0);
+    Frame {
+        left: slot(Side::Left, sides.0, left, 0.0),
+        right: slot(Side::Right, sides.1, right, width - right_width),
+        grid: PxRect {
+            x: left_width,
+            y: top,
+            w: (width - left_width - right_width).max(0.0),
+            h: height,
+        },
+        bar_tabs: dock.tabs.is_none(),
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Want {
+    view: PanelView,
+    shared: bool,
+    width: f32,
+    min: f32,
+}
+
+impl Want {
+    fn width(self, scale: f32) -> f32 {
+        px(self.width.max(self.min), scale)
+    }
+
+    fn min(self, scale: f32) -> f32 {
+        px(self.min, scale)
+    }
+}
+
+fn wants(dock: Dock, side: Side) -> Option<Want> {
+    let on = |entry: Option<(Side, f32)>| entry.filter(|(at, _)| *at == side).map(|(_, w)| w);
+    let explorer = |width| Want {
+        view: PanelView::Explorer,
+        shared: false,
+        width,
+        min: f32::from(EXPLORER_WIDTH.0),
+    };
+    match (on(dock.tabs), on(dock.explorer)) {
+        (None, None) => None,
+        (Some(width), None) => Some(Want {
+            view: PanelView::Tabs,
+            shared: false,
+            width,
+            min: f32::from(TABS_WIDTH.0),
+        }),
+        (None, Some(width)) => Some(explorer(width)),
+        (Some(_), Some(width)) => Some(Want {
+            view: dock.shown,
+            shared: true,
+            ..explorer(width)
+        }),
+    }
+}
+
+pub fn max_width(
+    frame: &Frame,
+    side: Side,
+    padding: (f32, f32),
+    metrics: CellMetrics,
+    scale: f32,
+) -> f32 {
+    let slot = frame.slot(side).map_or(0.0, |slot| slot.rect.w);
+    let room = slot + frame.grid.w - padding.0 * 2.0 - f32::from(MIN_GRID_COLS) * metrics.width;
+    (room / scale).floor()
+}
+
+pub fn grid_origin(frame: &Frame, padding: (f32, f32), metrics: CellMetrics) -> (f32, f32) {
+    let size = grid_size(frame, padding, metrics);
+    let grid = frame.grid;
+    let top = grid.y + padding.1;
+    let width = grid.w - padding.0 * 2.0 - f32::from(size.cols) * metrics.width;
+    let height = grid.y + grid.h - top - padding.1 - f32::from(size.rows) * metrics.height;
     (
-        padding.0 + (width.max(0.0) / 2.0).floor(),
+        grid.x + padding.0 + (width.max(0.0) / 2.0).floor(),
         top + height.max(0.0).floor(),
     )
 }
 
-pub fn grid_size(
-    px: (u32, u32),
-    padding: (f32, f32),
-    scale: f32,
-    zen: bool,
-    metrics: CellMetrics,
-) -> GridSize {
-    let width = px.0 as f32 - padding.0 * 2.0;
-    let height = px.1 as f32 - chrome_top(scale, zen) - padding.1 * 2.0;
+pub fn grid_size(frame: &Frame, padding: (f32, f32), metrics: CellMetrics) -> GridSize {
+    let width = frame.grid.w - padding.0 * 2.0;
+    let height = frame.grid.h - padding.1 * 2.0;
     GridSize {
         cols: cells(width, metrics.width),
         rows: cells(height, metrics.height),
@@ -130,8 +292,6 @@ pub fn hit_test(hits: &[Hit], pos: (f64, f64)) -> Option<HitTarget> {
 
 pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -> ChromeLayout {
     let scale = input.scale;
-    let width = input.px.0 as f32;
-    let height = input.px.1 as f32;
     let mut scene = Scene::default();
     let open = input.overlays.is_some_and(Overlays::is_open);
     let bar_input = ChromeInput {
@@ -141,24 +301,25 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
     if !input.zen {
         chrome_bar::bar(&bar_input, &mut scene, &mut measure);
     }
-    let chrome = chrome_top(scale, input.zen);
-    let origin = grid_origin(input.px, input.padding, scale, input.zen, input.metrics);
-    let top = chrome + input.padding.1;
+    let origin = grid_origin(&input.frame, input.padding, input.metrics);
+    let extend = input.frame.grid;
     let clip = PxRect {
-        x: input.padding.0,
-        y: top,
-        w: (width - input.padding.0 * 2.0).max(0.0),
-        h: (height - top - input.padding.1).max(0.0),
-    };
-    let extend = PxRect {
-        x: 0.0,
-        y: chrome,
-        w: width,
-        h: (height - chrome).max(0.0),
+        x: extend.x + input.padding.0,
+        y: extend.y + input.padding.1,
+        w: (extend.w - input.padding.0 * 2.0).max(0.0),
+        h: (extend.h - input.padding.1 * 2.0).max(0.0),
     };
     if let Some(window) = input.layout {
         separators(input, window, extend, &mut scene);
         isles::band(input, window, &mut scene);
+    }
+    let mut pages = Pages::default();
+    for slot in input.frame.slots() {
+        let rows = panel_layout::draw(&bar_input, slot, &mut scene, &mut measure);
+        match slot.view {
+            PanelView::Tabs => pages.tabs = rows,
+            PanelView::Explorer => pages.explorer = rows,
+        }
     }
     if input.zen && (input.prompt.is_some() || input.notice.is_some()) {
         chrome_bar::bar(&bar_input, &mut scene, &mut measure);
@@ -193,6 +354,7 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
         },
         hits: scene.hits,
         overlay,
+        pages,
     }
 }
 
@@ -289,13 +451,7 @@ fn adjacent(separator: &Separator, pane: CellRect) -> Option<CellRect> {
 
 fn separator_rect(input: &ChromeInput, axis: Axis, rect: CellRect, bounds: PxRect) -> PxRect {
     let gap = cell_rect(input, rect);
-    let grid = grid_size(
-        input.px,
-        input.padding,
-        input.scale,
-        input.zen,
-        input.metrics,
-    );
+    let grid = grid_size(&input.frame, input.padding, input.metrics);
     let metrics = input.metrics;
     let line = px(LINE, input.scale);
     let centre = |start: f32, length: f32| (start + (length - line) / 2.0).round();
@@ -336,13 +492,7 @@ fn separator_rect(input: &ChromeInput, axis: Axis, rect: CellRect, bounds: PxRec
 }
 
 pub(crate) fn cell_rect(input: &ChromeInput, rect: CellRect) -> PxRect {
-    let origin = grid_origin(
-        input.px,
-        input.padding,
-        input.scale,
-        input.zen,
-        input.metrics,
-    );
+    let origin = grid_origin(&input.frame, input.padding, input.metrics);
     let metrics = input.metrics;
     PxRect {
         x: origin.0 + f32::from(rect.origin.col) * metrics.width,

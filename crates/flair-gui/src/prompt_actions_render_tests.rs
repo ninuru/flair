@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     Fonts,
-    chrome_layout::{self, ChromeInput, HitTarget},
+    chrome_layout::{self, ChromeInput, Dock, HitTarget, frame},
     compose::compose_frame,
     isles::Isles,
     mirror::Mirror,
@@ -41,7 +41,18 @@ fn gpu_prompt_menu_is_anchored_bounded_and_does_not_dim_the_terminal() {
         let mut fonts = Fonts::load(&config.font, f64::from(scale)).unwrap();
         let metrics = fonts.metrics();
         let padding = (8.0 * scale, 4.0 * scale);
-        let size = chrome_layout::grid_size((width, height), padding, scale, false, metrics);
+        let size = chrome_layout::grid_size(
+            &frame(
+                (width, height),
+                scale,
+                false,
+                padding,
+                metrics,
+                Dock::default(),
+            ),
+            padding,
+            metrics,
+        );
         let row = if width == 360 {
             size.rows.saturating_sub(4)
         } else {
@@ -124,6 +135,15 @@ fn gpu_prompt_menu_is_anchored_bounded_and_does_not_dim_the_terminal() {
                 date: None,
                 home: Some(Path::new("/home/developer")),
             }),
+            frame: frame(
+                (width, height),
+                scale,
+                false,
+                padding,
+                metrics,
+                Dock::default(),
+            ),
+            panels: None,
         };
         let initial = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
         let anchor = initial

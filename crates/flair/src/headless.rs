@@ -21,6 +21,7 @@ use flair_gui::{
     mirror::Mirror,
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
+    panels::Panels,
     renderer::{Chrome, HeadlessContext, Renderer},
     settings_page::SettingsOutcome,
     status::{status_parts, status_text},
@@ -91,12 +92,20 @@ struct Pixels {
     gpu: Option<(Renderer, HeadlessContext, (u32, u32))>,
 }
 impl Pixels {
-    fn grid(&self, config: &Config, zen: bool) -> Result<GridSize, String> {
-        let size = chrome_layout::grid_size(
+    fn frame(&self, config: &Config, zen: bool, panels: &Panels) -> chrome_layout::Frame {
+        chrome_layout::frame(
             self.px,
-            chrome_layout::padding(&config.window, self.scale, zen),
             self.scale as f32,
             zen,
+            chrome_layout::padding(&config.window, self.scale, zen),
+            self.fonts.metrics(),
+            panels.dock(config, zen),
+        )
+    }
+    fn grid(&self, config: &Config, zen: bool, panels: &Panels) -> Result<GridSize, String> {
+        let size = chrome_layout::grid_size(
+            &self.frame(config, zen, panels),
+            chrome_layout::padding(&config.window, self.scale, zen),
             self.fonts.metrics(),
         );
         client_size(size.cols, size.rows)
@@ -166,6 +175,7 @@ struct Capture {
     pixels: Option<Pixels>,
     home: Option<PathBuf>,
     zen: bool,
+    panels: Panels,
 }
 impl Capture {
     fn message(&mut self, message: ServerMsg, tx: &Sender<ClientMsg>) -> Result<(), String> {
@@ -192,7 +202,6 @@ impl Capture {
             | ServerMsg::ChooseWindow
             | ServerMsg::ChooseTheme
             | ServerMsg::Settings
-            | ServerMsg::ToggleTabs
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }
@@ -201,6 +210,12 @@ impl Capture {
             | ServerMsg::Done => {}
             ServerMsg::ToggleZen => {
                 self.zen = !self.zen;
+                if let Some(resize) = self.refit()? {
+                    tx.send(resize).map_err(|e| e.to_string())?;
+                }
+            }
+            ServerMsg::ToggleTabs => {
+                self.panels.toggle_tabs();
                 if let Some(resize) = self.refit()? {
                     tx.send(resize).map_err(|e| e.to_string())?;
                 }
@@ -217,6 +232,13 @@ impl Capture {
                 self.mirror.insert_history(pane, prompts);
             }
             ServerMsg::Status(status) => {
+                let active =
+                    |status: &StatusLine| status.windows.iter().position(|window| window.active);
+                if let Some(index) =
+                    active(&status).filter(|_| active(&self.status) != active(&status))
+                {
+                    self.panels.reveal_tab(index);
+                }
                 self.status = status;
             }
             ServerMsg::Frame { seq, panes } => {
@@ -460,7 +482,7 @@ impl Capture {
                     .set_notice(Notice::error(format!("font not loaded: {error}"))),
             }
         }
-        let size = pixels.grid(effective, self.zen)?;
+        let size = pixels.grid(effective, self.zen, &self.panels)?;
         if size == self.size {
             return Ok(None);
         }
@@ -477,7 +499,7 @@ impl Capture {
             .preview
             .as_ref()
             .map_or(&self.config, |preview| &preview.config);
-        self.size = pixels.grid(effective, self.zen)?;
+        self.size = pixels.grid(effective, self.zen, &self.panels)?;
         Ok(Some(ClientMsg::Resize(self.size)))
     }
 
@@ -508,10 +530,13 @@ impl Capture {
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
             isles: Some(isles(&self.mirror, &config.prompt, self.home.as_deref())),
+            frame: pixels.frame(config, self.zen, &self.panels),
+            panels: Some(&self.panels),
         };
-        let ChromeLayout { overlay, .. } =
+        let ChromeLayout { overlay, pages, .. } =
             chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
         self.overlays.place(overlay);
+        self.panels.place(pages);
     }
 
     fn capture(&mut self, output: &Path, name: &str) -> Result<(), String> {
@@ -550,12 +575,18 @@ impl Capture {
             overlays: Some(&self.overlays),
             notice: self.overlays.notice(),
             isles: Some(isles(&self.mirror, &config.prompt, self.home.as_deref())),
+            frame: pixels.frame(&config, self.zen, &self.panels),
+            panels: Some(&self.panels),
         };
         let ChromeLayout {
-            chrome, overlay, ..
+            chrome,
+            overlay,
+            pages,
+            ..
         } = chrome_layout::layout(&input, |text, bold| pixels.fonts.ui_width(text, bold));
         let image = pixels.render(&grid, &chrome, theme.background)?;
         self.overlays.place(overlay);
+        self.panels.place(pages);
         fs::write(output.join(format!("{name}.ppm")), image).map_err(|e| e.to_string())
     }
 
@@ -660,7 +691,7 @@ pub fn run(
         None => None,
     };
     let size = match &pixels {
-        Some(pixels) => pixels.grid(&config, false)?,
+        Some(pixels) => pixels.grid(&config, false, &Panels::default())?,
         None => client_size(scenario.cols, scenario.rows)?,
     };
     let config_text = fs::read_to_string(&config_path).unwrap_or_default();
@@ -722,6 +753,7 @@ pub fn run(
         pixels,
         home: shell_home,
         zen: false,
+        panels: Panels::default(),
     };
     let mut failed_step = None;
     let mut worker = None;

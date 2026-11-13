@@ -17,6 +17,8 @@ pub mod notice;
 pub mod overlay_layout;
 mod overlay_rows;
 pub mod overlays;
+mod panel_layout;
+pub mod panels;
 pub mod picker;
 pub mod preview_layout;
 pub mod probe;

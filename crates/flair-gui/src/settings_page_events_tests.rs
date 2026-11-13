@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     Fonts,
-    chrome_layout::{self, ChromeInput, grid_size},
+    chrome_layout::{self, ChromeInput, Dock, frame, grid_size},
     compose::compose,
     mirror::Mirror,
     overlays::Overlays,
@@ -256,7 +256,11 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
     );
-    let size = grid_size((W, H), padding, 1.0, false, metrics);
+    let size = grid_size(
+        &frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        padding,
+        metrics,
+    );
     let mut mirror = Mirror::default();
     mirror.apply(&[PaneUpdate {
         pane: PaneId(1),
@@ -311,6 +315,8 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         overlays: Some(&overlays),
         notice: None,
         isles: None,
+        frame: frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        panels: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();

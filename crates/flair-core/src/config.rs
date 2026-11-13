@@ -22,6 +22,7 @@ const MAX_THEME_NAME: usize = 64;
 const SELECTION_ALPHA: u8 = 0x40;
 
 pub const TABS_WIDTH: (u16, u16) = (120, 480);
+pub const EXPLORER_WIDTH: (u16, u16) = (160, 640);
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]

@@ -26,6 +26,8 @@ pub struct TabParts {
     pub name: String,
     pub active: bool,
     pub last: bool,
+    pub activity: bool,
+    pub bell: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,6 +61,8 @@ pub fn status_parts(status: &StatusLine) -> StatusParts {
                 name: window.name.clone(),
                 active: window.active,
                 last: window.last,
+                activity: window.activity,
+                bell: window.bell,
             })
             .collect(),
         badges: [

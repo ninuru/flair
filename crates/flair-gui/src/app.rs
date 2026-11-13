@@ -42,6 +42,7 @@ use crate::{
     mouse_route::{Capture, MouseRoute, bar_command, capture_after, paste_target, route_mouse},
     notice::Notice,
     overlays::{OverlayEvent, Overlays, Preview},
+    panels::Panels,
     probe::Probe,
     prompt_actions::{self, PromptAction, PromptMenu},
     renderer::{Renderer, WindowContext},
@@ -52,6 +53,8 @@ use crate::{
 
 #[path = "app_config.rs"]
 mod config;
+#[path = "app_panel.rs"]
+mod panel;
 #[path = "app_prompt_actions.rs"]
 mod prompt_actions_app;
 
@@ -110,6 +113,8 @@ struct App {
     drive: Option<(Vec<Drive>, EventLoopProxy<UserEvent>)>,
     home: Option<PathBuf>,
     zen: Zen,
+    panels: Panels,
+    resize_cursor: bool,
 }
 
 impl App {
@@ -122,49 +127,6 @@ impl App {
         self.error = Some(GuiError(error.to_string()));
         self.send(ClientMsg::Detach);
         event_loop.exit();
-    }
-    fn padding(&self, scale: f64) -> (f32, f32) {
-        chrome_layout::padding(&self.effective().window, scale, self.zen.on())
-    }
-    fn size(&self) -> GridSize {
-        let Some(surface) = &self.surface else {
-            return GridSize { cols: 80, rows: 24 };
-        };
-        let px = surface.window.inner_size();
-        let scale = surface.window.scale_factor();
-        chrome_layout::grid_size(
-            (px.width, px.height),
-            self.padding(scale),
-            scale as f32,
-            self.zen.on(),
-            surface.fonts.metrics(),
-        )
-    }
-    fn cell(&self) -> Option<CellPoint> {
-        let surface = self.surface.as_ref()?;
-        let scale = surface.window.scale_factor();
-        let px = surface.window.inner_size();
-        Some(mouse::to_cell(
-            (self.pointer.x, self.pointer.y),
-            &surface.fonts.metrics(),
-            chrome_layout::grid_origin(
-                (px.width, px.height),
-                self.padding(scale),
-                scale as f32,
-                self.zen.on(),
-                surface.fonts.metrics(),
-            ),
-            self.size(),
-        ))
-    }
-    fn in_bar(&self) -> bool {
-        !self.zen.on()
-            && self.surface.as_ref().is_some_and(|surface| {
-                self.pointer.y
-                    < f64::from(chrome_layout::bar_height(
-                        surface.window.scale_factor() as f32
-                    ))
-            })
     }
     fn request_redraw(&self) {
         if let Some(surface) = &self.surface {
@@ -232,7 +194,10 @@ impl App {
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
             (None, None) => return,
         };
-        let Some(scale) = self.surface.as_ref().map(|s| s.window.scale_factor()) else {
+        let (Some(scale), Some(frame)) = (
+            self.surface.as_ref().map(|s| s.window.scale_factor()),
+            self.frame(),
+        ) else {
             return;
         };
         let padding = self.padding(scale);
@@ -269,13 +234,17 @@ impl App {
                 date: crate::isles::local_date(),
                 home: self.home.as_deref(),
             }),
+            frame,
+            panels: Some(&self.panels),
         };
         let ChromeLayout {
             chrome,
             hits,
             overlay,
+            pages,
         } = chrome_layout::layout(&input, |text, bold| surface.fonts.ui_width(text, bold));
         self.hits = hits;
+        self.panels.place(pages);
         self.overlays.place(overlay);
         let drawn =
             surface
@@ -431,6 +400,11 @@ impl ApplicationHandler<UserEvent> for App {
                     self.send(ClientMsg::Resize(self.size()));
                     self.request_redraw();
                 }
+                ServerMsg::ToggleTabs => {
+                    self.panels.toggle_tabs();
+                    self.send(ClientMsg::Resize(self.size()));
+                    self.request_redraw();
+                }
                 ServerMsg::SetClipboard { text, primary } => {
                     if let Some(surface) = &self.surface {
                         surface.clipboard.store(text, primary);
@@ -450,6 +424,14 @@ impl ApplicationHandler<UserEvent> for App {
                     self.request_redraw();
                 }
                 ServerMsg::Status(status) => {
+                    let active = |status: &StatusLine| {
+                        status.windows.iter().position(|window| window.active)
+                    };
+                    if let Some(index) =
+                        active(&status).filter(|_| active(&self.status) != active(&status))
+                    {
+                        self.panels.reveal_tab(index);
+                    }
                     self.status = status;
                     self.request_redraw();
                 }
@@ -484,7 +466,6 @@ impl ApplicationHandler<UserEvent> for App {
                 | ServerMsg::PromptSearch { .. }
                 | ServerMsg::ChooseTheme
                 | ServerMsg::Settings
-                | ServerMsg::ToggleTabs
                 | ServerMsg::Sessions(_)
                 | ServerMsg::PaneProcesses(_)
                 | ServerMsg::Done => {}
@@ -594,6 +575,7 @@ impl ApplicationHandler<UserEvent> for App {
                 if target(self, (position.x, position.y)) != before {
                     self.request_redraw();
                 }
+                self.update_cursor();
                 if self.overlays.is_open() || self.capture == Capture::Overlay {
                     return;
                 }
@@ -620,7 +602,7 @@ impl ApplicationHandler<UserEvent> for App {
                 if button == winit::event::MouseButton::Middle
                     && let Some(point) = self.cell()
                     && route_mouse(
-                        self.in_bar(),
+                        self.in_chrome(),
                         MouseButton::Middle,
                         MouseAction::Press,
                         self.capture,
@@ -678,6 +660,9 @@ impl ApplicationHandler<UserEvent> for App {
                 if self.overlays.is_open() {
                     let event = self.overlays.wheel(-lines);
                     self.overlay_event(event);
+                    return;
+                }
+                if self.panel_wheel(lines) {
                     return;
                 }
                 let button = if lines >= 0 {
@@ -772,6 +757,8 @@ pub fn run_target(
         drive,
         home: env::var_os("HOME").map(PathBuf::from),
         zen: Zen::default(),
+        panels: Panels::default(),
+        resize_cursor: false,
     };
     if let Some(notice) = notice {
         app.overlays.set_notice(notice);

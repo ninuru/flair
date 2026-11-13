@@ -111,7 +111,7 @@ impl App {
         }
     }
 
-    fn save_setting(&mut self, key: &'static str, value: Option<Value>) {
+    pub(super) fn save_setting(&mut self, key: &'static str, value: Option<Value>) {
         match save(&self.config_path, key, value.as_ref()) {
             Ok((text, config)) => {
                 let title = position(key).map_or(key, |index| SETTINGS[index].title);

@@ -1,5 +1,7 @@
 use super::*;
+use crate::chrome_layout::PanelView;
 use flair_core::{
+    config::Side,
     geom::{CellPoint, CellRect, GridSize},
     ids::{PaneId, WindowId},
     proto::{PanePlacement, WindowLayout},
@@ -269,4 +271,61 @@ fn a_primary_paste_lands_only_in_pane_content_never_on_its_band() {
         Some(PaneId(2))
     );
     assert_eq!(paste_target(None, active, at(0, 0)), active);
+}
+
+#[test]
+fn a_panel_gesture_never_reaches_the_server() {
+    assert_eq!(
+        route_mouse(true, MouseButton::Left, MouseAction::Press, Capture::Idle),
+        MouseRoute::Bar
+    );
+    for (in_chrome, button, action) in [
+        (true, MouseButton::Left, MouseAction::Motion),
+        (false, MouseButton::Left, MouseAction::Motion),
+        (false, MouseButton::Left, MouseAction::Release),
+        (false, MouseButton::Right, MouseAction::Press),
+    ] {
+        assert_eq!(
+            route_mouse(in_chrome, button, action, Capture::Panel),
+            MouseRoute::Drop
+        );
+    }
+    assert_eq!(
+        capture_after(
+            Capture::Panel,
+            MouseButton::Left,
+            MouseAction::Motion,
+            MouseRoute::Drop
+        ),
+        Capture::Panel
+    );
+    assert_eq!(
+        capture_after(
+            Capture::Panel,
+            MouseButton::Left,
+            MouseAction::Release,
+            MouseRoute::Drop
+        ),
+        Capture::Idle
+    );
+}
+
+#[test]
+fn panel_targets_map_to_window_commands() {
+    assert_eq!(
+        bar_command(HitTarget::Tab(WindowId(4))),
+        Some(Command::SelectWindow(WindowRef::Id(WindowId(4))))
+    );
+    assert_eq!(bar_command(HitTarget::NewTab), Some(Command::NewWindow));
+    assert_eq!(
+        bar_command(HitTarget::CloseTab(WindowId(4))),
+        Some(Command::KillWindow(WindowId(4)))
+    );
+    for target in [
+        HitTarget::Edge(Side::Left),
+        HitTarget::Switch(PanelView::Tabs),
+        HitTarget::PanelBody,
+    ] {
+        assert_eq!(bar_command(target), None);
+    }
 }
