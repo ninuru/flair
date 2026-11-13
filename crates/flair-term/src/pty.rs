@@ -144,6 +144,14 @@ impl Pty {
         let pgid = unsafe { libc::tcgetpgrp(self.file().ok()?.as_raw_fd()) };
         u32::try_from(pgid).ok().filter(|pgid| *pgid > 0)
     }
+    pub fn foreground_argv(&self) -> Vec<String> {
+        self.foreground()
+            .into_iter()
+            .chain([self.pid])
+            .map(process_argv)
+            .find(|argv| !argv.is_empty())
+            .unwrap_or_default()
+    }
     pub fn cwd(&self) -> io::Result<PathBuf> {
         let pgid = unsafe { libc::tcgetpgrp(self.file()?.as_raw_fd()) };
         if pgid > 0 {
@@ -233,6 +241,30 @@ impl Drop for Pty {
     fn drop(&mut self) {
         self.kill();
     }
+}
+fn process_argv(pid: u32) -> Vec<String> {
+    let argv = std::fs::read(format!("/proc/{pid}/cmdline"))
+        .map(|bytes| split_cmdline(&bytes))
+        .unwrap_or_default();
+    if !argv.is_empty() {
+        return argv;
+    }
+    std::fs::read_to_string(format!("/proc/{pid}/comm"))
+        .ok()
+        .map(|comm| comm.trim_end_matches('\n').to_owned())
+        .filter(|comm| !comm.is_empty())
+        .into_iter()
+        .collect()
+}
+fn split_cmdline(bytes: &[u8]) -> Vec<String> {
+    let bytes = bytes.strip_suffix(b"\0").unwrap_or(bytes);
+    if bytes.is_empty() {
+        return Vec::new();
+    }
+    bytes
+        .split(|byte| *byte == 0)
+        .map(|arg| String::from_utf8_lossy(arg).into_owned())
+        .collect()
 }
 fn window_size(size: GridSize) -> WindowSize {
     WindowSize {

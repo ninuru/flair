@@ -34,6 +34,7 @@ fn fixture() -> StatusLine {
                 id: WindowId(1),
                 index: 1,
                 name: "shell".into(),
+                program: String::new(),
                 active: true,
                 last: false,
             },
@@ -41,6 +42,7 @@ fn fixture() -> StatusLine {
                 id: WindowId(2),
                 index: 2,
                 name: "editor".into(),
+                program: String::new(),
                 active: false,
                 last: true,
             },
@@ -73,6 +75,7 @@ fn overflow_keeps_the_active_window_visible_and_hides_others() {
                 id: WindowId(u32::from(index)),
                 index,
                 name: "shell".into(),
+                program: String::new(),
                 active: index == 30,
                 last: false,
             })
@@ -90,6 +93,7 @@ fn unicode_names_use_display_cells_and_complete_wide_glyphs() {
         session: "会話".into(),
         windows: vec![StatusWindow {
             name: "界e\u{301}🙂long".into(),
+            program: String::new(),
             ..fixture().windows[0].clone()
         }],
         ..fixture()
@@ -170,6 +174,7 @@ fn status_parts_split_chip_tabs_and_badges() {
             TabParts {
                 window: WindowId(1),
                 index: 1,
+                icon: None,
                 name: "shell".into(),
                 active: false,
                 last: false,
@@ -177,6 +182,7 @@ fn status_parts_split_chip_tabs_and_badges() {
             TabParts {
                 window: WindowId(2),
                 index: 2,
+                icon: None,
                 name: "editor".into(),
                 active: true,
                 last: true,
@@ -236,6 +242,7 @@ fn status_text_keeps_wide_and_combining_characters_whole() {
                 id: WindowId(1),
                 index: 1,
                 name: "日本語".into(),
+                program: String::new(),
                 active: false,
                 last: false,
             },
@@ -243,6 +250,7 @@ fn status_text_keeps_wide_and_combining_characters_whole() {
                 id: WindowId(2),
                 index: 2,
                 name: "e\u{301}dit\u{7}".into(),
+                program: String::new(),
                 active: true,
                 last: false,
             },

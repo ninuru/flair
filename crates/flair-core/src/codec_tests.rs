@@ -5,7 +5,7 @@ use crate::{
     command::{Command, CopyCommand, CopyMotion, PaneRef, SelectionKind, WindowRef},
     config::Config,
     geom::{Axis, CellPoint, CellRect, Direction, GridSize},
-    ids::{ClientId, PaneId, WindowId},
+    ids::{ClientId, PaneId, SessionId, WindowId},
     isles::{AheadBehind, Changes, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
     key::{
         InputEvent, Key, KeyAction, KeyInput, Locks, Mods, MouseAction, MouseButton, MouseInput,
@@ -13,8 +13,8 @@ use crate::{
     },
     proto::{
         Cell, CellFlags, ClientKind, ClientMsg, Color, Control, Cursor, CursorShape, ExitReason,
-        PaneFlags, PanePlacement, PaneUpdate, PromptSnapshot, Separator, ServerMsg, SessionInfo,
-        Target, WindowLayout,
+        Ink, PaneFlags, PanePlacement, PanePreview, PaneUpdate, PromptSnapshot, Separator,
+        ServerMsg, SessionNode, SessionPreview, Target, WindowLayout, WindowPreview,
     },
     status::{StatusLine, StatusWindow},
     time::Millis,
@@ -153,7 +153,76 @@ fn client_messages() -> Vec<ClientMsg> {
         ClientMsg::Control(Control::PaneProcesses {
             pane: Some(PaneId(7)),
         }),
+        ClientMsg::Preview(Some(SessionId(3))),
+        ClientMsg::Preview(None),
     ]
+}
+
+fn layout() -> WindowLayout {
+    WindowLayout {
+        window: WindowId(2),
+        area: CellRect {
+            origin: CellPoint { col: 0, row: 1 },
+            size: GridSize { cols: 80, rows: 23 },
+        },
+        panes: vec![
+            PanePlacement {
+                pane: PaneId(1),
+                rect: CellRect {
+                    origin: CellPoint { col: 0, row: 2 },
+                    size: GridSize { cols: 40, rows: 22 },
+                },
+                band: 1,
+            },
+            PanePlacement {
+                pane: PaneId(2),
+                rect: CellRect {
+                    origin: CellPoint { col: 41, row: 1 },
+                    size: GridSize { cols: 39, rows: 23 },
+                },
+                band: 0,
+            },
+        ],
+        separators: vec![Separator {
+            axis: Axis::Horizontal,
+            rect: CellRect {
+                origin: CellPoint { col: 40, row: 1 },
+                size: GridSize { cols: 1, rows: 23 },
+            },
+        }],
+        active: PaneId(2),
+        zoomed: false,
+    }
+}
+
+fn preview() -> SessionPreview {
+    SessionPreview {
+        session: SessionId(3),
+        windows: vec![WindowPreview {
+            window: WindowId(2),
+            layout: layout(),
+            panes: vec![PanePreview {
+                pane: PaneId(1),
+                rows: vec![
+                    vec![],
+                    vec![
+                        Ink {
+                            col: 2,
+                            len: 5,
+                            fg: Some(Color::Indexed(3)),
+                            bg: Color::Background,
+                        },
+                        Ink {
+                            col: 9,
+                            len: 1,
+                            fg: None,
+                            bg: Color::Rgb(1, 2, 3),
+                        },
+                    ],
+                ],
+            }],
+        }],
+    }
 }
 
 fn server_messages() -> Vec<ServerMsg> {
@@ -190,40 +259,7 @@ fn server_messages() -> Vec<ServerMsg> {
                 },
             }],
         },
-        ServerMsg::Layout(WindowLayout {
-            window: WindowId(2),
-            area: CellRect {
-                origin: CellPoint { col: 0, row: 1 },
-                size: GridSize { cols: 80, rows: 23 },
-            },
-            panes: vec![
-                PanePlacement {
-                    pane: PaneId(1),
-                    rect: CellRect {
-                        origin: CellPoint { col: 0, row: 2 },
-                        size: GridSize { cols: 40, rows: 22 },
-                    },
-                    band: 1,
-                },
-                PanePlacement {
-                    pane: PaneId(2),
-                    rect: CellRect {
-                        origin: CellPoint { col: 41, row: 1 },
-                        size: GridSize { cols: 39, rows: 23 },
-                    },
-                    band: 0,
-                },
-            ],
-            separators: vec![Separator {
-                axis: Axis::Horizontal,
-                rect: CellRect {
-                    origin: CellPoint { col: 40, row: 1 },
-                    size: GridSize { cols: 1, rows: 23 },
-                },
-            }],
-            active: PaneId(2),
-            zoomed: false,
-        }),
+        ServerMsg::Layout(layout()),
         ServerMsg::Status(StatusLine {
             session: "main".to_owned(),
             hidden: 2,
@@ -233,6 +269,7 @@ fn server_messages() -> Vec<ServerMsg> {
                 id: WindowId(2),
                 index: 1,
                 name: "nvim 世界".to_owned(),
+                program: "nvim".to_owned(),
                 active: true,
                 last: false,
             }],
@@ -258,12 +295,21 @@ fn server_messages() -> Vec<ServerMsg> {
         ServerMsg::Exit(ExitReason::SessionEnded),
         ServerMsg::Exit(ExitReason::ServerExited),
         ServerMsg::ChooseSession {
-            sessions: vec![SessionInfo {
+            sessions: vec![SessionNode {
+                id: SessionId(3),
                 name: "main".to_owned(),
                 root: "/home/u".into(),
-                windows: 2,
+                windows: vec![StatusWindow {
+                    id: WindowId(7),
+                    index: 1,
+                    name: "zsh".to_owned(),
+                    program: "zsh".to_owned(),
+                    active: true,
+                    last: false,
+                }],
             }],
-            current: "main".to_owned(),
+            current: SessionId(3),
+            preview: preview(),
         },
         ServerMsg::PromptInfo {
             pane: PaneId(4),
@@ -331,6 +377,11 @@ fn server_messages() -> Vec<ServerMsg> {
         },
         ServerMsg::PaneProcesses(vec![]),
         ServerMsg::PaneProcesses(vec![1, 4242, u32::MAX]),
+        ServerMsg::Preview(preview()),
+        ServerMsg::Preview(SessionPreview {
+            session: SessionId(4),
+            windows: vec![],
+        }),
     ]
 }
 

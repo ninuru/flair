@@ -159,7 +159,8 @@ fn sheet_docks_the_themes_with_the_saved_label_and_the_query_caret() {
     picker.key(&named(NamedKey::Down));
     let sheet = picker.sheet();
     assert_eq!(sheet.placement, Placement::Docked);
-    assert_eq!(sheet.title, "Themes");
+    assert_eq!(sheet.title, None);
+    assert_eq!(sheet.count, (3, 3));
     assert_eq!(sheet.selected, 2);
     let rows: Vec<_> = sheet
         .rows
@@ -174,7 +175,7 @@ fn sheet_docks_the_themes_with_the_saved_label_and_the_query_caret() {
             ("gruvbox-dark", None),
         ]
     );
-    assert!(sheet.rows.iter().all(|row| row.mark == Mark::Blank));
+    assert!(sheet.rows.iter().all(|row| row.name_matches.is_empty()));
     let keys: Vec<_> = sheet
         .keys
         .iter()
@@ -322,7 +323,7 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
     let row = chrome.overlay.as_ref().unwrap().rows[0].1;
     assert_eq!(
         at(row.x + row.w - 4.0, row.y + row.h / 2.0),
-        rgb(surfaces.surface3)
+        rgb(surfaces.accent_soft)
     );
 }
 
@@ -348,4 +349,24 @@ fn refresh_moves_the_saved_marker_and_previews_the_selection_again() {
     assert_eq!(picker.refresh("catppuccin-mocha"), preview("gruvbox-dark"));
     let labels: Vec<_> = picker.sheet().rows.iter().map(|row| row.label).collect();
     assert_eq!(labels, [Some("saved"), None, None]);
+}
+
+#[test]
+fn sheet_marks_the_matched_substring_and_counts_matches_of_all() {
+    let mut picker = ThemePicker::new(names(), "flair-dark");
+    picker.insert("DARK");
+    let sheet = picker.sheet();
+    assert_eq!(sheet.count, (2, 3));
+    let rows: Vec<_> = sheet
+        .rows
+        .iter()
+        .map(|row| (row.name.as_str(), row.name_matches.clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("flair-dark", vec![6, 7, 8, 9]),
+            ("gruvbox-dark", vec![8, 9, 10, 11]),
+        ]
+    );
 }

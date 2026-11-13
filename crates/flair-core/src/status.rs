@@ -18,6 +18,7 @@ pub struct StatusWindow {
     pub id: WindowId,
     pub index: u16,
     pub name: String,
+    pub program: String,
     pub active: bool,
     pub last: bool,
 }

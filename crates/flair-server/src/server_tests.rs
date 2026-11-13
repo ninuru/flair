@@ -236,7 +236,10 @@ fn disconnected_client_does_not_stop_terminal_updates() {
         Event::PtyOutput(PaneId(1), b"hidden".to_vec()),
         &mut out,
     );
-    assert!(out.is_empty());
+    assert!(
+        out.iter()
+            .all(|effect| matches!(effect, Effect::SetTimer(Timer::Process(PaneId(1)), _)))
+    );
     assert!(
         server
             .panes
@@ -608,7 +611,13 @@ fn prefix_s_lists_running_sessions_with_the_current_one() {
         &mut out,
     );
     let chooser = out.iter().find_map(|effect| {
-        if let Effect::Send(ClientId(1), ServerMsg::ChooseSession { sessions, current }) = effect {
+        if let Effect::Send(
+            ClientId(1),
+            ServerMsg::ChooseSession {
+                sessions, current, ..
+            },
+        ) = effect
+        {
             Some((sessions, current))
         } else {
             None
@@ -620,7 +629,7 @@ fn prefix_s_lists_running_sessions_with_the_current_one() {
         .map(|session| session.name.as_str())
         .collect();
     assert_eq!(names, ["main", "project"]);
-    assert_eq!(current, "project");
+    assert_eq!(*current, SessionId(2));
     assert!(
         !out.iter()
             .any(|effect| matches!(effect, Effect::WritePty(_, bytes) if bytes == b"s"))

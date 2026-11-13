@@ -41,6 +41,9 @@ impl Server {
                 last: None,
                 shell: None,
                 wheel_copy: false,
+                process: None,
+                probed: None,
+                probe_due: None,
             },
         );
         let mut pane_env: BTreeMap<_, _> = self.config.env.iter().cloned().collect();

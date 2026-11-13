@@ -18,4 +18,7 @@ pub(crate) struct Pane {
     pub last: Option<LastCommand>,
     pub shell: Option<ShellFacts>,
     pub wheel_copy: bool,
+    pub process: Option<(String, String)>,
+    pub probed: Option<Millis>,
+    pub probe_due: Option<Millis>,
 }

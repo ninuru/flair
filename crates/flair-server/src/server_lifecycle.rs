@@ -130,7 +130,7 @@ impl Server {
                     .last_session
                     .filter(|last| self.tree.session(*last).is_some());
                 if let Some(last) = last {
-                    self.switch_to(now, id, last, out);
+                    self.switch_to(now, id, last, None, out);
                 } else {
                     self.clients.remove(&id);
                     out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::SessionEnded)));

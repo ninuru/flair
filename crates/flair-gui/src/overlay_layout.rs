@@ -1,21 +1,22 @@
-use flair_core::{monogram::monogram, theme::Theme};
+use flair_core::{ids::WindowId, theme::Theme};
 
 use crate::{
     UiMetrics,
-    chrome_bar::{
-        baseline, ellipsize, fill, fit_letters, opaque, rounded, small_text, tail, ui_text,
-    },
+    chrome_bar::{baseline, ellipsize, fill, opaque, rounded, small_text, ui_text},
     chrome_layout::chrome_bottom,
+    overlay_rows::{entry, head},
+    preview_layout::{self, Strip},
     renderer::{Border, PxRect, Quad, TextRun},
     settings_layout::SettingsHit,
     ui::{
-        BACKDROP, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CARET_GAP, DOCK_INSET, DOCK_WIDTH, FIELD_GAP,
-        FIELD_HEIGHT, FIELD_RADIUS, FOOTER_GAP, FOOTER_RULE_GAP, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD,
-        LINE, MONOGRAM, MONOGRAM_GAP, MONOGRAM_RADIUS, PANEL_PAD_X, PANEL_PAD_Y, PANEL_RADIUS,
-        PANEL_TALL, PANEL_TOP, PANEL_WIDTH, ROW_GAP, ROW_HEIGHT, ROW_PAD, ROW_RADIUS,
-        SESSION_NAME_MAX, px,
+        BACKDROP, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CARET_GAP, DOCK_INSET, DOCK_WIDTH, FIELD_RADIUS,
+        FOOTER_GAP, FOOTER_RULE_GAP, ITEM_GAP, ITEM_PAD, LINE, PALETTE_FIELD, PALETTE_GAP,
+        PANEL_PAD_X, PANEL_PAD_Y, PANEL_RADIUS, PANEL_TALL, PANEL_TOP, PANEL_WIDTH, ROW_GAP,
+        ROW_HEIGHT, ROW_PAD, px,
     },
 };
+
+const STRIP_ROWS: usize = 3;
 
 pub struct OverlayInput<'a> {
     pub metrics: crate::CellMetrics,
@@ -32,18 +33,15 @@ pub enum Placement {
     Docked,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Mark {
-    Blank,
-    Monogram(String),
-    Index(u16),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Row {
-    pub mark: Mark,
+    pub depth: u8,
+    pub number: Option<u16>,
+    pub icon: Option<char>,
     pub name: String,
+    pub name_matches: Vec<usize>,
     pub detail: Option<String>,
+    pub detail_matches: Vec<usize>,
     pub label: Option<&'static str>,
 }
 
@@ -57,11 +55,13 @@ pub struct Field {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Sheet {
     pub placement: Placement,
-    pub title: &'static str,
+    pub title: Option<&'static str>,
     pub field: Option<Field>,
+    pub count: (usize, usize),
     pub rows: Vec<Row>,
     pub selected: usize,
     pub keys: Vec<(&'static str, String)>,
+    pub strip: Option<Strip>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -70,11 +70,13 @@ pub struct OverlayHits {
     pub panel: PxRect,
     pub rows: Vec<(usize, PxRect)>,
     pub controls: Vec<(SettingsHit, PxRect)>,
+    pub windows: Vec<(WindowId, PxRect)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OverlayHit {
     Row(usize),
+    Window(WindowId),
     Panel,
     Outside,
     Settings(SettingsHit),
@@ -96,6 +98,9 @@ impl OverlayHits {
         if let Some((index, _)) = self.rows.iter().find(|(_, rect)| inside(*rect, point)) {
             return OverlayHit::Row(*index);
         }
+        if let Some((window, _)) = self.windows.iter().find(|(_, rect)| inside(*rect, point)) {
+            return OverlayHit::Window(*window);
+        }
         if inside(self.panel, point) {
             OverlayHit::Panel
         } else {
@@ -116,7 +121,7 @@ pub fn layout(
     let scale = input.scale;
     let surfaces = input.theme.surfaces();
     let mut scene = OverlayScene::default();
-    let (panel, (capacity, has_footer, has_field)) = match sheet.placement {
+    let (panel, (capacity, has_footer, has_head, has_strip)) = match sheet.placement {
         Placement::Centred => centred(sheet, input, &mut scene),
         Placement::Docked => docked(sheet, input),
     };
@@ -131,22 +136,22 @@ pub fn layout(
     let pad_x = px(PANEL_PAD_X, scale);
     let x = panel.x + pad_x;
     let width = (panel.w - pad_x * 2.0).max(0.0);
-    let mut y = panel.y + px(PANEL_PAD_Y, scale);
-    title(sheet, input, (x, y, width), &mut scene, measure);
-    y += px(ITEM_HEIGHT, scale) + px(ITEM_GAP, scale);
-    if has_field && let Some(field) = &sheet.field {
-        let rect = PxRect {
-            x,
-            y,
-            w: width,
-            h: px(FIELD_HEIGHT, scale),
-        };
-        search(field, rect, input, &mut scene, measure);
-        y += px(FIELD_HEIGHT, scale) + px(FIELD_GAP, scale);
-    }
+    let y = match has_head {
+        true => {
+            head(sheet, panel, input, &mut scene, measure);
+            panel.y + head_top(scale)
+        }
+        false => panel.y + px(PANEL_PAD_Y, scale),
+    };
     let first = sheet.selected.saturating_sub(capacity.saturating_sub(1));
     let shown = sheet.rows.len().saturating_sub(first).min(capacity);
     let pitch = px(ROW_HEIGHT, scale) + px(ROW_GAP, scale);
+    let gutters: Vec<u8> = sheet
+        .rows
+        .iter()
+        .filter(|row| row.icon.is_some())
+        .map(|row| row.depth)
+        .collect();
     for (offset, row) in sheet.rows.iter().skip(first).take(shown).enumerate() {
         let index = first + offset;
         let rect = PxRect {
@@ -158,6 +163,7 @@ pub fn layout(
         entry(
             row,
             index == sheet.selected,
+            gutters.contains(&row.depth),
             rect,
             input,
             &mut scene,
@@ -199,6 +205,31 @@ pub fn layout(
         },
         surfaces.outline,
     ));
+    if has_strip && let Some(strip) = &sheet.strip {
+        let bottom = rule - px(FOOTER_RULE_GAP, scale);
+        let top = bottom - preview_layout::strip_height(scale);
+        scene.quads.push(fill(
+            PxRect {
+                x,
+                y: top - px(FOOTER_RULE_GAP, scale) - px(LINE, scale),
+                w: width,
+                h: px(LINE, scale),
+            },
+            surfaces.outline,
+        ));
+        preview_layout::strip(
+            strip,
+            PxRect {
+                x,
+                y: top,
+                w: width,
+                h: bottom - top,
+            },
+            input,
+            &mut scene,
+            measure,
+        );
+    }
     footer(
         &sheet.keys,
         sheet.rows.len() - shown,
@@ -210,30 +241,47 @@ pub fn layout(
     scene
 }
 
-fn head_height(sheet: &Sheet, has_field: bool, scale: f32) -> f32 {
-    let field = match (&sheet.field, has_field) {
-        (Some(_), true) => px(FIELD_HEIGHT, scale) + px(FIELD_GAP, scale),
-        (Some(_), false) | (None, _) => 0.0,
+fn head_top(scale: f32) -> f32 {
+    px(PALETTE_FIELD, scale) + px(LINE, scale) + px(PALETTE_GAP, scale)
+}
+
+fn head_height(has_head: bool, scale: f32) -> f32 {
+    let top = match has_head {
+        true => head_top(scale),
+        false => px(PANEL_PAD_Y, scale),
     };
-    px(PANEL_PAD_Y, scale) * 2.0 + px(ITEM_HEIGHT, scale) + px(ITEM_GAP, scale) + field
+    top + px(PANEL_PAD_Y, scale)
 }
 
 fn footer_height(scale: f32) -> f32 {
     px(FOOTER_RULE_GAP, scale) * 2.0 + px(LINE, scale) + px(CAP_HEIGHT, scale)
 }
 
-fn fit(sheet: &Sheet, room: f32, scale: f32) -> (usize, bool, bool) {
-    let has_field = sheet.field.is_some() && head_height(sheet, true, scale) <= room;
-    let head = head_height(sheet, has_field, scale);
+fn strip_block(scale: f32) -> f32 {
+    px(FOOTER_RULE_GAP, scale) * 2.0 + px(LINE, scale) + preview_layout::strip_height(scale)
+}
+
+fn fit(sheet: &Sheet, room: f32, scale: f32) -> (usize, bool, bool, bool) {
+    let has_head =
+        (sheet.field.is_some() || sheet.title.is_some()) && head_height(true, scale) <= room;
+    let head = head_height(has_head, scale);
     let footer = footer_height(scale);
+    let wanted = sheet.rows.len().clamp(1, STRIP_ROWS);
+    let block = strip_block(scale);
     match capacity(room - head - footer, scale) {
-        0 => (capacity(room - head, scale).min(1), false, has_field),
-        rows => (rows, true, has_field),
+        0 => (capacity(room - head, scale).min(1), false, has_head, false),
+        _ if sheet.strip.is_some() && capacity(room - head - footer - block, scale) >= wanted => (
+            capacity(room - head - footer - block, scale),
+            true,
+            has_head,
+            true,
+        ),
+        rows => (rows, true, has_head, false),
     }
 }
 
-fn panel_height(sheet: &Sheet, fit: (usize, bool, bool), scale: f32) -> f32 {
-    let (capacity, has_footer, has_field) = fit;
+fn panel_height(sheet: &Sheet, fit: (usize, bool, bool, bool), scale: f32) -> f32 {
+    let (capacity, has_footer, has_head, has_strip) = fit;
     let count = match capacity {
         0 => 0.0,
         _ => sheet.rows.len().clamp(1, capacity) as f32,
@@ -243,7 +291,11 @@ fn panel_height(sheet: &Sheet, fit: (usize, bool, bool), scale: f32) -> f32 {
         true => footer_height(scale),
         false => 0.0,
     };
-    head_height(sheet, has_field, scale) + rows + footer
+    let strip = match has_strip {
+        true => strip_block(scale),
+        false => 0.0,
+    };
+    head_height(has_head, scale) + rows + strip + footer
 }
 
 fn capacity(room: f32, scale: f32) -> usize {
@@ -255,7 +307,7 @@ fn centred(
     sheet: &Sheet,
     input: &OverlayInput,
     scene: &mut OverlayScene,
-) -> (PxRect, (usize, bool, bool)) {
+) -> (PxRect, (usize, bool, bool, bool)) {
     let scale = input.scale;
     let (width, height) = (input.px.0 as f32, input.px.1 as f32);
     let below = chrome_bottom(scale);
@@ -297,7 +349,7 @@ fn centred(
     )
 }
 
-fn docked(sheet: &Sheet, input: &OverlayInput) -> (PxRect, (usize, bool, bool)) {
+fn docked(sheet: &Sheet, input: &OverlayInput) -> (PxRect, (usize, bool, bool, bool)) {
     let scale = input.scale;
     let (width, height) = (input.px.0 as f32, input.px.1 as f32);
     let inset = px(DOCK_INSET, scale);
@@ -313,39 +365,6 @@ fn docked(sheet: &Sheet, input: &OverlayInput) -> (PxRect, (usize, bool, bool)) 
         h: (height - inset - y).max(0.0),
     };
     (panel, fit(sheet, panel.h, scale))
-}
-
-fn title(
-    sheet: &Sheet,
-    input: &OverlayInput,
-    area: (f32, f32, f32),
-    scene: &mut OverlayScene,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) {
-    let (x, y, width) = area;
-    let rect = PxRect {
-        x,
-        y,
-        w: width,
-        h: px(ITEM_HEIGHT, input.scale),
-    };
-    let count = sheet.rows.len().to_string();
-    let count_width = measure(&count, false);
-    let room = width - count_width - px(ITEM_GAP, input.scale);
-    scene.text.push(ui_text(
-        x,
-        baseline(rect, input.ui),
-        ellipsize(sheet.title, room, true, measure),
-        input.theme.foreground,
-        true,
-    ));
-    scene.text.push(ui_text(
-        (x + width - count_width).round(),
-        baseline(rect, input.ui),
-        count,
-        input.theme.surfaces().muted,
-        false,
-    ));
 }
 
 pub(crate) fn search(
@@ -402,7 +421,7 @@ pub(crate) fn search(
     ));
 }
 
-fn visible(
+pub(crate) fn visible(
     text: &str,
     cursor: usize,
     room: f32,
@@ -429,118 +448,6 @@ fn visible(
         text.chars().skip(start).take(count).collect(),
         widths[start..cursor].iter().sum(),
     )
-}
-
-fn entry(
-    row: &Row,
-    selected: bool,
-    rect: PxRect,
-    input: &OverlayInput,
-    scene: &mut OverlayScene,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) {
-    let scale = input.scale;
-    let theme = input.theme;
-    let surfaces = theme.surfaces();
-    let hovered = input.hover.is_some_and(|point| inside(rect, point));
-    let fill_color = match (selected, hovered) {
-        (true, _) => Some(surfaces.surface3),
-        (false, true) => Some(surfaces.surface2),
-        (false, false) => None,
-    };
-    if let Some(color) = fill_color {
-        scene.quads.push(rounded(rect, color, ROW_RADIUS, scale));
-    }
-    let pad = px(ROW_PAD, scale);
-    let mut x = rect.x + pad;
-    match &row.mark {
-        Mark::Blank => {}
-        Mark::Monogram(name) => {
-            x += mark(name, (x, rect), input, scene, measure) + px(MONOGRAM_GAP, scale);
-        }
-        Mark::Index(index) => {
-            x +=
-                cap(&index.to_string(), (x, rect), input, scene, measure) + px(MONOGRAM_GAP, scale);
-        }
-    }
-    let mut right = rect.x + rect.w - pad;
-    if let Some(label) = row.label {
-        let width = measure(label, false) * input.ui.small;
-        scene.text.push(small_text(
-            (right - width).round(),
-            rect,
-            label.to_owned(),
-            surfaces.muted,
-            input.ui,
-        ));
-        right -= width + pad;
-    }
-    let name = ellipsize(
-        &row.name,
-        match row.detail {
-            Some(_) => (right - x).min(px(SESSION_NAME_MAX, scale)),
-            None => right - x,
-        },
-        false,
-        measure,
-    );
-    let name_width = measure(&name, false);
-    scene.text.push(ui_text(
-        x.round(),
-        baseline(rect, input.ui),
-        name,
-        theme.foreground,
-        false,
-    ));
-    x += name_width + pad;
-    if let Some(detail) = &row.detail {
-        let detail: String = detail.chars().filter(|c| !c.is_control()).collect();
-        let detail = tail(&detail, right - x, false, measure);
-        if !detail.is_empty() {
-            scene.text.push(ui_text(
-                x.round(),
-                baseline(rect, input.ui),
-                detail,
-                surfaces.muted,
-                false,
-            ));
-        }
-    }
-}
-
-fn mark(
-    name: &str,
-    at: (f32, PxRect),
-    input: &OverlayInput,
-    scene: &mut OverlayScene,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) -> f32 {
-    let (x, row) = at;
-    let scale = input.scale;
-    let size = px(MONOGRAM, scale);
-    let rect = PxRect {
-        x: x.round(),
-        y: (row.y + (row.h - size) / 2.0).round(),
-        w: size,
-        h: size,
-    };
-    let mark = monogram(name);
-    scene
-        .quads
-        .push(rounded(rect, mark.hue, MONOGRAM_RADIUS, scale));
-    let letters = fit_letters(&mark.letters, size, input.ui.small, measure);
-    let width = measure(&letters, true) * input.ui.small;
-    scene.text.push(TextRun {
-        bold: true,
-        ..small_text(
-            (rect.x + (size - width) / 2.0).round(),
-            rect,
-            letters,
-            mark.text,
-            input.ui,
-        )
-    });
-    size
 }
 
 pub(crate) fn cap(

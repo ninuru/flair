@@ -176,7 +176,8 @@ fn reads(events: Vec<Event>) -> Vec<(PathBuf, Option<Head>)> {
             | Event::PtySpawnFailed(_)
             | Event::Timer(_)
             | Event::ConfigRead(_)
-            | Event::ContextsRead(_) => panic!("unexpected event"),
+            | Event::ContextsRead(_)
+            | Event::ProcessRead(_, _) => panic!("unexpected event"),
         })
         .collect();
     reads.sort_by(|a, b| a.0.cmp(&b.0));

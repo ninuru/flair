@@ -32,6 +32,7 @@ fn parts() -> StatusParts {
             TabParts {
                 window: WindowId(1),
                 index: 1,
+                icon: None,
                 name: "shell".into(),
                 active: true,
                 last: false,
@@ -39,6 +40,7 @@ fn parts() -> StatusParts {
             TabParts {
                 window: WindowId(2),
                 index: 2,
+                icon: None,
                 name: "editor".into(),
                 active: false,
                 last: false,
@@ -184,75 +186,66 @@ fn bar_and_line_span_the_window_top() {
     }
 }
 
+fn tab<'a>(
+    layout: &'a ChromeLayout,
+    index: &str,
+    name: &str,
+) -> Option<(&'a TextRun, &'a TextRun)> {
+    layout
+        .chrome
+        .text
+        .windows(2)
+        .find(|pair| pair[0].text == index && pair[1].text == name)
+        .map(|pair| (&pair[0], &pair[1]))
+}
+
 #[test]
-fn session_item_draws_a_monogram_and_the_bold_name_without_a_box() {
+fn session_item_draws_the_bold_name_then_a_faint_crumb_then_the_tabs() {
     let theme = Config::default().theme();
+    let surfaces = theme.surfaces();
     let status = parts();
     let layout = Case::new(&status).run();
-    let mark = monogram("main");
-    assert_eq!(
-        quad_at(&layout, rect(12.0, 8.0, 18.0, 18.0)),
-        Some(&Quad {
-            rect: rect(12.0, 8.0, 18.0, 18.0),
-            color: opaque(mark.hue),
-            radius: 4.0,
-            border: None,
-        })
-    );
-    let letters = text(&layout, "MA").unwrap();
-    assert_eq!(
-        (
-            letters.x,
-            letters.baseline,
-            letters.color,
-            letters.bold,
-            letters.face
-        ),
-        (18.0, 19.0, mark.text, true, TextFace::Small)
-    );
     let name = text(&layout, "main").unwrap();
     assert_eq!(
         (name.x, name.baseline, name.color, name.bold, name.face),
-        (38.0, 21.0, theme.foreground, true, TextFace::Ui)
+        (18.0, 21.0, theme.foreground, true, TextFace::Ui)
     );
-    assert!(quad_at(&layout, rect(8.0, 5.0, 68.0, 24.0)).is_none());
-    assert!(layout.chrome.quads.iter().all(|quad| quad.rect.w != 6.0));
-    assert!(
-        layout
-            .chrome
-            .text
-            .iter()
-            .all(|run| !run.text.starts_with('+'))
+    let crumb = text(&layout, CRUMB_GAP).unwrap();
+    assert_eq!(
+        (crumb.x, crumb.baseline, crumb.color, crumb.bold, crumb.face),
+        (46.0, 21.0, surfaces.faint, false, TextFace::Ui)
     );
-    assert!(layout.chrome.text.iter().all(|run| run.text != "!"));
+    let (index, _) = tab(&layout, "1", "shell").unwrap();
+    assert_eq!(index.x, 83.0);
+    let order: Vec<&str> = layout
+        .chrome
+        .text
+        .iter()
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(order[..3], ["main", CRUMB_GAP, "1"]);
+    assert_eq!(layout.chrome.quads.len(), 3);
 
     let layout = Case {
         scale: 2.0,
         ..Case::new(&status)
     }
     .run();
-    let quad = quad_at(&layout, rect(24.0, 16.0, 36.0, 36.0)).unwrap();
-    assert_eq!((quad.color, quad.radius), (opaque(mark.hue), 8.0));
+    assert_eq!(text(&layout, "main").unwrap().x, 36.0);
+    assert_eq!(text(&layout, CRUMB_GAP).unwrap().x, 64.0);
 }
 
 #[test]
-fn session_item_shows_only_monogram_and_name() {
+fn session_item_shows_only_the_name_and_the_crumb() {
     let mut status = parts();
     status.chip.hidden = 2;
     status.chip.running = true;
     status.chip.finished = true;
     let layout = Case::new(&status).run();
     assert!(text(&layout, "+2").is_none());
-    assert_eq!(
-        layout
-            .chrome
-            .quads
-            .iter()
-            .filter(|quad| quad.rect.w == 6.0)
-            .count(),
-        0
-    );
-    assert_eq!(layout.hits[0].rect, rect(8.0, 0.0, 68.0, 34.0));
+    assert!(layout.chrome.text.iter().all(|run| run.text != "!"));
+    assert!(layout.chrome.quads.iter().all(|quad| quad.rect.w != 6.0));
+    assert_eq!(layout.hits[0].rect, rect(8.0, 0.0, 48.0, 34.0));
 }
 
 #[test]
@@ -265,38 +258,72 @@ fn long_session_names_are_ellipsized() {
 }
 
 #[test]
-fn active_tab_is_filled_last_is_bright_and_the_rest_muted() {
+fn active_tab_has_an_inset_accent_underline_at_the_bar_bottom_and_no_fill() {
+    let theme = Config::default().theme();
+    for scale in [1.0, 2.0] {
+        let status = parts();
+        let layout = Case {
+            scale,
+            ..Case::new(&status)
+        }
+        .run();
+        let tab_rect = layout.hits[1].rect;
+        let underline: Vec<&Quad> = layout
+            .chrome
+            .quads
+            .iter()
+            .filter(|quad| quad.color == opaque(theme.accent))
+            .collect();
+        assert_eq!(
+            underline,
+            [&fill(
+                rect(
+                    tab_rect.x + 8.0 * scale,
+                    34.0 * scale - 2.0 * scale,
+                    tab_rect.w - 16.0 * scale,
+                    2.0 * scale
+                ),
+                theme.accent
+            )]
+        );
+        assert_eq!(layout.chrome.quads.len(), 3);
+    }
+    let status = parts();
+    let layout = Case::new(&status).run();
+    assert_eq!(layout.hits[1].rect, rect(73.0, 0.0, 69.0, 34.0));
+    assert!(quad_at(&layout, rect(81.0, 32.0, 53.0, 2.0)).is_some());
+}
+
+#[test]
+fn tab_index_is_faint_inactive_names_muted_and_the_active_name_fg() {
     let theme = Config::default().theme();
     let surfaces = theme.surfaces();
     let mut status = parts();
     status.tabs.push(TabParts {
         window: WindowId(3),
         index: 3,
+        icon: None,
         name: "zsh".into(),
         active: false,
         last: true,
     });
     let layout = Case::new(&status).run();
-    assert_eq!(
-        quad_at(&layout, rect(82.0, 5.0, 69.0, 24.0)),
-        Some(&Quad {
-            rect: rect(82.0, 5.0, 69.0, 24.0),
-            color: opaque(surfaces.surface3),
-            radius: 6.0,
-            border: None,
-        })
-    );
-    let active = text(&layout, "1 shell").unwrap();
-    assert_eq!(
-        (active.x, active.color, active.bold),
-        (92.0, theme.foreground, false)
-    );
-    let other = text(&layout, "2 editor").unwrap();
-    assert_eq!((other.x, other.color), (167.0, surfaces.muted));
-    let last = text(&layout, "3 zsh").unwrap();
-    assert_eq!((last.x, last.color), (249.0, surfaces.bright));
-    assert!(quad_at(&layout, rect(157.0, 5.0, 76.0, 24.0)).is_none());
-    assert!(quad_at(&layout, rect(239.0, 5.0, 55.0, 24.0)).is_none());
+    for (index, name, x, name_x, color) in [
+        ("1", "shell", 83.0, 97.0, theme.foreground),
+        ("2", "editor", 158.0, 172.0, surfaces.muted),
+        ("3", "zsh", 240.0, 254.0, surfaces.muted),
+    ] {
+        let (index_run, name_run) = tab(&layout, index, name).unwrap();
+        assert_eq!(
+            (index_run.x, index_run.color, index_run.bold),
+            (x, surfaces.faint, false)
+        );
+        assert_eq!(
+            (name_run.x, name_run.color, name_run.bold),
+            (name_x, color, false)
+        );
+        assert_eq!(index_run.baseline, name_run.baseline);
+    }
 }
 
 #[test]
@@ -307,15 +334,15 @@ fn tab_hits_span_the_full_bar_height() {
         layout.hits,
         [
             Hit {
-                rect: rect(8.0, 0.0, 68.0, 34.0),
+                rect: rect(8.0, 0.0, 48.0, 34.0),
                 target: HitTarget::Session,
             },
             Hit {
-                rect: rect(82.0, 0.0, 69.0, 34.0),
+                rect: rect(73.0, 0.0, 69.0, 34.0),
                 target: HitTarget::Window(WindowId(1)),
             },
             Hit {
-                rect: rect(157.0, 0.0, 76.0, 34.0),
+                rect: rect(148.0, 0.0, 76.0, 34.0),
                 target: HitTarget::Window(WindowId(2)),
             },
         ]
@@ -332,14 +359,15 @@ fn tab_hits_span_the_full_bar_height() {
         hit_test(&layout.hits, (10.0, 33.0)),
         Some(HitTarget::Session)
     );
-    assert_eq!(hit_test(&layout.hits, (154.0, 10.0)), None);
-    assert_eq!(hit_test(&layout.hits, (79.0, 10.0)), None);
+    assert_eq!(hit_test(&layout.hits, (145.0, 10.0)), None);
+    assert_eq!(hit_test(&layout.hits, (70.0, 10.0)), None);
     assert_eq!(hit_test(&layout.hits, (160.0, 34.0)), None);
 }
 
 #[test]
-fn hover_fills_the_hovered_tab_or_session_item_with_surface2() {
-    let surfaces = Config::default().theme().surfaces();
+fn hovering_a_tab_brightens_its_name_without_a_fill() {
+    let theme = Config::default().theme();
+    let surfaces = theme.surfaces();
     let status = parts();
     let hovered = |hover| {
         Case {
@@ -347,21 +375,33 @@ fn hover_fills_the_hovered_tab_or_session_item_with_surface2() {
             ..Case::new(&status)
         }
         .run()
-        .chrome
-        .quads
-        .into_iter()
-        .filter(|quad| quad.color == opaque(surfaces.surface2))
-        .map(|quad| (quad.rect, quad.radius))
-        .collect::<Vec<_>>()
     };
+    let name_color = |layout: &ChromeLayout, index, name| tab(layout, index, name).unwrap().1.color;
+    for hover in [
+        (160.0, 30.0),
+        (10.0, 20.0),
+        (100.0, 2.0),
+        (400.0, 20.0),
+        (160.0, 100.0),
+    ] {
+        let layout = hovered(hover);
+        assert_eq!(layout.chrome.quads.len(), 3, "{hover:?}");
+        assert_eq!(text(&layout, "main").unwrap().color, theme.foreground);
+        assert_eq!(name_color(&layout, "1", "shell"), theme.foreground);
+        assert_eq!(tab(&layout, "2", "editor").unwrap().0.color, surfaces.faint);
+    }
     assert_eq!(
-        hovered((160.0, 30.0)),
-        [(rect(157.0, 5.0, 76.0, 24.0), 6.0)]
+        name_color(&hovered((160.0, 30.0)), "2", "editor"),
+        surfaces.bright
     );
-    assert_eq!(hovered((10.0, 20.0)), [(rect(8.0, 5.0, 68.0, 24.0), 6.0)]);
-    assert_eq!(hovered((100.0, 2.0)), []);
-    assert_eq!(hovered((400.0, 20.0)), []);
-    assert_eq!(hovered((160.0, 100.0)), []);
+    assert_eq!(
+        name_color(&hovered((160.0, 100.0)), "2", "editor"),
+        surfaces.muted
+    );
+    assert_eq!(
+        name_color(&hovered((100.0, 2.0)), "1", "shell"),
+        theme.foreground
+    );
 }
 
 fn many(count: u16, active: u16) -> StatusParts {
@@ -370,6 +410,7 @@ fn many(count: u16, active: u16) -> StatusParts {
             .map(|index| TabParts {
                 window: WindowId(u32::from(index)),
                 index,
+                icon: None,
                 name: "shell".into(),
                 active: index == active,
                 last: false,
@@ -382,20 +423,27 @@ fn many(count: u16, active: u16) -> StatusParts {
 #[test]
 fn overflow_counts_hidden_tabs_on_the_side_where_they_are_hidden() {
     let surfaces = Config::default().theme().surfaces();
-    for (count, active, width, shown, tab, labels) in [
-        (30, 30, 300, vec![29, 30], "30 shell", vec![(92.0, "+28")]),
-        (30, 30, 200, vec![30], "30 sh…", vec![(92.0, "+29")]),
-        (30, 30, 160, vec![30], "30 she…", vec![]),
-        (30, 1, 300, vec![1, 2], "1 shell", vec![(242.0, "+28")]),
+    for (count, active, width, shown, label, labels) in [
+        (
+            30,
+            30,
+            291,
+            vec![29, 30],
+            ("30", "shell"),
+            vec![(83.0, "+28")],
+        ),
+        (30, 30, 191, vec![30], ("30", "sh…"), vec![(83.0, "+29")]),
+        (30, 30, 151, vec![30], ("30", "she…"), vec![]),
+        (30, 1, 291, vec![1, 2], ("1", "shell"), vec![(233.0, "+28")]),
         (
             30,
             15,
-            300,
+            291,
             vec![15],
-            "15 shell",
-            vec![(92.0, "+14"), (221.0, "+15")],
+            ("15", "shell"),
+            vec![(83.0, "+14"), (212.0, "+15")],
         ),
-        (3, 1, 800, vec![1, 2, 3], "3 shell", vec![]),
+        (3, 1, 791, vec![1, 2, 3], ("3", "shell"), vec![]),
     ] {
         let layout = Case {
             width,
@@ -408,7 +456,7 @@ fn overflow_counts_hidden_tabs_on_the_side_where_they_are_hidden() {
             .collect();
         let targets: Vec<HitTarget> = layout.hits[1..].iter().map(|hit| hit.target).collect();
         assert_eq!(targets, windows, "{active} {width}");
-        assert!(text(&layout, tab).is_some(), "{active} {width}");
+        assert!(tab(&layout, label.0, label.1).is_some(), "{active} {width}");
         let more: Vec<&TextRun> = layout
             .chrome
             .text
@@ -542,9 +590,9 @@ fn prompt_replaces_the_tabs_with_a_field_and_a_caret() {
     assert!(text(&layout, "1 shell").is_none());
     assert!(text(&layout, "2 editor").is_none());
     assert_eq!(
-        quad_at(&layout, rect(82.0, 5.0, 710.0, 24.0)),
+        quad_at(&layout, rect(73.0, 5.0, 719.0, 24.0)),
         Some(&Quad {
-            rect: rect(82.0, 5.0, 710.0, 24.0),
+            rect: rect(73.0, 5.0, 719.0, 24.0),
             color: opaque(theme.background),
             radius: 6.0,
             border: Some(Border {
@@ -556,16 +604,16 @@ fn prompt_replaces_the_tabs_with_a_field_and_a_caret() {
     let label = text(&layout, "/").unwrap();
     assert_eq!(
         (label.x, label.baseline, label.color),
-        (92.0, 21.0, surfaces.muted)
+        (83.0, 21.0, surfaces.muted)
     );
     let prompt = text(&layout, "foo").unwrap();
     assert_eq!(
         (prompt.x, prompt.baseline, prompt.color),
-        (99.0, 21.0, theme.foreground)
+        (90.0, 21.0, theme.foreground)
     );
     assert_eq!(
-        quad_at(&layout, rect(120.0, 10.0, 1.0, 14.0)),
-        Some(&fill(rect(120.0, 10.0, 1.0, 14.0), theme.accent))
+        quad_at(&layout, rect(111.0, 10.0, 1.0, 14.0)),
+        Some(&fill(rect(111.0, 10.0, 1.0, 14.0), theme.accent))
     );
     assert_eq!(
         layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
@@ -584,11 +632,11 @@ fn the_caret_follows_the_prompt_cursor() {
         ..Case::new(&status)
     }
     .run();
-    assert_eq!(text(&layout, "/").map(|run| run.x), Some(92.0));
-    assert_eq!(text(&layout, "foo").map(|run| run.x), Some(99.0));
+    assert_eq!(text(&layout, "/").map(|run| run.x), Some(83.0));
+    assert_eq!(text(&layout, "foo").map(|run| run.x), Some(90.0));
     assert_eq!(
-        quad_at(&layout, rect(106.0, 10.0, 1.0, 14.0)),
-        Some(&fill(rect(106.0, 10.0, 1.0, 14.0), theme.accent))
+        quad_at(&layout, rect(97.0, 10.0, 1.0, 14.0)),
+        Some(&fill(rect(97.0, 10.0, 1.0, 14.0), theme.accent))
     );
     let prompt = format!("{}end", "x".repeat(200));
     let layout = Case {
@@ -598,11 +646,11 @@ fn the_caret_follows_the_prompt_cursor() {
         ..Case::new(&status)
     }
     .run();
-    assert_eq!(text(&layout, "/").map(|run| run.x), Some(92.0));
-    let run = layout.chrome.text.iter().find(|run| run.x == 99.0).unwrap();
+    assert_eq!(text(&layout, "/").map(|run| run.x), Some(83.0));
+    let run = layout.chrome.text.iter().find(|run| run.x == 90.0).unwrap();
     assert!(run.text.starts_with('x') && run.text.ends_with('…'));
     assert_eq!(
-        quad_at(&layout, rect(99.0, 10.0, 1.0, 14.0)).map(|quad| quad.color),
+        quad_at(&layout, rect(90.0, 10.0, 1.0, 14.0)).map(|quad| quad.color),
         Some(opaque(theme.accent))
     );
 }
@@ -633,14 +681,14 @@ fn long_prompts_show_their_tail_inside_the_field() {
     }
     .run();
     let field_end = 760.0;
-    assert_eq!(text(&layout, "/").map(|run| run.x), Some(92.0));
-    let run = layout.chrome.text.iter().find(|run| run.x == 99.0).unwrap();
+    assert_eq!(text(&layout, "/").map(|run| run.x), Some(83.0));
+    let run = layout.chrome.text.iter().find(|run| run.x == 90.0).unwrap();
     assert!(run.text.starts_with('…') && run.text.ends_with("end"));
     assert!(run.x + measure(&run.text, false) <= field_end - 10.0);
     assert!(caret(&layout).unwrap().x <= field_end - 10.0);
 
     let layout = Case {
-        width: 140,
+        width: 131,
         label: "/",
         prompt: Some(&prompt),
         ..Case::new(&status)
@@ -688,9 +736,9 @@ fn an_info_notice_replaces_the_tabs_in_muted_text_after_a_dot() {
     assert!(text(&layout, "1 shell").is_none());
     assert!(text(&layout, "2 editor").is_none());
     assert_eq!(
-        notice_dot(&layout, 92.0),
+        notice_dot(&layout, 83.0),
         Some(&rounded(
-            rect(92.0, 14.0, 6.0, 6.0),
+            rect(83.0, 14.0, 6.0, 6.0),
             surfaces.muted,
             3.0,
             1.0
@@ -699,7 +747,7 @@ fn an_info_notice_replaces_the_tabs_in_muted_text_after_a_dot() {
     let run = text(&layout, "config reloaded").unwrap();
     assert_eq!(
         (run.x, run.baseline, run.color, run.bold, run.face),
-        (104.0, 21.0, surfaces.muted, false, TextFace::Ui)
+        (95.0, 21.0, surfaces.muted, false, TextFace::Ui)
     );
     assert_eq!(
         layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
@@ -719,7 +767,7 @@ fn an_error_notice_has_an_attention_dot_and_muted_ellipsized_text() {
     }
     .run();
     assert_eq!(
-        notice_dot(&layout, 92.0).map(|quad| quad.color),
+        notice_dot(&layout, 83.0).map(|quad| quad.color),
         Some(opaque(surfaces.attention))
     );
     let run = layout
@@ -728,7 +776,7 @@ fn an_error_notice_has_an_attention_dot_and_muted_ellipsized_text() {
         .iter()
         .find(|run| run.text.starts_with("could not"))
         .unwrap();
-    assert_eq!((run.x, run.color), (104.0, surfaces.muted));
+    assert_eq!((run.x, run.color), (95.0, surfaces.muted));
     assert!(run.text.ends_with(ELLIPSIS));
     assert!(run.x + measure(&run.text, false) <= 292.0);
 }
@@ -752,7 +800,7 @@ fn a_notice_sits_right_of_an_open_prompt_field() {
         .iter()
         .find(|quad| quad.color == opaque(theme.background))
         .unwrap();
-    assert_eq!(field.rect, rect(82.0, 5.0, 503.0, 24.0));
+    assert_eq!(field.rect, rect(73.0, 5.0, 512.0, 24.0));
     assert_eq!(
         notice_dot(&layout, 591.0).map(|quad| quad.color),
         Some(opaque(surfaces.attention))
@@ -760,7 +808,7 @@ fn a_notice_sits_right_of_an_open_prompt_field() {
     let run = text(&layout, "window name cannot be empty").unwrap();
     assert_eq!((run.x, run.color), (603.0, surfaces.muted));
     let label = text(&layout, "(rename-window) ").unwrap();
-    assert_eq!((label.x, label.color), (92.0, surfaces.muted));
+    assert_eq!((label.x, label.color), (83.0, surfaces.muted));
 }
 
 #[test]
@@ -778,25 +826,25 @@ fn a_notice_next_to_a_prompt_keeps_the_field_at_least_120_wide() {
             .rect
     };
     let layout = Case {
-        width: 300,
+        width: 291,
         label: "(rename-window) ",
         prompt: Some(""),
         notice: Some(&notice),
         ..Case::new(&status)
     }
     .run();
-    assert_eq!(field_rect(&layout), rect(82.0, 5.0, 120.0, 24.0));
-    assert_eq!(text(&layout, "window na…").unwrap().x, 220.0);
+    assert_eq!(field_rect(&layout), rect(73.0, 5.0, 120.0, 24.0));
+    assert_eq!(text(&layout, "window na…").unwrap().x, 211.0);
 
     let layout = Case {
-        width: 220,
+        width: 211,
         label: "(rename-window) ",
         prompt: Some(""),
         notice: Some(&notice),
         ..Case::new(&status)
     }
     .run();
-    assert_eq!(field_rect(&layout), rect(82.0, 5.0, 130.0, 24.0));
+    assert_eq!(field_rect(&layout), rect(73.0, 5.0, 130.0, 24.0));
     assert!(
         layout
             .chrome
@@ -805,3 +853,6 @@ fn a_notice_next_to_a_prompt_keeps_the_field_at_least_120_wide() {
             .all(|run| !run.text.starts_with("window"))
     );
 }
+
+#[path = "chrome_bar_icon_tests.rs"]
+mod icons;

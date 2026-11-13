@@ -102,12 +102,12 @@ fn paste_inserts_the_clipboard_into_a_search_prompt() {
     assert_eq!(overlays.key(&paste(), || None), Some(OverlayEvent::Ignored));
     assert_eq!(
         overlays.key(&press(Key::Named(NamedKey::Enter)), || None),
-        Some(OverlayEvent::Send(ClientMsg::Command(Command::Copy(
+        Some(OverlayEvent::Send(vec![ClientMsg::Command(Command::Copy(
             flair_core::command::CopyCommand::Search {
                 pattern: "grüße".to_owned(),
                 forward: true,
             }
-        ))))
+        ))]))
     );
     assert!(!overlays.is_open());
 }
@@ -132,14 +132,10 @@ fn empty_rename_keeps_the_prompt_open() {
 
 #[test]
 fn picker_query_edits_mid_text() {
-    let mut overlays = Overlays::default();
-    open(
-        &mut overlays,
-        ServerMsg::ChooseSession {
-            sessions: Vec::new(),
-            current: "main".to_owned(),
-        },
-    );
+    let mut overlays = Overlays {
+        picker: Some(Picker::new(Vec::new(), "main", None, Vec::new())),
+        ..Overlays::default()
+    };
     overlays.text("flr");
     overlays.key(&press(Key::Named(NamedKey::Left)), || None);
     overlays.text("a");
@@ -153,14 +149,35 @@ fn sessions() -> ServerMsg {
     ServerMsg::ChooseSession {
         sessions: ["main", "notes", "work"]
             .into_iter()
-            .map(|name| flair_core::proto::SessionInfo {
+            .zip(1..)
+            .map(|(name, id)| flair_core::proto::SessionNode {
+                id: flair_core::ids::SessionId(id),
                 name: name.into(),
                 root: format!("/srv/{name}").into(),
-                windows: 1,
+                windows: vec![flair_core::status::StatusWindow {
+                    id: flair_core::ids::WindowId(id * 10),
+                    index: 1,
+                    name: format!("{name}-shell"),
+                    program: String::new(),
+                    active: true,
+                    last: false,
+                }],
             })
             .collect(),
-        current: "main".into(),
+        current: flair_core::ids::SessionId(1),
+        preview: flair_core::proto::SessionPreview {
+            session: flair_core::ids::SessionId(1),
+            windows: Vec::new(),
+        },
     }
+}
+
+fn tree_rows(overlays: &Overlays) -> (Vec<String>, usize) {
+    let sheet = overlays.sheet().unwrap();
+    (
+        sheet.rows.into_iter().map(|row| row.name).collect(),
+        sheet.selected,
+    )
 }
 
 fn hits(rows: usize) -> OverlayHits {
@@ -177,6 +194,7 @@ fn hits(rows: usize) -> OverlayHits {
             .map(|index| (index, rect(150.0 + 40.0 * index as f32, 32.0)))
             .collect(),
         controls: Vec::new(),
+        windows: Vec::new(),
     }
 }
 
@@ -187,6 +205,7 @@ fn windows() -> StatusLine {
                 id: flair_core::ids::WindowId(u32::from(index) + 10),
                 index,
                 name: format!("w{index}"),
+                program: String::new(),
                 active: index == 1,
                 last: false,
             })
@@ -217,12 +236,34 @@ fn clicking_a_session_row_switches_to_it() {
     assert_eq!(overlays.click(OverlayHit::Panel), OverlayEvent::Ignored);
     assert_eq!(overlays.click(OverlayHit::Row(7)), OverlayEvent::Ignored);
     assert!(overlays.is_open());
-    let OverlayEvent::Send(ClientMsg::Command(Command::Switch(target))) =
-        overlays.click(OverlayHit::Row(1))
-    else {
-        panic!("row click did not switch");
-    };
-    assert_eq!(target, Target::Name("work".into()));
+    assert_eq!(
+        overlays.click(OverlayHit::Row(2)),
+        OverlayEvent::Send(vec![
+            ClientMsg::Preview(None),
+            ClientMsg::Command(Command::Switch(Target::Name("work".into())))
+        ])
+    );
+    assert!(!overlays.is_open());
+    open(&mut overlays, sessions());
+    assert_eq!(
+        overlays.key(&press(Key::Char('l')), || None),
+        Some(OverlayEvent::Redraw)
+    );
+    assert_eq!(
+        overlays.click(OverlayHit::Row(1)),
+        OverlayEvent::Send(vec![
+            ClientMsg::Preview(None),
+            ClientMsg::Command(Command::SelectWindow(WindowRef::Id(
+                flair_core::ids::WindowId(10)
+            )))
+        ])
+    );
+    assert!(!overlays.is_open());
+    open(&mut overlays, sessions());
+    assert_eq!(
+        overlays.click(OverlayHit::Row(0)),
+        OverlayEvent::Send(vec![ClientMsg::Preview(None)])
+    );
     assert!(!overlays.is_open());
 }
 
@@ -230,7 +271,10 @@ fn clicking_a_session_row_switches_to_it() {
 fn clicking_outside_closes_pickers_and_reverts_the_theme() {
     let mut overlays = Overlays::default();
     open(&mut overlays, sessions());
-    assert_eq!(overlays.click(OverlayHit::Outside), OverlayEvent::Redraw);
+    assert_eq!(
+        overlays.click(OverlayHit::Outside),
+        OverlayEvent::Send(vec![ClientMsg::Preview(None)])
+    );
     assert!(!overlays.is_open());
     overlays.open(
         &ServerMsg::ChooseWindow,
@@ -259,9 +303,9 @@ fn clicking_a_window_row_selects_that_window() {
     );
     assert_eq!(
         overlays.click(OverlayHit::Row(2)),
-        OverlayEvent::Send(ClientMsg::Command(Command::SelectWindow(WindowRef::Id(
-            flair_core::ids::WindowId(13)
-        ))))
+        OverlayEvent::Send(vec![ClientMsg::Command(Command::SelectWindow(
+            WindowRef::Id(flair_core::ids::WindowId(13))
+        ))])
     );
     assert!(!overlays.is_open());
 }
@@ -306,9 +350,14 @@ fn wheel_and_page_keys_move_the_selection() {
     assert_eq!(selected(&overlays), 0);
     open(&mut overlays, sessions());
     overlays.prompt = None;
-    overlays.wheel(2);
-    let picker = overlays.picker.as_ref().unwrap();
-    assert_eq!(picker.accept(), Some(Target::Name("notes".into())));
+    assert_eq!(
+        overlays.wheel(2),
+        OverlayEvent::Send(vec![ClientMsg::Preview(Some(flair_core::ids::SessionId(
+            3
+        )))])
+    );
+    assert_eq!(tree_rows(&overlays).1, 2);
+    assert_eq!(tree_rows(&overlays).0[2], "work");
     let mut idle = Overlays::default();
     assert_eq!(idle.wheel(1), OverlayEvent::Ignored);
 }
@@ -374,12 +423,12 @@ fn an_empty_rename_shows_an_error_notice_while_the_prompt_stays_open() {
 }
 
 #[test]
-fn escape_closes_a_session_picker_without_sending_anything() {
+fn escape_closes_the_session_tree_and_only_unwatches_the_preview() {
     let mut overlays = Overlays::default();
     open(&mut overlays, sessions());
     assert_eq!(
         overlays.key(&press(Key::Named(NamedKey::Escape)), || None),
-        Some(OverlayEvent::Redraw)
+        Some(OverlayEvent::Send(vec![ClientMsg::Preview(None)]))
     );
     assert!(!overlays.is_open());
 }
@@ -591,4 +640,120 @@ fn prompt_menu_dismisses_outside_and_ignores_stale_context_results() {
         OverlayEvent::Prompt(PromptAction::DockerContext("dev".into()))
     );
     assert!(!overlays.is_open());
+}
+
+#[test]
+fn the_session_tree_takes_keys_and_text_only_in_search() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, sessions());
+    assert_eq!(
+        overlays.key(&press(Key::Char('x')), || None),
+        Some(OverlayEvent::Ignored)
+    );
+    assert_eq!(overlays.text("work"), Some(OverlayEvent::Ignored));
+    assert_eq!(
+        overlays.key(&paste(), || Some("work".to_owned())),
+        Some(OverlayEvent::Ignored)
+    );
+    assert_eq!(tree_rows(&overlays).0.len(), 3);
+    assert_eq!(
+        overlays.key(&press(Key::Char('/')), || None),
+        Some(OverlayEvent::Redraw)
+    );
+    assert_eq!(overlays.text("wo"), Some(watch(3)));
+    assert_eq!(tree_rows(&overlays).0, ["work"]);
+    overlays.key(&press(Key::Named(NamedKey::Backspace)), || None);
+    overlays.key(&press(Key::Named(NamedKey::Backspace)), || None);
+    assert_eq!(
+        overlays.key(&paste(), || Some("not".to_owned())),
+        Some(watch(2))
+    );
+    assert_eq!(tree_rows(&overlays).0, ["notes"]);
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::Enter)), || None),
+        Some(OverlayEvent::Send(vec![
+            ClientMsg::Preview(None),
+            ClientMsg::Command(Command::Switch(Target::Name("notes".into())))
+        ]))
+    );
+    assert!(!overlays.is_open());
+}
+
+#[test]
+fn the_session_tree_digit_switches_and_q_closes() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, sessions());
+    assert_eq!(
+        overlays.key(&press(Key::Char('3')), || None),
+        Some(OverlayEvent::Send(vec![
+            ClientMsg::Preview(None),
+            ClientMsg::Command(Command::Switch(Target::Name("work".into())))
+        ]))
+    );
+    assert!(!overlays.is_open());
+    open(&mut overlays, sessions());
+    assert_eq!(
+        overlays.key(&press(Key::Char('q')), || None),
+        Some(OverlayEvent::Send(vec![ClientMsg::Preview(None)]))
+    );
+    assert!(!overlays.is_open());
+}
+
+fn watch(session: u32) -> OverlayEvent {
+    OverlayEvent::Send(vec![ClientMsg::Preview(Some(flair_core::ids::SessionId(
+        session,
+    )))])
+}
+
+fn preview(session: u32) -> flair_core::proto::SessionPreview {
+    flair_core::proto::SessionPreview {
+        session: flair_core::ids::SessionId(session),
+        windows: Vec::new(),
+    }
+}
+
+#[test]
+fn previews_reach_the_tree_only_for_the_session_under_the_cursor() {
+    let mut overlays = Overlays::default();
+    assert!(!open_preview(&mut overlays, 1));
+    open(&mut overlays, sessions());
+    assert!(open_preview(&mut overlays, 1));
+    assert!(!open_preview(&mut overlays, 2));
+    assert_eq!(
+        overlays.key(&press(Key::Char('j')), || None),
+        Some(watch(2))
+    );
+    assert!(open_preview(&mut overlays, 2));
+    let strip = overlays.sheet().unwrap().strip.unwrap();
+    assert_eq!(strip.preview, Some(preview(2)));
+    assert_eq!(strip.windows[0].name, "notes-shell");
+}
+
+#[test]
+fn clicking_a_thumbnail_selects_its_window_and_unwatches() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, sessions());
+    assert_eq!(
+        overlays.click(OverlayHit::Window(flair_core::ids::WindowId(20))),
+        OverlayEvent::Send(vec![
+            ClientMsg::Preview(None),
+            ClientMsg::Command(Command::SelectWindow(WindowRef::Id(
+                flair_core::ids::WindowId(20)
+            )))
+        ])
+    );
+    assert!(!overlays.is_open());
+    assert_eq!(
+        overlays.click(OverlayHit::Window(flair_core::ids::WindowId(20))),
+        OverlayEvent::Ignored
+    );
+}
+
+fn open_preview(overlays: &mut Overlays, session: u32) -> bool {
+    overlays.open(
+        &ServerMsg::Preview(preview(session)),
+        &StatusLine::default(),
+        &Config::default(),
+        Path::new("/nonexistent/flair.toml"),
+    )
 }

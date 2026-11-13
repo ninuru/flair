@@ -11,6 +11,8 @@ use crate::facts::Contexts;
 pub enum Timer {
     Prefix { client: ClientId, generation: u64 },
     Prompt,
+    Preview(ClientId),
+    Process(PaneId),
 }
 
 #[derive(Debug)]
@@ -25,4 +27,5 @@ pub enum Event {
     ConfigRead(Result<String, String>),
     GitRead(PathBuf, Option<GitInfo>),
     ContextsRead(Contexts),
+    ProcessRead(PaneId, Vec<String>),
 }

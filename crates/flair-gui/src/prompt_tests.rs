@@ -30,6 +30,7 @@ fn status() -> StatusLine {
                 id: WindowId(u32::from(index) + 10),
                 index,
                 name: format!("w{index}"),
+                program: String::new(),
                 active: index == 2,
                 last: false,
             })
@@ -78,25 +79,26 @@ fn chooser_ignores_releases() {
 }
 
 #[test]
-fn chooser_sheet_lists_windows_with_index_caps_and_state_labels() {
+fn chooser_sheet_lists_windows_with_numbers_and_state_labels() {
     let mut status = status();
     status.windows[0].last = true;
     let sheet = Prompt::choose(&status).sheet().unwrap();
-    assert_eq!(sheet.title, "Windows");
+    assert_eq!(sheet.title, Some("Windows"));
+    assert_eq!(sheet.count, (3, 3));
     assert_eq!(sheet.placement, Placement::Centred);
     assert_eq!(sheet.field, None);
     assert_eq!(sheet.selected, 1);
     let rows: Vec<_> = sheet
         .rows
         .iter()
-        .map(|row| (row.mark.clone(), row.name.as_str(), row.label))
+        .map(|row| (row.number, row.name.as_str(), row.label))
         .collect();
     assert_eq!(
         rows,
         [
-            (Mark::Index(1), "w1", Some("last")),
-            (Mark::Index(2), "w2", Some("active")),
-            (Mark::Index(3), "w3", None),
+            (Some(1), "w1", Some("last")),
+            (Some(2), "w2", Some("active")),
+            (Some(3), "w3", None),
         ]
     );
     let keys: Vec<_> = sheet
@@ -243,4 +245,13 @@ fn field_accessors_split_prefix_and_text() {
     assert_eq!(chooser.field_prefix(), None);
     assert_eq!(chooser.field_text(), None);
     assert_eq!(chooser.cursor(), None);
+}
+
+#[test]
+fn chooser_rows_carry_the_process_icon() {
+    let mut status = status();
+    status.windows[0].program = "ssh".into();
+    let sheet = Prompt::choose(&status).sheet().unwrap();
+    let icons: Vec<Option<char>> = sheet.rows.iter().map(|row| row.icon).collect();
+    assert_eq!(icons, [Some('\u{ea7a}'), None, None]);
 }

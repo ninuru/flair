@@ -5,19 +5,18 @@ use std::{
 
 use super::*;
 use crate::{
-    chrome_bar::fit_letters,
     notice::Notice,
     overlay_layout::OverlayHit,
     renderer::{Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, ChipParts, TabParts, status_parts},
-    ui::{ELLIPSIS, SMALL_TEXT},
+    ui::ELLIPSIS,
 };
 use flair_core::{
     config::{Config, PromptConfig, PromptStyle},
     geom::{Axis, CellPoint},
-    ids::PaneId,
+    ids::{PaneId, SessionId, WindowId},
     isles::{GitInfo, Head, LastCommand, PromptInfo},
-    proto::{PanePlacement, ServerMsg, SessionInfo},
+    proto::{PanePlacement, ServerMsg, SessionNode},
     status::{StatusLine, StatusWindow},
     theme::{Rgb, Rgba},
     time::Millis,
@@ -74,6 +73,7 @@ fn parts() -> StatusParts {
             TabParts {
                 window: WindowId(1),
                 index: 1,
+                icon: None,
                 name: "shell".into(),
                 active: true,
                 last: false,
@@ -81,6 +81,7 @@ fn parts() -> StatusParts {
             TabParts {
                 window: WindowId(2),
                 index: 2,
+                icon: None,
                 name: "editor".into(),
                 active: false,
                 last: false,
@@ -326,8 +327,8 @@ fn hit_test_finds_tabs_and_the_session_but_not_gaps_or_the_grid() {
         hit_test(&layout.hits, (10.0, 10.0)),
         Some(HitTarget::Session)
     );
-    assert_eq!(hit_test(&layout.hits, (154.0, 10.0)), None);
-    assert_eq!(hit_test(&layout.hits, (79.0, 10.0)), None);
+    assert_eq!(hit_test(&layout.hits, (145.0, 10.0)), None);
+    assert_eq!(hit_test(&layout.hits, (70.0, 10.0)), None);
     assert_eq!(hit_test(&layout.hits, (90.0, 100.0)), None);
 }
 
@@ -457,6 +458,7 @@ fn scaled_status() -> StatusLine {
                 id: WindowId(u32::from(index)),
                 index,
                 name: format!("window {index}"),
+                program: String::new(),
                 active: index == 2,
                 last: index == 1,
             })
@@ -472,13 +474,28 @@ fn overlay_messages() -> [ServerMsg; 3] {
         ServerMsg::ChooseSession {
             sessions: ["main", "notes", "work"]
                 .into_iter()
-                .map(|name| SessionInfo {
+                .zip(1..)
+                .map(|(name, id)| SessionNode {
+                    id: SessionId(id),
                     name: name.into(),
                     root: format!("/srv/{name}").into(),
-                    windows: 2,
+                    windows: (1..=2)
+                        .map(|index| StatusWindow {
+                            id: WindowId(id * 10 + u32::from(index)),
+                            index,
+                            name: format!("w{index}"),
+                            program: String::new(),
+                            active: index == 1,
+                            last: false,
+                        })
+                        .collect(),
                 })
                 .collect(),
-            current: "main".into(),
+            current: SessionId(1),
+            preview: flair_core::proto::SessionPreview {
+                session: SessionId(1),
+                windows: Vec::new(),
+            },
         },
         ServerMsg::ChooseWindow,
         ServerMsg::ChooseTheme,
@@ -598,7 +615,9 @@ fn every_line_and_text_origin_lands_on_whole_pixels_at_fractional_scales() {
 fn tab_and_row_hit_targets_match_their_drawn_rects_at_scale_1_5() {
     let scale = 1.5;
     let status = scaled_status();
-    let surfaces = Config::default().theme().surfaces();
+    let theme = Config::default().theme();
+    let surfaces = theme.surfaces();
+    let accent = opaque(theme.accent);
     let layout = scaled_layout(scale, &status, &Overlays::default(), None);
     let windows: Vec<&Hit> = layout
         .hits
@@ -618,13 +637,16 @@ fn tab_and_row_hit_targets_match_their_drawn_rects_at_scale_1_5() {
         .iter()
         .find(|hit| hit.target == HitTarget::Window(WindowId(2)))
         .unwrap();
-    let fill = layout
+    let underline = layout
         .chrome
         .quads
         .iter()
-        .find(|quad| quad.color == opaque(surfaces.surface3) && quad.border.is_none())
+        .find(|quad| quad.color == accent && quad.rect.y < bar_height(scale))
         .unwrap();
-    assert_eq!((fill.rect.x, fill.rect.w), (active.rect.x, active.rect.w));
+    assert_eq!(
+        (underline.rect.x, underline.rect.w),
+        (active.rect.x + 12.0, active.rect.w - 24.0)
+    );
 
     for message in overlay_messages() {
         let mut overlays = Overlays::default();
@@ -648,7 +670,7 @@ fn tab_and_row_hit_targets_match_their_drawn_rects_at_scale_1_5() {
             .chrome
             .modal
             .iter()
-            .find(|quad| quad.color == opaque(surfaces.surface3) && quad.border.is_none())
+            .find(|quad| quad.color == opaque(surfaces.accent_soft) && quad.border.is_none())
             .unwrap();
         assert!(hits.rows.iter().any(|(_, rect)| *rect == selected.rect));
     }
@@ -691,6 +713,7 @@ fn narrow(session: &str, names: &[&str], active: usize) -> StatusParts {
             .map(|(offset, name)| TabParts {
                 window: WindowId(offset as u32 + 1),
                 index: offset as u16 + 1,
+                icon: None,
                 name: (*name).into(),
                 active: offset == active,
                 last: false,
@@ -761,67 +784,21 @@ fn non_ascii_names_ellipsize_on_whole_chars() {
         .chrome
         .text
         .iter()
-        .find(|run| run.text.starts_with("1 Üb"))
+        .find(|run| run.text.starts_with("Üb"))
         .unwrap();
     let kept = tab.text.strip_suffix(ELLIPSIS).unwrap();
-    assert!(format!("1 {long}").starts_with(kept));
+    assert!(long.starts_with(kept));
     let status = narrow("Größe", &["short", cjk], 1);
     let layout = bar_layout(800, &status);
-    let tab = text(&layout, &format!("2 {cjk}")).or_else(|| {
-        layout
-            .chrome
-            .text
-            .iter()
-            .find(|run| run.text.starts_with("2 開"))
-    });
-    let tab = tab.unwrap();
+    let tab = layout
+        .chrome
+        .text
+        .iter()
+        .find(|run| run.text.starts_with('開'))
+        .unwrap();
     let kept = tab.text.trim_end_matches(ELLIPSIS);
-    assert!(format!("2 {cjk}").starts_with(kept));
+    assert!(cjk.starts_with(kept));
     assert!(text(&layout, "Größe").is_some());
-}
-
-#[test]
-fn monogram_letters_at_the_small_size_fit_inside_the_square() {
-    let theme = Config::default().theme();
-    let small = SMALL_TEXT / 12.0;
-    for session in ["MA", "WW"] {
-        let status = narrow(session, &["shell"], 0);
-        let input = ChromeInput {
-            px: (800, 600),
-            scale: 1.0,
-            padding: (8.0, 4.0),
-            zen: false,
-            metrics: metrics(1.0),
-            ui: UiMetrics { small, ..ui(1.0) },
-            theme: &theme,
-            status: &status,
-            prompt: None,
-            layout: None,
-            hover: None,
-            overlays: None,
-            notice: None,
-            isles: None,
-        };
-        let layout = layout(&input, measure);
-        let letters = text(&layout, session).unwrap();
-        let right = letters.x + measure(session, true) * small;
-        assert!(letters.x >= 12.0 && right <= 30.0, "{session} {right}");
-    }
-}
-
-#[test]
-fn a_monogram_that_does_not_fit_its_square_keeps_only_its_first_letter() {
-    let wide = |text: &str, bold: bool| {
-        if bold {
-            text.chars().count() as f32 * 11.0
-        } else {
-            measure(text, bold)
-        }
-    };
-    let mut wide = wide;
-    assert_eq!(fit_letters("WW", 18.0, 1.0, &mut wide), "W");
-    assert_eq!(fit_letters("MA", 18.0, 0.8, &mut wide), "MA");
-    assert_eq!(fit_letters("Ü", 18.0, 1.0, &mut wide), "Ü");
 }
 
 fn banded(separators: &[Separator], panes: &[(u32, CellRect)], active: u32) -> WindowLayout {

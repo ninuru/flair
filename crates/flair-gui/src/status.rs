@@ -1,6 +1,8 @@
 use flair_core::{ids::WindowId, status::StatusLine};
 use unicode_width::UnicodeWidthChar;
 
+use crate::process_icon::process_icon;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StatusParts {
     pub chip: ChipParts,
@@ -20,6 +22,7 @@ pub struct ChipParts {
 pub struct TabParts {
     pub window: WindowId,
     pub index: u16,
+    pub icon: Option<char>,
     pub name: String,
     pub active: bool,
     pub last: bool,
@@ -52,6 +55,7 @@ pub fn status_parts(status: &StatusLine) -> StatusParts {
             .map(|window| TabParts {
                 window: window.id,
                 index: window.index,
+                icon: process_icon(&window.program),
                 name: window.name.clone(),
                 active: window.active,
                 last: window.last,

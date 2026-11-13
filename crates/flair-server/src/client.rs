@@ -33,6 +33,15 @@ pub(crate) struct ClientState {
     pub mouse: Option<MouseCapture>,
     pub prompts: BTreeMap<PaneId, PromptInfo>,
     pub prompt_history: BTreeMap<PaneId, Vec<PromptSnapshot>>,
+    pub preview: Option<PreviewWatch>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PreviewWatch {
+    pub session: SessionId,
+    pub sent: Millis,
+    pub stale: bool,
+    pub armed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

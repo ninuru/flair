@@ -175,8 +175,10 @@ impl App {
         match event {
             OverlayEvent::Ignored => {}
             OverlayEvent::Redraw => self.request_redraw(),
-            OverlayEvent::Send(message) => {
-                self.send(message);
+            OverlayEvent::Send(messages) => {
+                for message in messages {
+                    self.send(message);
+                }
                 self.request_redraw();
             }
             OverlayEvent::Theme(outcome) => self.theme_outcome(outcome),
@@ -476,6 +478,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 ServerMsg::Sessionizer { .. }
                 | ServerMsg::ChooseSession { .. }
+                | ServerMsg::Preview(_)
                 | ServerMsg::ChooseWindow
                 | ServerMsg::PromptRename { .. }
                 | ServerMsg::PromptSearch { .. }

@@ -68,27 +68,77 @@ pub fn candidates(
     entries.into_values().collect()
 }
 
-pub fn rank<'a>(entries: &'a [Candidate], query: &str) -> Vec<&'a Candidate> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ranked<'a> {
+    pub entry: &'a Candidate,
+    pub name: Vec<usize>,
+    pub root: Vec<usize>,
+}
+
+pub fn fuzzy<'a>(
+    query: &str,
+    labels: impl IntoIterator<Item = &'a str>,
+) -> Vec<(usize, u32, Vec<usize>)> {
     let mut matcher = Matcher::new(Config::DEFAULT);
     let pattern = Pattern::parse(query, CaseMatching::Ignore, Normalization::Smart);
     let mut buffer = Vec::new();
-    let mut scored: Vec<_> = entries
+    labels
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, label)| {
+            let score = pattern.score(Utf32Str::new(label, &mut buffer), &mut matcher)?;
+            let chars: Vec<char> = label.chars().collect();
+            let mut indices = Vec::new();
+            pattern.indices(Utf32Str::Unicode(&chars), &mut matcher, &mut indices);
+            indices.sort_unstable();
+            indices.dedup();
+            Some((
+                index,
+                score,
+                indices.into_iter().map(|index| index as usize).collect(),
+            ))
+        })
+        .collect()
+}
+
+pub fn rank<'a>(entries: &'a [Candidate], query: &str) -> Vec<Ranked<'a>> {
+    let labels: Vec<String> = entries
         .iter()
-        .filter_map(|entry| {
-            let label = format!("{} {}", entry.name, entry.root.display());
-            pattern
-                .score(Utf32Str::new(&label, &mut buffer), &mut matcher)
-                .map(|score| (entry, score))
+        .map(|entry| format!("{} {}", entry.name, entry.root.display()))
+        .collect();
+    let mut scored: Vec<_> = fuzzy(query, labels.iter().map(String::as_str))
+        .into_iter()
+        .map(|(index, score, indices)| {
+            let entry = &entries[index];
+            let split = entry.name.chars().count();
+            let (name, root): (Vec<usize>, Vec<usize>) =
+                indices.into_iter().partition(|index| *index < split);
+            let ranked = Ranked {
+                entry,
+                name,
+                root: root
+                    .into_iter()
+                    .filter_map(|index| index.checked_sub(split + 1))
+                    .collect(),
+            };
+            (ranked, score)
         })
         .collect();
     scored.sort_by(|(a, a_score), (b, b_score)| {
-        b.open
-            .cmp(&a.open)
+        b.entry
+            .open
+            .cmp(&a.entry.open)
             .then(b_score.cmp(a_score))
-            .then(a.root.as_os_str().len().cmp(&b.root.as_os_str().len()))
-            .then(a.name.cmp(&b.name))
+            .then(
+                a.entry
+                    .root
+                    .as_os_str()
+                    .len()
+                    .cmp(&b.entry.root.as_os_str().len()),
+            )
+            .then(a.entry.name.cmp(&b.entry.name))
     });
-    scored.into_iter().map(|(entry, _)| entry).collect()
+    scored.into_iter().map(|(ranked, _)| ranked).collect()
 }
 
 #[cfg(test)]

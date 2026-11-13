@@ -648,8 +648,7 @@ impl Paint<'_> {
 
     fn lead(&self, label: &Label) -> f32 {
         label.icon.map_or(0.0, |icon| {
-            (icon_cells(icon) as f32 * self.metrics.width * PROMPT_ICON_SCALE).round()
-                + px(ICON_GAP, self.scale)
+            icon_width(icon, self.metrics) + px(ICON_GAP, self.scale)
         })
     }
 
@@ -772,10 +771,7 @@ impl Paint<'_> {
         if let Some(icon) = label.icon {
             scene.text.push(TextRun {
                 x,
-                baseline: (rect.y
-                    + (rect.h - self.metrics.height * PROMPT_ICON_SCALE) / 2.0
-                    + self.metrics.baseline * PROMPT_ICON_SCALE)
-                    .round(),
+                baseline: icon_baseline(rect.y + rect.h / 2.0, self.metrics),
                 text: icon.to_string(),
                 color: ink,
                 bold: false,
@@ -868,6 +864,15 @@ fn contrast(a: Rgb, b: Rgb) -> f32 {
     };
     let (a, b) = (luminance(a), luminance(b));
     (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+pub(crate) fn icon_width(icon: char, metrics: CellMetrics) -> f32 {
+    (icon_cells(icon) as f32 * metrics.width * PROMPT_ICON_SCALE).round()
+}
+
+pub(crate) fn icon_baseline(centre: f32, metrics: CellMetrics) -> f32 {
+    (centre - metrics.height * PROMPT_ICON_SCALE / 2.0 + metrics.baseline * PROMPT_ICON_SCALE)
+        .round()
 }
 
 fn icon_cells(icon: char) -> usize {

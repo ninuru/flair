@@ -1,5 +1,5 @@
 use super::*;
-use crate::overlay_layout::Mark;
+use crate::ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY};
 
 fn picker() -> Picker {
     Picker::new(
@@ -37,29 +37,6 @@ fn sessionizer() -> Picker {
     )
 }
 
-fn chooser() -> Picker {
-    Picker::sessions(
-        vec![
-            SessionInfo {
-                name: "main".into(),
-                root: "/home/u".into(),
-                windows: 1,
-            },
-            SessionInfo {
-                name: "work".into(),
-                root: "/home/u/work".into(),
-                windows: 2,
-            },
-            SessionInfo {
-                name: "rust-catchers".into(),
-                root: "/home/u/projects/rust-catchers".into(),
-                windows: 1,
-            },
-        ],
-        "work",
-    )
-}
-
 fn verbs(sheet: &Sheet) -> Vec<(&str, &str)> {
     sheet
         .keys
@@ -82,7 +59,8 @@ fn empty_enter_uses_last_session_and_query_selects_match() {
 fn sessionizer_sheet_names_the_last_session_and_marks_open_sessions() {
     let mut picker = sessionizer();
     let sheet = picker.sheet(Some(Path::new("/home/u")));
-    assert_eq!(sheet.title, "Sessionizer");
+    assert_eq!(sheet.title, None);
+    assert_eq!(sheet.count, (3, 3));
     assert_eq!(sheet.placement, Placement::Centred);
     assert_eq!(
         sheet.field.as_ref().map(|field| field.placeholder),
@@ -91,7 +69,12 @@ fn sessionizer_sheet_names_the_last_session_and_marks_open_sessions() {
     let row = |name: &str| sheet.rows.iter().find(|row| row.name == name).unwrap();
     assert_eq!(row("work").label, Some("open"));
     assert_eq!(row("work").detail.as_deref(), Some("~/work"));
-    assert_eq!(row("work").mark, Mark::Monogram("work".into()));
+    assert!(
+        sheet
+            .rows
+            .iter()
+            .all(|row| row.number.is_none() && row.depth == 0)
+    );
     assert_eq!(row("rust-catchers").label, None);
     assert_eq!(
         row("rust-catchers").detail.as_deref(),
@@ -100,40 +83,18 @@ fn sessionizer_sheet_names_the_last_session_and_marks_open_sessions() {
     assert!(sheet.rows.iter().all(|row| row.name != "main"));
     assert_eq!(
         verbs(&sheet),
-        [("↵", "switch"), ("↑↓", "move"), ("esc", "cancel")]
+        [
+            (ENTER_KEY, "switch"),
+            (MOVE_KEY, "move"),
+            (ESCAPE_KEY, "close")
+        ]
     );
     let mut last = self::picker();
-    assert_eq!(verbs(&last.sheet(None))[0], ("↵", "last: previous"));
+    assert_eq!(verbs(&last.sheet(None))[0], (ENTER_KEY, "last: previous"));
     last.insert("f");
-    assert_eq!(verbs(&last.sheet(None))[0], ("↵", "switch"));
+    assert_eq!(verbs(&last.sheet(None))[0], (ENTER_KEY, "switch"));
     picker.insert("zzqqx");
     assert!(picker.sheet(None).rows.is_empty());
-}
-
-#[test]
-fn session_chooser_lists_every_session_and_preselects_current() {
-    let mut picker = chooser();
-    assert_eq!(picker.accept(), Some(Target::Name("work".into())));
-    let sheet = picker.sheet(None);
-    assert_eq!(sheet.title, "Sessions");
-    assert_eq!(
-        sheet.field.as_ref().map(|field| field.placeholder),
-        Some("Search sessions")
-    );
-    assert_eq!(sheet.rows.len(), 3);
-    let labelled: Vec<_> = sheet
-        .rows
-        .iter()
-        .filter_map(|row| row.label.map(|label| (row.name.as_str(), label)))
-        .collect();
-    assert_eq!(labelled, [("work", "current")]);
-    assert_eq!(sheet.rows[sheet.selected].name, "work");
-    assert_eq!(sheet.rows[0].name, "main");
-    assert_eq!(sheet.rows[0].detail.as_deref(), Some("/home/u"));
-    picker.move_selection(-1);
-    assert_eq!(picker.accept(), Some(Target::Name("main".into())));
-    picker.insert("rust");
-    assert_eq!(picker.accept(), Some(Target::Name("rust-catchers".into())));
 }
 
 #[test]
@@ -191,4 +152,57 @@ fn long_queries_and_unicode_backspace_remain_bounded() {
     picker.insert(&"q".repeat(1000));
     assert!(picker.sheet(None).rows.is_empty());
     assert_eq!(picker.accept(), None);
+}
+
+#[test]
+fn enter_verb_opens_a_directory_and_switches_to_an_open_session() {
+    let mut picker = sessionizer();
+    picker.insert("rust");
+    let sheet = picker.sheet(None);
+    assert_eq!(sheet.rows[sheet.selected].name, "rust-catchers");
+    assert_eq!(verbs(&sheet)[0], (ENTER_KEY, "open"));
+    assert_eq!(sheet.count, (2, 3));
+    picker.clear();
+    picker.insert("work");
+    assert_eq!(verbs(&picker.sheet(None))[0], (ENTER_KEY, "switch"));
+    picker.insert("zzqqx");
+    assert_eq!(verbs(&picker.sheet(None))[0], (ENTER_KEY, "switch"));
+}
+
+#[test]
+fn sheet_rows_carry_name_matches_and_path_matches_through_the_home_shortening() {
+    let mut picker = sessionizer();
+    picker.insert("rc");
+    let sheet = picker.sheet(Some(Path::new("/home/u")));
+    let row = sheet
+        .rows
+        .iter()
+        .find(|row| row.name == "rust-catchers")
+        .unwrap();
+    assert_eq!(row.name_matches, [0, 5]);
+    assert!(row.detail_matches.is_empty());
+    let mut picker = sessionizer();
+    picker.insert("projects");
+    let sheet = picker.sheet(Some(Path::new("/home/u")));
+    let row = &sheet.rows[0];
+    assert_eq!(row.detail.as_deref(), Some("~/projects/rust-catchers"));
+    assert!(row.name_matches.is_empty());
+    assert_eq!(row.detail_matches, (2..10).collect::<Vec<_>>());
+}
+
+#[test]
+fn display_matches_follow_the_home_shortening_and_dropped_control_characters() {
+    let home = Some(Path::new("/home/u"));
+    assert_eq!(
+        display_matches(Path::new("/home/u/ab"), home, &[1, 8, 9]),
+        ("~/ab".to_owned(), vec![2, 3])
+    );
+    assert_eq!(
+        display_matches(Path::new("/x\ny"), None, &[3]),
+        ("/xy".to_owned(), vec![2])
+    );
+    assert_eq!(
+        display_matches(Path::new("/home/u"), home, &[0, 1]),
+        ("~".to_owned(), vec![])
+    );
 }

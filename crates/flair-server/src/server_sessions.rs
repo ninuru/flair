@@ -1,6 +1,6 @@
 use super::*;
 use flair_core::{
-    proto::SessionInfo,
+    proto::{SessionInfo, SessionNode},
     tree::{Session, Window},
 };
 
@@ -120,14 +120,45 @@ impl Server {
             .collect()
     }
 
+    pub(super) fn session_nodes(&self, id: ClientId) -> Vec<SessionNode> {
+        let view = &self.clients[&id].view;
+        self.tree
+            .sessions
+            .iter()
+            .map(|session| SessionNode {
+                id: session.id,
+                name: session.name.clone(),
+                root: session.root.clone(),
+                windows: match session.id == view.session {
+                    true => self.window_entries(session, view.window, view.last_window),
+                    false => self.window_entries(session, session.last_window, None),
+                },
+            })
+            .collect()
+    }
+
+    pub(super) fn window_session(&self, window: WindowId) -> Option<SessionId> {
+        self.tree
+            .sessions
+            .iter()
+            .find(|session| {
+                session
+                    .windows
+                    .iter()
+                    .any(|candidate| candidate.id == window)
+            })
+            .map(|session| session.id)
+    }
+
     pub(super) fn switch_to(
         &mut self,
         now: Millis,
         id: ClientId,
         session: SessionId,
+        window: Option<WindowId>,
         out: &mut Vec<Effect>,
     ) {
-        let window = self.tree.session(session).unwrap().last_window;
+        let window = window.unwrap_or(self.tree.session(session).unwrap().last_window);
         self.cancel_mouse(id, out);
         let client = self.clients.get_mut(&id).unwrap();
         let previous_window = client.view.window;
@@ -136,6 +167,7 @@ impl Server {
         client.prefix.reset();
         client.selecting = false;
         client.last_click = None;
+        client.preview = None;
         self.resize_window(previous_window, out);
         self.touch(now, id, out);
         self.send_title(id, out);
@@ -189,7 +221,7 @@ impl Server {
                 match self.resolve_target(target, size, &env, out) {
                     Ok(session) => {
                         if let Some(client) = chosen {
-                            self.switch_to(now, client, session, out);
+                            self.switch_to(now, client, session, None, out);
                         } else {
                             let info = self
                                 .session_infos()
@@ -243,3 +275,7 @@ impl Server {
             .map(|(client, _)| *client)
     }
 }
+
+#[cfg(test)]
+#[path = "server_sessions_tests.rs"]
+mod tests;
