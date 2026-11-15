@@ -417,11 +417,9 @@ action = "wait"
 text = "ready> "
 [[steps]]
 action = "key"
-key = "a"
-ctrl = true
-[[steps]]
-action = "key"
 key = "S"
+ctrl = true
+alt = true
 shift = true
 [[steps]]
 action = "capture"
@@ -521,7 +519,7 @@ fn a_reopened_settings_page_shows_the_saves_kept_in_memory() {
     let scenario = output.0.join("reopen.toml");
     let key = |key: &str| format!("[[steps]]\naction = \"key\"\nkey = \"{key}\"\n");
     let open = format!(
-        "[[steps]]\naction = \"key\"\nkey = \"a\"\nctrl = true\n[[steps]]\naction = \"key\"\nkey = \"S\"\nshift = true\n[[steps]]\naction = \"sleep\"\nms = 300\n{}{}{}{}",
+        "[[steps]]\naction = \"key\"\nkey = \"S\"\nctrl = true\nalt = true\nshift = true\n[[steps]]\naction = \"sleep\"\nms = 300\n{}{}{}{}",
         key("Tab"),
         key("Down"),
         key("Down"),

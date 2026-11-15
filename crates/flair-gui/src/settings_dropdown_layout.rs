@@ -1,8 +1,13 @@
 use super::*;
+use crate::renderer::TextFace;
+use crate::settings_style::{
+    POPUP, POPUP_BORDER, POPUP_GAP, POPUP_HOVER, POPUP_PAD, POPUP_ROW, POPUP_ROW_PAD,
+    POPUP_ROW_RADIUS, POPUP_ROWS, POPUP_SELECTED, SELECT_RADIUS, SHADOW,
+};
 
 pub(super) fn layout(
     sheet: &SettingsSheet,
-    page: PxRect,
+    window: PxRect,
     input: &OverlayInput,
     scene: &mut OverlayScene,
     measure: &mut impl FnMut(&str, bool) -> f32,
@@ -18,43 +23,69 @@ pub(super) fn layout(
     };
     let anchor = *anchor;
     let scale = input.scale;
-    let gap = px(4.0, scale);
-    let row = px(28.0, scale);
-    let pad = px(4.0, scale);
-    let below = page.y + page.h - anchor.y - anchor.h - gap;
-    let above = anchor.y - page.y - gap;
+    let gap = px(POPUP_GAP, scale);
+    let row = px(POPUP_ROW, scale);
+    let pad = px(POPUP_PAD, scale);
+    let row_pad = px(POPUP_ROW_PAD, scale);
+    let below = window.y + window.h - anchor.y - anchor.h - gap * 2.0;
+    let above = anchor.y - window.y - gap * 2.0;
     let down = below >= above;
     let available = if down { below } else { above };
     let capacity = (((available - pad * 2.0) / row).floor().max(0.0) as usize)
-        .min(10)
+        .min(POPUP_ROWS)
         .min(menu.options.len());
     if capacity == 0 {
         return;
     }
+    let widest = menu
+        .options
+        .iter()
+        .map(|name| measure(name, false))
+        .fold(0.0, f32::max);
+    let right = anchor.x + anchor.w;
+    let width = (widest + row_pad * 2.0 + pad * 2.0)
+        .ceil()
+        .max(anchor.w)
+        .min(right - window.x);
     let height = capacity as f32 * row + pad * 2.0;
     let panel = PxRect {
-        x: anchor.x,
+        x: right - width,
         y: if down {
             anchor.y + anchor.h + gap
         } else {
             anchor.y - height - gap
         },
-        w: anchor.w,
+        w: width,
         h: height,
     };
-    let surfaces = input.theme.surfaces();
+    scene.text.retain(|run| {
+        let size = match run.face {
+            TextFace::Small => input.ui.small,
+            TextFace::Ui | TextFace::Mono | TextFace::Icon | TextFace::PromptIcon => 1.0,
+        };
+        run.baseline + (input.ui.height - input.ui.ascent) * size <= panel.y
+            || run.baseline - input.ui.ascent * size >= panel.y + panel.h
+            || run.x >= panel.x + panel.w
+            || run.x + measure(&run.text, run.bold) * size <= panel.x
+    });
+    let drop = px(POPUP_GAP * 2.0, scale);
+    scene.quads.push(Quad {
+        rect: PxRect {
+            x: panel.x - drop,
+            y: panel.y,
+            w: panel.w + drop * 2.0,
+            h: panel.h + drop * 2.0,
+        },
+        color: SHADOW,
+        radius: px(SELECT_RADIUS, scale) + drop,
+        border: None,
+    });
     scene.quads.push(Quad {
         border: Some(Border {
-            color: opaque(surfaces.outline),
+            color: opaque(POPUP_BORDER),
             width: px(LINE, scale),
         }),
-        ..rounded(panel, surfaces.surface1, ROW_RADIUS, scale)
-    });
-    scene.text.retain(|run| {
-        run.baseline + input.ui.height - input.ui.ascent <= panel.y
-            || run.baseline - input.ui.ascent >= panel.y + panel.h
-            || run.x >= panel.x + panel.w
-            || run.x + measure(&run.text, run.bold) <= panel.x
+        ..rounded(panel, POPUP, SELECT_RADIUS, scale)
     });
     scene.hits.controls.clear();
     scene.hits.rows.clear();
@@ -69,17 +100,24 @@ pub(super) fn layout(
             w: panel.w - pad * 2.0,
             h: row,
         };
-        let selected = index == menu.selected;
-        if selected || input.hover.is_some_and(|point| inside(rect, point)) {
+        let fill_color = match (
+            index == menu.selected,
+            input.hover.is_some_and(|point| inside(rect, point)),
+        ) {
+            (true, _) => Some(POPUP_SELECTED),
+            (false, true) => Some(POPUP_HOVER),
+            (false, false) => None,
+        };
+        if let Some(color) = fill_color {
             scene
                 .quads
-                .push(rounded(rect, surfaces.surface3, ROW_RADIUS, scale));
+                .push(rounded(rect, color, POPUP_ROW_RADIUS, scale));
         }
         scene.text.push(ui_text(
-            rect.x + px(ITEM_GAP, scale),
+            rect.x + row_pad,
             baseline(rect, input.ui),
-            ellipsize(name, rect.w - px(ITEM_GAP * 2.0, scale), false, measure),
-            input.theme.foreground,
+            ellipsize(name, rect.w - row_pad * 2.0, false, measure),
+            FOREGROUND,
             false,
         ));
         scene.hits.controls.push((SettingsHit::Choose(index), rect));
@@ -87,5 +125,5 @@ pub(super) fn layout(
     scene
         .hits
         .controls
-        .push((SettingsHit::DismissDropdown, page));
+        .push((SettingsHit::DismissDropdown, window));
 }

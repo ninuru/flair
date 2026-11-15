@@ -9,10 +9,9 @@ use crate::{
     renderer::{Border, PxRect, Quad, TextRun},
     settings_layout::SettingsHit,
     ui::{
-        BACKDROP, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CARET_GAP, DOCK_INSET, DOCK_WIDTH, FIELD_RADIUS,
-        FOOTER_GAP, FOOTER_RULE_GAP, ITEM_GAP, ITEM_PAD, LINE, PALETTE_FIELD, PALETTE_GAP,
-        PANEL_PAD_X, PANEL_PAD_Y, PANEL_RADIUS, PANEL_TALL, PANEL_TOP, PANEL_WIDTH, ROW_GAP,
-        ROW_HEIGHT, ROW_PAD, px,
+        BACKDROP, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, DOCK_INSET, DOCK_WIDTH, FOOTER_GAP,
+        FOOTER_RULE_GAP, ITEM_GAP, LINE, PALETTE_FIELD, PALETTE_GAP, PANEL_PAD_X, PANEL_PAD_Y,
+        PANEL_RADIUS, PANEL_TALL, PANEL_TOP, PANEL_WIDTH, ROW_GAP, ROW_HEIGHT, ROW_PAD, px,
     },
 };
 
@@ -365,60 +364,6 @@ fn docked(sheet: &Sheet, input: &OverlayInput) -> (PxRect, (usize, bool, bool, b
         h: (height - inset - y).max(0.0),
     };
     (panel, fit(sheet, panel.h, scale))
-}
-
-pub(crate) fn search(
-    field: &Field,
-    rect: PxRect,
-    input: &OverlayInput,
-    scene: &mut OverlayScene,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) {
-    let scale = input.scale;
-    let theme = input.theme;
-    let surfaces = theme.surfaces();
-    let line = px(LINE, scale);
-    scene.quads.push(Quad {
-        border: Some(Border {
-            color: opaque(surfaces.outline),
-            width: line,
-        }),
-        ..rounded(rect, theme.background, FIELD_RADIUS, scale)
-    });
-    let pad = px(ITEM_PAD, scale);
-    let text_x = rect.x + pad;
-    let room = (rect.w - pad * 2.0 - line).max(0.0);
-    let (text, offset, caret, color) = match field.text.is_empty() {
-        true => {
-            let gap = px(CARET_GAP, scale);
-            (
-                ellipsize(field.placeholder, room - gap, false, measure),
-                gap,
-                0.0,
-                surfaces.faint,
-            )
-        }
-        false => {
-            let (text, caret) = visible(&field.text, field.cursor, room, measure);
-            (text, 0.0, caret, theme.foreground)
-        }
-    };
-    scene.text.push(ui_text(
-        text_x + offset,
-        baseline(rect, input.ui),
-        text,
-        color,
-        false,
-    ));
-    scene.quads.push(fill(
-        PxRect {
-            x: (text_x + caret).round(),
-            y: (rect.y + (rect.h - input.ui.height) / 2.0).round(),
-            w: line,
-            h: input.ui.height.round(),
-        },
-        theme.accent,
-    ));
 }
 
 pub(crate) fn visible(

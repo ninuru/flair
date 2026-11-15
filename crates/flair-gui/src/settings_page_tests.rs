@@ -131,9 +131,10 @@ fn error(page: &SettingsPage) -> Option<String> {
     }
 }
 
-fn source(page: &SettingsPage) -> &'static str {
+fn modified(page: &SettingsPage) -> bool {
     match focused(page) {
-        Entry::Setting { source, .. } | Entry::Binding { source, .. } => source,
+        Entry::Setting { modified, .. } => modified,
+        Entry::Binding { .. } => false,
     }
 }
 
@@ -145,85 +146,11 @@ fn preview_of(text: &str, key: &str, value: Option<&Value>) -> SettingsOutcome {
     SettingsOutcome::Preview(Box::new(apply(text, key, value).unwrap().1))
 }
 
-fn caps(keys: &[(&'static str, &str)]) -> Vec<(&'static str, String)> {
-    keys.iter()
-        .map(|(cap, label)| (*cap, (*label).to_owned()))
-        .collect()
-}
-
-fn browse_keys() -> Vec<(&'static str, String)> {
-    caps(&[(ESCAPE_KEY, "close"), (SEARCH_KEY, "search")])
-}
-
-fn step_keys() -> Vec<(&'static str, String)> {
-    caps(&[
-        (STEP_KEY, "step"),
-        (ESCAPE_KEY, "close"),
-        (SEARCH_KEY, "search"),
-    ])
-}
-
-fn toggle_keys() -> Vec<(&'static str, String)> {
-    caps(&[
-        (SPACE_KEY, "toggle"),
-        (ESCAPE_KEY, "close"),
-        (SEARCH_KEY, "search"),
-    ])
-}
-
-fn edit_keys() -> Vec<(&'static str, String)> {
-    caps(&[
-        (ENTER_KEY, "edit"),
-        (ESCAPE_KEY, "close"),
-        (SEARCH_KEY, "search"),
-    ])
-}
-
-fn step_reset_keys() -> Vec<(&'static str, String)> {
-    caps(&[
-        (STEP_KEY, "step"),
-        (DELETE_KEY, "reset"),
-        (ESCAPE_KEY, "close"),
-        (SEARCH_KEY, "search"),
-    ])
-}
-
-fn sections_keys() -> Vec<(&'static str, String)> {
-    caps(&[
-        (ENTER_KEY, "open"),
-        (ESCAPE_KEY, "close"),
-        (SEARCH_KEY, "search"),
-    ])
-}
-
-fn editing_keys() -> Vec<(&'static str, String)> {
-    caps(&[(ENTER_KEY, "save"), (ESCAPE_KEY, "revert")])
-}
-
-fn pending_keys() -> Vec<(&'static str, String)> {
-    caps(&[
-        (ENTER_KEY, "save"),
-        (ESCAPE_KEY, "revert"),
-        (STEP_KEY, "step"),
-    ])
-}
-
 #[test]
 fn a_new_page_shows_appearance_with_the_first_entry_focused() {
     let page = page("");
     let sheet = page.sheet();
-    assert_eq!(
-        sheet.sections,
-        [
-            "Appearance",
-            "Font",
-            "Window",
-            "Panels",
-            "Terminal",
-            "Prompt",
-            "Keys"
-        ]
-    );
+    assert_eq!(sheet.sections, Section::ALL);
     assert_eq!(sheet.section, Some(0));
     assert!(!sheet.sections_focused);
     assert_eq!(sheet.crumb, "Appearance");
@@ -243,7 +170,6 @@ fn a_new_page_shows_appearance_with_the_first_entry_focused() {
         ]
     );
     assert_eq!(sheet.focus, Some(0));
-    assert_eq!(sheet.keys, step_keys());
     assert_eq!(control(&page), Control::Choice("flair-dark".to_owned()));
 }
 
@@ -253,10 +179,10 @@ fn entries_show_values_and_their_source() {
     section(&mut page, 1);
     page.focus(1);
     assert_eq!(control(&page), Control::Number("14".to_owned()));
-    assert_eq!(source(&page), "flair.toml");
+    assert!(modified(&page));
     page.focus(2);
     assert_eq!(control(&page), Control::Number("1".to_owned()));
-    assert_eq!(source(&page), "default");
+    assert!(!modified(&page));
     section(&mut page, 6);
     assert_eq!(control(&page), Control::Toggle(true));
     page.focus(1);
@@ -269,7 +195,7 @@ fn unset_colours_show_the_theme_value_as_default() {
     page.focus(1);
     let theme = Config::default().theme();
     assert_eq!(control(&page), Control::Color(theme.background.hex()));
-    assert_eq!(source(&page), "default");
+    assert!(!modified(&page));
 }
 
 #[test]
@@ -293,7 +219,6 @@ fn the_keys_section_lists_settings_then_key_bindings() {
             command: "unbound".to_owned(),
             unbound: true,
             table: "prefix",
-            source: "flair.toml",
             disabled: false,
         }
     );
@@ -304,7 +229,6 @@ fn the_keys_section_lists_settings_then_key_bindings() {
             command: "rename-window".to_owned(),
             unbound: false,
             table: "prefix",
-            source: "default",
             disabled: false,
         }
     );
@@ -390,7 +314,6 @@ fn space_and_enter_flip_a_toggle_and_save_at_once() {
         press(&mut page, NamedKey::Enter),
         save("keys.enabled", Some(Value::Bool(false)))
     );
-    assert_eq!(page.sheet().keys, toggle_keys());
 }
 
 #[test]
@@ -410,12 +333,10 @@ fn stepping_a_number_previews_a_pending_value_and_enter_saves_it() {
         preview_of("", "font.size", Some(&value))
     );
     assert_eq!(control(&page), Control::Number("13.5".to_owned()));
-    assert_eq!(page.sheet().keys, pending_keys());
     assert_eq!(
         press(&mut page, NamedKey::Enter),
         save("font.size", Some(value))
     );
-    assert_eq!(page.sheet().keys, step_keys());
 }
 
 #[test]
@@ -426,7 +347,6 @@ fn escape_reverts_a_pending_value_then_closes() {
     assert_eq!(control(&page), Control::Number("7".to_owned()));
     assert_eq!(press(&mut page, NamedKey::Escape), SettingsOutcome::Revert);
     assert_eq!(control(&page), Control::Number("8".to_owned()));
-    assert_eq!(page.sheet().keys, step_keys());
     assert_eq!(press(&mut page, NamedKey::Escape), SettingsOutcome::Close);
 }
 
@@ -436,7 +356,6 @@ fn stepping_back_to_the_saved_value_reverts() {
     focus_key(&mut page, "window.padding_x");
     press(&mut page, NamedKey::Right);
     assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Revert);
-    assert_eq!(page.sheet().keys, step_keys());
 }
 
 #[test]
@@ -444,7 +363,6 @@ fn a_clamped_step_changes_nothing() {
     let mut page = page("[window]\npadding_y = 0\n");
     focus_key(&mut page, "window.padding_y");
     assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
-    assert_eq!(page.sheet().keys, step_reset_keys());
 }
 
 #[test]
@@ -457,7 +375,6 @@ fn leaving_a_pending_value_saves_it_and_still_moves() {
         save("window.padding_x", Some(Value::Integer(9)))
     );
     assert_eq!(page.sheet().focus, Some(1));
-    assert_eq!(page.sheet().keys, step_keys());
     press(&mut page, NamedKey::Right);
     assert_eq!(
         press(&mut page, NamedKey::Tab),
@@ -519,7 +436,6 @@ fn enter_opens_an_editor_seeded_with_the_value() {
             placeholder: "unset",
         })
     );
-    assert_eq!(page.sheet().keys, editing_keys());
 }
 
 #[test]
@@ -543,7 +459,6 @@ fn typing_a_valid_value_previews_and_an_invalid_one_waits() {
         press(&mut page, NamedKey::Enter),
         save("window.padding_x", Some(two))
     );
-    assert_eq!(page.sheet().keys, step_keys());
 }
 
 #[test]
@@ -580,7 +495,6 @@ fn tab_in_the_editor_reverts_and_moves_to_the_sections() {
     type_text(&mut page, "x");
     assert_eq!(press(&mut page, NamedKey::Tab), SettingsOutcome::Revert);
     assert!(page.sheet().sections_focused);
-    assert_eq!(page.sheet().keys, sections_keys());
 }
 
 #[test]
@@ -674,7 +588,6 @@ fn delete_drops_a_pending_value() {
     focus_key(&mut page, "font.size");
     press(&mut page, NamedKey::Right);
     assert_eq!(press(&mut page, NamedKey::Delete), save("font.size", None));
-    assert_eq!(page.sheet().keys, step_reset_keys());
 }
 
 #[test]
@@ -779,7 +692,6 @@ fn binding_rows_ignore_edit_keys() {
     ] {
         assert_eq!(press(&mut page, name), SettingsOutcome::Pending);
     }
-    assert_eq!(page.sheet().keys, browse_keys());
 }
 
 #[test]
@@ -835,8 +747,7 @@ fn the_prompt_section_lists_the_style_icons_chips_then_the_formats() {
         ]
     );
     assert_eq!(control(&page), Control::Choice("chips".to_owned()));
-    assert_eq!(source(&page), "default");
-    assert_eq!(page.sheet().keys, step_keys());
+    assert!(!modified(&page));
     page.focus(1);
     assert_eq!(control(&page), Control::Toggle(true));
     page.focus(10);
@@ -851,10 +762,8 @@ fn the_prompt_style_steps_both_ways_as_pending_without_a_preview() {
     focus_key(&mut page, "prompt.style");
     assert_eq!(press(&mut page, NamedKey::Right), SettingsOutcome::Pending);
     assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
-    assert_eq!(page.sheet().keys, pending_keys());
     assert_eq!(press(&mut page, NamedKey::Right), SettingsOutcome::Revert);
     assert_eq!(control(&page), Control::Choice("chips".to_owned()));
-    assert_eq!(page.sheet().keys, step_keys());
     assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
     assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
     assert_eq!(
@@ -868,7 +777,7 @@ fn the_prompt_style_steps_back_from_ps1_and_saves_on_leave() {
     let mut page = page("[prompt]\nstyle = \"ps1\"\n");
     focus_key(&mut page, "prompt.style");
     assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
-    assert_eq!(source(&page), "flair.toml");
+    assert!(modified(&page));
     assert_eq!(press(&mut page, NamedKey::Left), SettingsOutcome::Pending);
     assert_eq!(control(&page), Control::Choice("chips".to_owned()));
     assert_eq!(

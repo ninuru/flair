@@ -375,11 +375,11 @@ fn prefix_t_chooses_a_theme() {
 }
 
 #[test]
-fn prefix_shift_s_opens_settings_and_s_still_chooses_a_session() {
+fn prefix_shift_s_no_longer_opens_settings_and_s_still_chooses_a_session() {
     let config = KeysConfig::default();
     assert_eq!(
         config.binding(&with_mods(Key::Char('S'), false, true), true),
-        Some(Command::Settings)
+        None
     );
     assert_eq!(
         config.binding(&plain(Key::Char('s')), true),
@@ -453,11 +453,9 @@ fn default_bindings_list_every_table_in_order() {
     assert_eq!(bindings[PREFIX_DEFAULTS.len()].chord, "C-S-c");
     assert_eq!(bindings.last().unwrap().table, KeyTable::CopyMode);
     assert_eq!(bindings.last().unwrap().chord, "Enter");
-    assert!(
-        bindings
-            .iter()
-            .any(|b| b.chord == "S" && b.command.as_deref() == Some("settings"))
-    );
+    assert!(bindings.iter().any(|b| b.table == KeyTable::Root
+        && b.chord == "C-A-S-s"
+        && b.command.as_deref() == Some("settings")));
     assert_eq!(KeyTable::Prefix.name(), "prefix");
     assert_eq!(KeyTable::Root.name(), "root");
     assert_eq!(KeyTable::CopyMode.name(), "copy-mode");
@@ -576,4 +574,52 @@ fn prefix_a_opens_the_agents_overview() {
             .iter()
             .any(|b| b.chord == "a" && b.command.as_deref() == Some("agents"))
     );
+}
+
+#[test]
+fn ctrl_alt_shift_s_opens_settings_from_the_root_table_without_the_prefix() {
+    let config = KeysConfig::default();
+    let mods = Mods {
+        ctrl: true,
+        alt: true,
+        shift: true,
+        super_: false,
+    };
+    for c in ['S', 's'] {
+        let input = KeyInput {
+            key: Key::Char(c),
+            mods,
+            text: None,
+            repeat: false,
+            keypad: false,
+            action: KeyAction::Press,
+            unshifted: Some('s'),
+            shifted: Some('S'),
+            base: Some('s'),
+            locks: Locks::default(),
+        };
+        assert_eq!(
+            config.binding(&input, false),
+            Some(Command::Settings),
+            "{c}"
+        );
+        assert_eq!(config.binding(&input, true), None, "{c}");
+    }
+    let plain = KeyInput {
+        key: Key::Char('S'),
+        mods: Mods {
+            shift: true,
+            ..Mods::default()
+        },
+        text: Some("S".into()),
+        repeat: false,
+        keypad: false,
+        action: KeyAction::Press,
+        unshifted: Some('s'),
+        shifted: Some('S'),
+        base: Some('s'),
+        locks: Locks::default(),
+    };
+    assert_eq!(config.binding(&plain, true), None);
+    assert_eq!(config.binding(&plain, false), None);
 }

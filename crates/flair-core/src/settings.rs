@@ -604,7 +604,7 @@ pub const SETTINGS: &[Setting] = &[
         title: "Bindings",
         section: Section::Keys,
         kind: Kind::Toggle,
-        description: "Off also disables prefix S; re-enable it in flair.toml.",
+        description: "Off also disables Ctrl+Alt+Shift+S; re-enable it in flair.toml.",
         read: |config, _| Value::Bool(config.keys.enabled),
     },
     Setting {

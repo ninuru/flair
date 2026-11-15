@@ -21,7 +21,7 @@ use crate::{
     prompt::{Outcome, Prompt},
     prompt_actions::{MenuOutcome, PromptAction, PromptMenu},
     session_tree::{SessionTree, TreeOutcome},
-    settings_layout,
+    settings_layout::{self, SettingsHit},
     settings_page::{SettingsOutcome, SettingsPage},
     theme_picker::{ThemeOutcome, ThemePicker},
 };
@@ -404,13 +404,13 @@ impl Overlays {
         }
         if let Some(page) = &mut self.settings {
             let outcome = match hit {
-                OverlayHit::Panel | OverlayHit::Window(_) | OverlayHit::Outside => {
-                    return if page.dismiss_dropdown() {
-                        OverlayEvent::Redraw
-                    } else {
-                        OverlayEvent::Ignored
-                    };
+                OverlayHit::Panel | OverlayHit::Window(_) | OverlayHit::Outside
+                    if page.dismiss_dropdown() =>
+                {
+                    return OverlayEvent::Redraw;
                 }
+                OverlayHit::Panel | OverlayHit::Window(_) => return OverlayEvent::Ignored,
+                OverlayHit::Outside => page.click(SettingsHit::Close),
                 OverlayHit::Row(index) => page.focus(index),
                 OverlayHit::Settings(hit) => page.click(hit),
             };

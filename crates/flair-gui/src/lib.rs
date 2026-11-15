@@ -35,6 +35,7 @@ mod session_tree;
 pub mod settings_layout;
 pub mod settings_page;
 mod settings_rows;
+mod settings_style;
 pub mod shape;
 mod shaper;
 pub mod status;
