@@ -7,11 +7,10 @@ use std::{
 
 use crate::explorer::{Entry, Listing};
 
-pub const LISTING_CAP: usize = 1000;
 pub const SCAN_CAP: usize = 50_000;
 
 pub fn read_listing(dir: &Path) -> Listing {
-    let reader = match fs::read_dir(dir) {
+    let mut reader = match fs::read_dir(dir) {
         Ok(reader) => reader,
         Err(error) => {
             return Listing {
@@ -23,6 +22,7 @@ pub fn read_listing(dir: &Path) -> Listing {
         }
     };
     let mut entries: Vec<Entry> = reader
+        .by_ref()
         .take(SCAN_CAP)
         .filter_map(Result::ok)
         .map(|item| {
@@ -46,8 +46,7 @@ pub fn read_listing(dir: &Path) -> Listing {
             item.name.clone(),
         )
     });
-    let more = entries.len().saturating_sub(LISTING_CAP);
-    entries.truncate(LISTING_CAP);
+    let more = reader.count();
     Listing {
         dir: dir.to_path_buf(),
         entries,

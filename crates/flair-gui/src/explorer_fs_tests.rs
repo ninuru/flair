@@ -96,19 +96,16 @@ fn a_symlinked_folder_is_a_folder_and_a_dangling_link_is_a_file() {
 }
 
 #[test]
-fn a_large_directory_is_capped_with_the_rest_counted() {
+fn a_large_directory_lists_every_entry() {
     let temp = TempDir::new();
-    for index in 0..LISTING_CAP + 5 {
+    for index in 0..1005 {
         temp.file(&format!("f{index:05}"));
     }
     let listing = read_listing(&temp.0);
-    assert_eq!(listing.entries.len(), LISTING_CAP);
-    assert_eq!(listing.more, 5);
+    assert_eq!(listing.entries.len(), 1005);
+    assert_eq!(listing.more, 0);
     assert_eq!(listing.entries[0].name, "f00000");
-    assert_eq!(
-        listing.entries[LISTING_CAP - 1].name,
-        format!("f{:05}", LISTING_CAP - 1).as_str()
-    );
+    assert_eq!(listing.entries[1004].name, "f01004");
 }
 
 #[test]
