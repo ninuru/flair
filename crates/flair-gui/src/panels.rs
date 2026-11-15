@@ -61,6 +61,12 @@ impl Panels {
         }
     }
 
+    pub fn follow_position(&mut self, position: TabsPosition) {
+        if self.flipped.is_some_and(|flipped| flipped != position) {
+            self.flipped = None;
+        }
+    }
+
     pub fn toggle_tabs(&mut self, position: TabsPosition) {
         self.flipped = match self.flipped == Some(position) {
             true => None,

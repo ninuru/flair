@@ -187,6 +187,7 @@ impl App {
     }
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let started = self.probe.as_ref().map(|_| Instant::now());
+        self.panels.follow_position(self.effective().tabs.position);
         let theme = self
             .preview
             .as_ref()

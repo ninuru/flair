@@ -70,6 +70,17 @@ fn toggling_tabs_flips_and_forgets_a_drag() {
 }
 
 #[test]
+fn a_tab_toggle_is_forgotten_once_the_position_changes() {
+    let mut panels = Panels::default();
+    panels.toggle_tabs(TabsPosition::Left);
+    panels.follow_position(TabsPosition::Left);
+    assert_eq!(panels.flipped, Some(TabsPosition::Left));
+    panels.follow_position(TabsPosition::Right);
+    panels.follow_position(TabsPosition::Left);
+    assert_eq!(panels.flipped, None);
+}
+
+#[test]
 fn a_live_width_overrides_the_configured_one() {
     let panels = Panels {
         live_width: Some((PanelView::Tabs, 300.0)),
