@@ -123,3 +123,25 @@ fn overflowing_and_ellipsized_tabs_keep_their_icons_inside_the_tab() {
         assert!(last.x + last.w <= width as f32 - 8.0, "{width} {active}");
     }
 }
+
+#[test]
+fn tab_icons_can_lead_the_name_or_be_switched_off() {
+    let mut status = parts();
+    status.tabs[0].icon = Some('\u{f120}');
+    let before_status = StatusParts {
+        tab_icon: Some(IconSide::Before),
+        ..status.clone()
+    };
+    let before = Case::new(&before_status).run();
+    assert_eq!(icons(&before)[0].x, 97.0);
+    assert_eq!(text(&before, "shell").unwrap().x, 114.0);
+    assert_eq!(before.hits[1].rect, rect(73.0, 0.0, 86.0, 34.0));
+    let off_status = StatusParts {
+        tab_icon: None,
+        ..status
+    };
+    let off = Case::new(&off_status).run();
+    assert!(icons(&off).is_empty());
+    assert_eq!(text(&off, "shell").unwrap().x, 97.0);
+    assert_eq!(off.hits[1].rect, rect(73.0, 0.0, 69.0, 34.0));
+}

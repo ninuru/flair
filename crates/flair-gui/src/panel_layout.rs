@@ -1,9 +1,13 @@
-use flair_core::{config::Side, theme::Rgb};
+use flair_core::{
+    config::{IconSide, Side},
+    theme::Rgb,
+};
 
 use crate::{
     agents_layout,
     chrome_bar::{
-        Scene, baseline, cap_centre, ellipsize, fill, icon_text, rounded, small_text, ui_text,
+        Scene, baseline, cap_centre, ellipsize, fill, icon_lead, icon_text, rounded, small_text,
+        ui_text,
     },
     chrome_layout::{ChromeInput, Hit, HitTarget, PanelView, Slot},
     explorer_layout,
@@ -318,24 +322,30 @@ fn tab_row(
         input.ui,
     ));
     x += px(NUMBER_COLUMN, scale);
-    if let Some(icon) = tab.icon {
-        let color = match tab.active {
-            true => surfaces.bright,
-            false => surfaces.muted,
-        };
-        scene.text.push(icon_text(
-            x,
-            cap_centre(rect, input.ui),
-            icon,
-            color,
-            input.metrics,
-        ));
+    let icon_color = match tab.active {
+        true => surfaces.bright,
+        false => surfaces.muted,
+    };
+    let centre = cap_centre(rect, input.ui);
+    let trailing_icon = match input.status.tab_icon.zip(tab.icon) {
+        Some((IconSide::After, glyph)) => Some(glyph),
+        Some((IconSide::Before, _)) | None => None,
+    };
+    match input.status.tab_icon {
+        Some(IconSide::Before) => {
+            if let Some(icon) = tab.icon {
+                scene
+                    .text
+                    .push(icon_text(x, centre, icon, icon_color, input.metrics));
+            }
+            x += icon_column(input);
+        }
+        Some(IconSide::After) | None => {}
     }
-    x += icon_column(input);
     let square = trailing(rect, scale);
     let name = ellipsize(
         &tab.name,
-        square.x - px(ITEM_GAP, scale) - x,
+        square.x - px(ITEM_GAP, scale) - x - icon_lead(trailing_icon, input.metrics, scale),
         false,
         measure,
     );
@@ -347,6 +357,15 @@ fn tab_row(
         surfaces.muted
     };
     if !name.is_empty() {
+        if let Some(icon) = trailing_icon {
+            scene.text.push(icon_text(
+                x + measure(&name, false) + px(PROCESS_ICON_GAP, scale),
+                centre,
+                icon,
+                icon_color,
+                input.metrics,
+            ));
+        }
         scene.text.push(ui_text(
             x.round(),
             baseline(rect, input.ui),

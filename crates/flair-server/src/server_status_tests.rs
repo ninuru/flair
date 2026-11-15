@@ -285,13 +285,12 @@ fn choose_theme_asks_only_that_client_to_open_the_picker() {
 }
 
 #[test]
-fn ctrl_alt_shift_s_opens_settings_only_for_that_client() {
+fn ctrl_alt_s_opens_settings_only_for_that_client() {
     let mut server = setup();
     let mut out = Vec::new();
     server.handle(Millis(1), Event::Client(ClientId(2), hello()), &mut out);
-    let mut chord = press(Key::Char('S'), true);
+    let mut chord = press(Key::Char('s'), true);
     chord.mods.alt = true;
-    chord.mods.shift = true;
     let out = key(&mut server, 3, chord);
     let sent: Vec<_> = out
         .iter()

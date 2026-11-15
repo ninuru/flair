@@ -810,3 +810,17 @@ fn notifications_default_to_enabled_and_read_from_the_table() {
     assert!(!config.notifications.enabled);
     assert!(Config::from_toml("[notifications]\nsound = true\n").is_err());
 }
+
+#[test]
+fn tab_icons_default_on_after_the_name_and_read_from_the_tabs_table() {
+    let tabs = Config::default().tabs;
+    assert!(tabs.icons);
+    assert_eq!(tabs.icon_side, IconSide::After);
+    let config = Config::from_toml("[tabs]\nicons = false\nicon_side = \"before\"\n").unwrap();
+    assert!(!config.tabs.icons);
+    assert_eq!(config.tabs.icon_side, IconSide::Before);
+    assert_eq!(IconSide::Before.name(), "before");
+    assert_eq!(IconSide::After.name(), "after");
+    assert!(Config::from_toml("[tabs]\nicon_side = \"left\"\n").is_err());
+    assert!(Config::from_toml("[tabs]\nicons = \"yes\"\n").is_err());
+}

@@ -58,6 +58,8 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "window.padding_y",
             "tabs.position",
             "tabs.width",
+            "tabs.icons",
+            "tabs.icon_side",
             "explorer.side",
             "explorer.width",
             "explorer.show_hidden",
@@ -131,7 +133,7 @@ fn source_labels() {
 fn keys_enabled_warns_about_the_lock_out() {
     assert_eq!(
         setting("keys.enabled").description,
-        "Off also disables Ctrl+Alt+Shift+S; re-enable it in flair.toml."
+        "Off also disables Ctrl+Alt+S; re-enable it in flair.toml."
     );
     assert_eq!(setting("keys.enabled").kind, Kind::Toggle);
 }
@@ -679,4 +681,26 @@ fn notifications_toggle_sits_in_the_terminal_section() {
         notifications.value(&config, &config.theme()),
         Value::Bool(false)
     );
+}
+
+#[test]
+fn the_panels_section_switches_tab_icons_and_picks_their_side() {
+    let icons = setting("tabs.icons");
+    assert_eq!(icons.section, Section::Panels);
+    assert_eq!(icons.title, "Tab icons");
+    assert_eq!(icons.kind, Kind::Toggle);
+    assert_eq!(default_value(icons), Value::Bool(true));
+    let side = setting("tabs.icon_side");
+    assert_eq!(side.section, Section::Panels);
+    assert_eq!(side.title, "Tab icon side");
+    assert_eq!(side.kind, Kind::Choice(Choices::Of(&["before", "after"])));
+    assert_eq!(default_value(side), text("after"));
+    assert_eq!(side.step(&text("after"), 1, &[]), Some(text("before")));
+    let (file, config) = apply("", "tabs.icons", Some(&Value::Bool(false))).unwrap();
+    assert!(file.contains("icons = false"));
+    assert!(!config.tabs.icons);
+    let (file, config) = apply(&file, "tabs.icon_side", Some(&text("before"))).unwrap();
+    assert!(file.contains("icon_side = \"before\""));
+    assert_eq!(config.tabs.icon_side, IconSide::Before);
+    assert_eq!(icons.value(&config, &config.theme()), Value::Bool(false));
 }

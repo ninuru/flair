@@ -24,7 +24,7 @@ use flair_gui::{
     panels::Panels,
     renderer::{Chrome, HeadlessContext, Renderer},
     settings_page::SettingsOutcome,
-    status::{status_parts, status_text},
+    status::{status_parts, status_text, with_tab_icons},
     theme_picker::ThemeOutcome,
 };
 use flair_server::{ServerConfig, runtime::spawn_in_process};
@@ -564,7 +564,7 @@ impl Capture {
             Some(preview) => (&preview.config, &preview.theme),
             None => (&self.config, &self.theme),
         };
-        let parts = status_parts(&self.status);
+        let parts = with_tab_icons(status_parts(&self.status), &config.tabs);
         let input = ChromeInput {
             px: pixels.px,
             scale: pixels.scale as f32,
@@ -610,7 +610,7 @@ impl Capture {
         if self.overlays.is_open() {
             grid.cursor = None;
         }
-        let parts = status_parts(&self.status);
+        let parts = with_tab_icons(status_parts(&self.status), &config.tabs);
         let input = ChromeInput {
             px: pixels.px,
             scale,

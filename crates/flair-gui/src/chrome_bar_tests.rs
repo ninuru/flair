@@ -6,6 +6,7 @@ use crate::{
     panels::Panels,
     status::{ChipParts, StatusParts},
 };
+use flair_core::config::IconSide;
 use flair_core::{
     config::Config,
     geom::{CellRect, GridSize},
@@ -23,6 +24,7 @@ fn rect(x: f32, y: f32, w: f32, h: f32) -> PxRect {
 
 fn parts() -> StatusParts {
     StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: "main".into(),
             hidden: 0,
