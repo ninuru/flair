@@ -14,6 +14,7 @@ pub struct ServerConfig {
     pub keys: KeysConfig,
     pub prompt: PromptConfig,
     pub path: PathBuf,
+    pub notifications: bool,
 }
 
 impl ServerConfig {
@@ -38,6 +39,7 @@ impl ServerConfig {
             keys: config.keys.clone(),
             prompt: config.prompt.clone(),
             path: Config::default_path(),
+            notifications: config.notifications.enabled,
         }
     }
 

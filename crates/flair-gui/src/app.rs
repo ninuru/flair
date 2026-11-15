@@ -56,6 +56,8 @@ use crate::{
     zen::Zen,
 };
 
+#[path = "app_agents.rs"]
+mod agents_app;
 #[path = "app_config.rs"]
 mod config;
 #[path = "app_explorer.rs"]
@@ -278,6 +280,7 @@ impl App {
         self.set_ime(false);
         match self.overlays.text(&text) {
             Some(event) => self.overlay_event(event),
+            None if self.agents_text() => {}
             None if self.explorer_text(&text) => {}
             None => self.send(ClientMsg::Input(InputEvent::Text(text))),
         }
@@ -292,6 +295,7 @@ impl App {
             .key(&key, || surface.as_ref().and_then(|s| s.clipboard.load()))
         {
             Some(event) => self.overlay_event(event),
+            None if self.agents_key(&key) => {}
             None if self.explorer_key(&key) => {}
             None => self.send(ClientMsg::Input(InputEvent::Key(key))),
         }
@@ -388,6 +392,7 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 ServerMsg::Bell => {}
                 ServerMsg::Explorer => self.explorer_command(),
+                ServerMsg::Agents => self.agents_command(),
                 ServerMsg::ToggleZen => {
                     self.zen = self.zen.toggled();
                     self.panels.focused = false;

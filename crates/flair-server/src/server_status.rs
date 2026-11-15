@@ -43,6 +43,7 @@ impl Server {
                     && !state.terminal.modes().alt_screen
                     && !state.terminal.copy_mode(),
             }),
+            agents: self.agent_rows(),
         })
     }
 
@@ -99,7 +100,7 @@ impl Server {
         }
     }
 
-    fn process(&self, pane: PaneId) -> (String, String) {
+    pub(super) fn process(&self, pane: PaneId) -> (String, String) {
         self.panes
             .get(&pane)
             .and_then(|pane| pane.process.clone())
@@ -142,9 +143,13 @@ impl Server {
     }
 
     pub(super) fn process_read(&mut self, pane: PaneId, argv: &[String]) {
-        if let Some(state) = self.panes.get_mut(&pane) {
-            state.process = Some(process_name(argv));
-        }
+        let Some(state) = self.panes.get_mut(&pane) else {
+            return;
+        };
+        let process = process_name(argv);
+        let program = process.0.clone();
+        state.process = Some(process);
+        self.agent_program(pane, program);
     }
 
     fn session_running(&self, session: SessionId) -> bool {
@@ -190,6 +195,7 @@ impl Server {
     }
 
     pub(super) fn flush_status(&mut self, out: &mut Vec<Effect>) {
+        self.see_agents();
         let ids: Vec<ClientId> = self.clients.keys().copied().collect();
         for id in ids {
             let client = self.clients.get_mut(&id).unwrap();

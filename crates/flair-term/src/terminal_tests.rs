@@ -1,5 +1,6 @@
 use super::*;
 use flair_core::{
+    agent::{AgentRecord, AgentReport, AgentState},
     ids::PaneId,
     proto::{CellFlags, Color},
 };
@@ -534,4 +535,49 @@ fn a_finished_command_keeps_its_prompt_info_until_the_next_prompt() {
     let history = term.prompt_history();
     assert_eq!(history[0].info.cwd.as_deref(), Some(Path::new("/first")));
     assert_eq!(history[1].info.cwd.as_deref(), Some(Path::new("/second")));
+}
+
+#[test]
+fn agent_query_reply_precedes_the_da1_reply() {
+    for terminator in ["\x1b\\", "\x07"] {
+        let mut term = Terminal::new(GridSize { cols: 20, rows: 4 }, 0);
+        term.advance(format!("\x1b]7501;?{terminator}\x1b[c").as_bytes());
+        let writes: Vec<_> = term
+            .take_events()
+            .into_iter()
+            .filter(|event| matches!(event, TermEvent::PtyWrite(_)))
+            .collect();
+        assert_eq!(
+            writes,
+            vec![
+                TermEvent::PtyWrite(
+                    b"\x1b]7501;?:states=idle,working,blocked,done,error:kinds=permission,question,auth\x1b\\"
+                        .to_vec()
+                ),
+                TermEvent::PtyWrite(b"\x1b[?6c".to_vec()),
+            ]
+        );
+    }
+}
+
+#[test]
+fn agent_reports_and_reset_surface_as_events() {
+    let mut term = Terminal::new(GridSize { cols: 20, rows: 4 }, 0);
+    term.advance(b"\x1b]7501;state=working:app=codex\x1b\\\x1bc");
+    assert_eq!(
+        term.take_events(),
+        vec![
+            TermEvent::Agent(AgentReport::Set {
+                id: String::new(),
+                record: AgentRecord {
+                    state: AgentState::Working,
+                    kind: None,
+                    app: Some("codex".to_owned()),
+                    title: None,
+                    msg: None,
+                },
+            }),
+            TermEvent::Agent(AgentReport::Clear(None)),
+        ]
+    );
 }

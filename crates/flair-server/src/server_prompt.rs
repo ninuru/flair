@@ -91,6 +91,7 @@ impl Server {
                 if let Some(state) = self.panes.get_mut(&pane) {
                     state.at_prompt = true;
                 }
+                self.drop_agents(pane);
             }
             MarkKind::PromptEnd => {
                 if let Some(state) = self.panes.get_mut(&pane) {

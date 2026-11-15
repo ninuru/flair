@@ -36,6 +36,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "headless_agents.rs"]
+mod agents;
 #[path = "headless_explorer.rs"]
 mod explorer;
 
@@ -216,6 +218,11 @@ impl Capture {
                     tx.send(resize).map_err(|e| e.to_string())?;
                 }
             }
+            ServerMsg::Agents => {
+                if let Some(resize) = self.agents_command()? {
+                    tx.send(resize).map_err(|e| e.to_string())?;
+                }
+            }
             ServerMsg::ToggleZen => {
                 self.zen = !self.zen;
                 self.panels.focused = false;
@@ -282,10 +289,10 @@ impl Capture {
                 self.band_text(&mut grid, layout);
                 let status = status_text(&status_parts(&self.status), self.size.cols);
                 let frame = format!("{status}\n{}", lines(&grid));
-                match self.explorer_lines() {
-                    Some(explorer) => format!("{frame}\n{explorer}"),
-                    None => frame,
-                }
+                [self.explorer_lines(), self.agents_lines()]
+                    .into_iter()
+                    .flatten()
+                    .fold(frame, |frame, block| format!("{frame}\n{block}"))
             }
             None => self.screen(),
         }
@@ -360,6 +367,11 @@ impl Capture {
         self.place();
         let event = self.overlays.key(&key, || None);
         if event.is_none()
+            && let Some(messages) = self.agents_key(&key)
+        {
+            return Ok(messages);
+        }
+        if event.is_none()
             && let Some(messages) = self.explorer_key(&key)
         {
             return Ok(messages);
@@ -369,6 +381,9 @@ impl Capture {
 
     fn text(&mut self, text: &str) -> Result<Vec<ClientMsg>, String> {
         let event = self.overlays.text(text);
+        if event.is_none() && self.agents_text() {
+            return Ok(Vec::new());
+        }
         if event.is_none()
             && let Some(messages) = self.explorer_text(text)
         {
@@ -379,6 +394,9 @@ impl Capture {
 
     fn paste(&mut self, text: &str) -> Result<Vec<ClientMsg>, String> {
         let event = self.overlays.text(text);
+        if event.is_none() && self.agents_text() {
+            return Ok(Vec::new());
+        }
         if event.is_none()
             && let Some(messages) = self.explorer_text(text)
         {

@@ -1,6 +1,7 @@
 use flair_core::{config::Side, theme::Rgb};
 
 use crate::{
+    agents_layout,
     chrome_bar::{
         Scene, baseline, cap_centre, ellipsize, fill, icon_text, rounded, small_text, ui_text,
     },
@@ -105,6 +106,7 @@ pub(crate) fn draw(
     let rows = match slot.view {
         PanelView::Tabs => tabs(input, slot, scene, measure),
         PanelView::Explorer => explorer_layout::draw(input, slot, scene, measure),
+        PanelView::Agents => agents_layout::draw(input, slot, scene, measure),
     };
     scene.hits.push(Hit {
         rect,
@@ -130,8 +132,16 @@ fn switcher(
     let pad = px(ITEM_PAD, scale);
     let height = px(ITEM_HEIGHT, scale);
     let mut x = area.x + px(INSET, scale);
-    for (view, label) in [(PanelView::Tabs, "Windows"), (PanelView::Explorer, "Files")] {
+    let end = area.x + area.w - px(INSET, scale);
+    for (view, label) in [
+        (PanelView::Tabs, "Windows"),
+        (PanelView::Explorer, "Files"),
+        (PanelView::Agents, "Agents"),
+    ] {
         let width = (measure(label, false) + pad * 2.0).round();
+        if x.round() + width > end {
+            break;
+        }
         let item = PxRect {
             x: x.round(),
             y: (band.y + (band.h - height) / 2.0).round(),

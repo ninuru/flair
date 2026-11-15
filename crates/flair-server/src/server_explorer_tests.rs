@@ -61,6 +61,7 @@ fn spawns(out: &[Effect]) -> Vec<(PaneId, &SpawnSpec)> {
             | Effect::ReadContexts
             | Effect::ReadProcess(_)
             | Effect::PaneProcesses { .. }
+            | Effect::Notify { .. }
             | Effect::Shutdown => None,
         })
         .collect()

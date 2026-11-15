@@ -15,6 +15,7 @@ use flair_term::pty::{Pty, SpawnSpec};
 use std::{
     fs::File,
     io::{self, Read, Write},
+    process::{Command, Stdio},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -363,6 +364,32 @@ fn spawn_facts(events: SyncSender<RuntimeEvent>) -> Sender<Job> {
     jobs
 }
 
+fn notify(title: &str, body: &str) {
+    let child = Command::new("notify-send")
+        .args(["--app-name=flair", "--", title, body])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(error) => {
+            log::warn!("could not run notify-send: {error}");
+            return;
+        }
+    };
+    if let Err(error) = thread::Builder::new()
+        .name("flair-notify".into())
+        .spawn(move || {
+            if let Err(error) = child.wait() {
+                log::warn!("notify-send did not finish: {error}");
+            }
+        })
+    {
+        log::warn!("could not wait for notify-send: {error}");
+    }
+}
+
 fn request(jobs: &Sender<Job>, job: Job) -> Option<Event> {
     jobs.send(job).err().map(|unsent| match unsent.0 {
         Job::Git { cwd, .. } => Event::GitRead(cwd, None),
@@ -545,6 +572,7 @@ fn run(
                         .map_err(|error| format!("cannot read {}: {error}", path.display()));
                     server.handle(now, Event::ConfigRead(result), &mut pending_effects);
                 }
+                Effect::Notify { title, body } => notify(&title, &body),
                 Effect::Shutdown => shutdown = true,
             }
         }

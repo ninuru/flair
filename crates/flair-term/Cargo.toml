@@ -10,3 +10,4 @@ flair-core.workspace = true
 alacritty_terminal.workspace = true
 log.workspace = true
 libc = "0.2"
+base64 = "0.22"

@@ -34,6 +34,7 @@ pub enum Command {
     MoveWindow { window: WindowId, index: u16 },
     KillWindow(WindowId),
     Explorer,
+    Agents,
     SplitRun { argv: Vec<String>, cwd: PathBuf },
     ReloadConfig,
     ChooseSession,

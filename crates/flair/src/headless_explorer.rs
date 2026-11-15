@@ -47,7 +47,7 @@ impl Capture {
     }
 
     pub(super) fn explorer_lines(&self) -> Option<String> {
-        if !self.panels.open {
+        if !self.explorer_visible() {
             return None;
         }
         let explorer = &self.panels.explorer;
@@ -108,11 +108,11 @@ impl Capture {
                 .frame(self.effective(), self.zen, &self.panels)
                 .slots()
                 .any(|slot| slot.view == PanelView::Explorer),
-            None => self.panels.open && !self.zen,
+            None => self.panels.open && !self.zen && self.panels.shown != PanelView::Agents,
         }
     }
 
-    fn load(&mut self, dirs: Vec<PathBuf>) {
+    pub(super) fn load(&mut self, dirs: Vec<PathBuf>) {
         self.sync_hidden();
         for dir in dirs {
             self.panels.explorer.insert(read_listing(&dir));

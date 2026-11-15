@@ -39,6 +39,7 @@ pub struct Config {
     pub scrollback: ScrollbackConfig,
     pub cursor: CursorConfig,
     pub bell: BellConfig,
+    pub notifications: NotificationsConfig,
     pub colors: ColorsConfig,
     pub prompt: PromptConfig,
 }
@@ -147,6 +148,12 @@ pub enum CursorStyle {
 #[serde(default, deny_unknown_fields)]
 pub struct BellConfig {
     pub audible: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NotificationsConfig {
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
@@ -418,6 +425,7 @@ impl Default for Config {
             scrollback: ScrollbackConfig::default(),
             cursor: CursorConfig::default(),
             bell: BellConfig::default(),
+            notifications: NotificationsConfig::default(),
             colors: ColorsConfig::default(),
             prompt: PromptConfig::default(),
         }
@@ -478,6 +486,12 @@ impl Default for ExplorerConfig {
 impl Default for ScrollbackConfig {
     fn default() -> ScrollbackConfig {
         ScrollbackConfig { lines: 10_000 }
+    }
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> NotificationsConfig {
+        NotificationsConfig { enabled: true }
     }
 }
 

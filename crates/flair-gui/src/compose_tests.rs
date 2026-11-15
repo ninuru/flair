@@ -380,6 +380,7 @@ fn chrome_status() -> StatusLine {
                 bell: false,
             },
         ],
+        agents: Vec::new(),
     }
 }
 

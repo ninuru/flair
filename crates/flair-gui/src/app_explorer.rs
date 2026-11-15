@@ -19,7 +19,7 @@ impl App {
         self.explorer_toggled(dirs);
     }
 
-    fn explorer_toggled(&mut self, dirs: Vec<PathBuf>) {
+    pub(super) fn explorer_toggled(&mut self, dirs: Vec<PathBuf>) {
         self.load(dirs);
         self.send(ClientMsg::Resize(self.size()));
         self.request_redraw();

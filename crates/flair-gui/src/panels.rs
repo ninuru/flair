@@ -4,9 +4,10 @@ use std::{
 };
 
 use flair_core::{
+    agent::AgentState,
     command::Command,
     config::{Config, EXPLORER_WIDTH, Side, TABS_WIDTH, TabsPosition},
-    ids::WindowId,
+    ids::{PaneId, WindowId},
     key::{InputEvent, Key, KeyAction, KeyInput, NamedKey},
     keys::{KeyChord, KeysConfig},
     proto::ClientMsg,
@@ -14,10 +15,12 @@ use flair_core::{
 };
 
 use crate::{
+    agents_layout::{Line, lines},
     chrome_layout::{Dock, Frame, PanelView},
     explorer::{Explorer, ExplorerOutcome, quote},
     notice::Notice,
     panel_layout::tab_rows,
+    status::AgentParts,
     ui::{DRAG_START, px},
 };
 
@@ -27,6 +30,7 @@ const DOUBLE_CLICK: Duration = Duration::from_millis(400);
 pub struct Pages {
     pub tabs: usize,
     pub explorer: usize,
+    pub agents: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -53,6 +57,14 @@ pub enum ExplorerAct {
     Notice(Notice),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AgentsOutcome {
+    Ignored,
+    Redraw,
+    Jump(WindowId, PaneId),
+    Blur,
+}
+
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Panels {
     pub flipped: Option<TabsPosition>,
@@ -63,8 +75,11 @@ pub struct Panels {
     pub explorer: Explorer,
     pub open: bool,
     pub focused: bool,
+    pub agent: Option<PaneId>,
+    pub agents_scroll: usize,
     pages: Pages,
     reveal: Option<usize>,
+    agent_reveal: Option<usize>,
     pane: Option<ActivePane>,
     hidden: Option<bool>,
     editor: String,
@@ -116,15 +131,22 @@ impl Panels {
 
     pub fn place(&mut self, pages: Pages) -> bool {
         self.pages = pages;
-        if pages.explorer == 0 {
+        let page = match self.shown {
+            PanelView::Agents => pages.agents,
+            PanelView::Tabs | PanelView::Explorer => pages.explorer,
+        };
+        if page == 0 {
             self.focused = false;
         }
-        let before = (self.tabs_scroll, self.explorer.scroll());
+        let before = (self.tabs_scroll, self.explorer.scroll(), self.agents_scroll);
         if let Some(active) = self.reveal.take() {
             self.reveal_tab(active);
         }
+        if let Some(line) = self.agent_reveal.take() {
+            self.reveal_line(line);
+        }
         self.explorer.set_page(pages.explorer);
-        (self.tabs_scroll, self.explorer.scroll()) != before
+        (self.tabs_scroll, self.explorer.scroll(), self.agents_scroll) != before
     }
 
     pub fn reveal_tab(&mut self, active: usize) {
@@ -188,7 +210,7 @@ impl Panels {
 
 impl Panels {
     pub fn explorer_command(&mut self) -> Vec<PathBuf> {
-        match (self.open, self.focused) {
+        match (self.open, self.focused && self.shown == PanelView::Explorer) {
             (true, true) => {
                 self.close();
                 Vec::new()
@@ -203,12 +225,19 @@ impl Panels {
     }
 
     pub fn toggle_explorer(&mut self) -> Vec<PathBuf> {
-        match self.open {
-            true => {
+        match (self.open, self.shown) {
+            (true, PanelView::Agents) => {
+                self.focused = true;
+                self.shown = PanelView::Explorer;
+                Vec::new()
+            }
+            (true, PanelView::Explorer | PanelView::Tabs) => {
                 self.close();
                 Vec::new()
             }
-            false => self.open_explorer(),
+            (false, PanelView::Agents | PanelView::Explorer | PanelView::Tabs) => {
+                self.open_explorer()
+            }
         }
     }
 
@@ -253,14 +282,25 @@ impl Panels {
         pending: bool,
         now: Instant,
     ) -> Option<ExplorerOutcome> {
-        if !self.open || !self.focused {
+        if !self.files_focused() || !self.passes(key, keys, pending, now) {
             return None;
         }
+        Some(
+            self.explorer
+                .key(key, self.at_prompt(), self.pages.explorer),
+        )
+    }
+
+    fn files_focused(&self) -> bool {
+        self.open && self.focused && self.shown == PanelView::Explorer
+    }
+
+    fn passes(&mut self, key: &KeyInput, keys: &KeysConfig, pending: bool, now: Instant) -> bool {
         if pending || self.armed.is_some_and(|until| now < until) {
             if key.action == KeyAction::Press && !modifier(key.key) {
                 self.armed = None;
             }
-            return None;
+            return false;
         }
         self.armed = None;
         let prefix = keys.enabled
@@ -272,19 +312,13 @@ impl Panels {
             if key.action == KeyAction::Press {
                 self.armed = Some(now + Duration::from_millis(keys.timeout_ms));
             }
-            return None;
+            return false;
         }
-        if keys.enabled && keys.binding(key, false).is_some() {
-            return None;
-        }
-        Some(
-            self.explorer
-                .key(key, self.at_prompt(), self.pages.explorer),
-        )
+        !(keys.enabled && keys.binding(key, false).is_some())
     }
 
     pub fn text(&mut self, text: &str) -> Option<ExplorerOutcome> {
-        (self.open && self.focused).then(|| self.explorer.text(text))
+        self.files_focused().then(|| self.explorer.text(text))
     }
 
     pub fn click(&mut self, row: usize, now: Instant) -> ExplorerOutcome {
@@ -378,10 +412,166 @@ impl Panels {
         self.open = false;
         self.focused = false;
         self.armed = None;
-        if let Some((PanelView::Explorer, _)) = self.live_width {
+        if let Some((PanelView::Explorer | PanelView::Agents, _)) = self.live_width {
             self.live_width = None;
         }
     }
+}
+
+impl Panels {
+    pub fn agents_command(&mut self, agents: &[AgentParts]) -> Vec<PathBuf> {
+        match (self.open, self.agents_focused()) {
+            (true, true) => {
+                self.close();
+                Vec::new()
+            }
+            (true, false) => {
+                self.show_agents(agents);
+                Vec::new()
+            }
+            (false, _) => {
+                let dirs = self.open_explorer();
+                self.show_agents(agents);
+                dirs
+            }
+        }
+    }
+
+    pub fn switch(&mut self, view: PanelView, agents: &[AgentParts]) {
+        match view {
+            PanelView::Agents => {
+                self.show_agents(agents);
+                self.focused = self.open;
+            }
+            PanelView::Explorer => {
+                self.shown = view;
+                self.focused = self.open;
+            }
+            PanelView::Tabs => {
+                self.shown = view;
+                self.focused = false;
+            }
+        }
+    }
+
+    pub fn agents_key(
+        &mut self,
+        key: &KeyInput,
+        keys: &KeysConfig,
+        pending: bool,
+        now: Instant,
+        agents: &[AgentParts],
+    ) -> Option<AgentsOutcome> {
+        if !self.agents_focused() || !self.passes(key, keys, pending, now) {
+            return None;
+        }
+        if key.action == KeyAction::Release {
+            return Some(AgentsOutcome::Ignored);
+        }
+        let outcome = match key.key {
+            Key::Named(NamedKey::Up) | Key::Char('k') => self.step_agent(-1, agents),
+            Key::Named(NamedKey::Down) | Key::Char('j') => self.step_agent(1, agents),
+            Key::Named(NamedKey::Enter) => match self.cursor(agents) {
+                Some(agent) => {
+                    self.focused = false;
+                    AgentsOutcome::Jump(agent.window, agent.pane)
+                }
+                None => AgentsOutcome::Ignored,
+            },
+            Key::Named(NamedKey::Escape) => {
+                self.focused = false;
+                AgentsOutcome::Blur
+            }
+            Key::Char(_) | Key::Named(_) => AgentsOutcome::Ignored,
+        };
+        Some(outcome)
+    }
+
+    pub fn agents_text(&self) -> bool {
+        self.agents_focused()
+    }
+
+    pub fn agent_click(&mut self, pane: PaneId, agents: &[AgentParts]) -> AgentsOutcome {
+        match agents.iter().find(|agent| agent.pane == pane) {
+            Some(agent) => {
+                self.agent = Some(pane);
+                self.focused = false;
+                AgentsOutcome::Jump(agent.window, agent.pane)
+            }
+            None => AgentsOutcome::Ignored,
+        }
+    }
+
+    pub fn scroll_agents(&mut self, rows: i32, lines: usize) {
+        let last = lines.saturating_sub(self.pages.agents);
+        let next = self.agents_scroll.min(last) as i64 + i64::from(rows);
+        self.agents_scroll = next.clamp(0, last as i64) as usize;
+    }
+
+    fn agents_focused(&self) -> bool {
+        self.open && self.focused && self.shown == PanelView::Agents
+    }
+
+    fn show_agents(&mut self, agents: &[AgentParts]) {
+        self.focused = true;
+        self.shown = PanelView::Agents;
+        self.agent = start(agents).map(|agent| agent.pane);
+        self.reveal_agent(agents);
+    }
+
+    fn cursor<'a>(&self, agents: &'a [AgentParts]) -> Option<&'a AgentParts> {
+        agents
+            .iter()
+            .find(|agent| Some(agent.pane) == self.agent)
+            .or_else(|| start(agents))
+    }
+
+    fn step_agent(&mut self, delta: isize, agents: &[AgentParts]) -> AgentsOutcome {
+        let Some(current) = self.cursor(agents) else {
+            return AgentsOutcome::Ignored;
+        };
+        let index = agents
+            .iter()
+            .position(|agent| agent.pane == current.pane)
+            .unwrap_or(0);
+        let next = index
+            .saturating_add_signed(delta)
+            .min(agents.len().saturating_sub(1));
+        self.agent = Some(agents[next].pane);
+        self.reveal_agent(agents);
+        AgentsOutcome::Redraw
+    }
+
+    fn reveal_agent(&mut self, agents: &[AgentParts]) {
+        let line = lines(agents).iter().position(|line| match line {
+            Line::Agent(agent) => Some(agent.pane) == self.agent,
+            Line::Session(_) => false,
+        });
+        if let Some(line) = line {
+            self.reveal_line(line);
+        }
+    }
+
+    fn reveal_line(&mut self, line: usize) {
+        let page = self.pages.agents;
+        if page == 0 {
+            self.agent_reveal = Some(line);
+            return;
+        }
+        if line < self.agents_scroll {
+            self.agents_scroll = line;
+        } else if line >= self.agents_scroll + page {
+            self.agents_scroll = line + 1 - page;
+        }
+    }
+}
+
+fn start(agents: &[AgentParts]) -> Option<&AgentParts> {
+    agents
+        .iter()
+        .find(|agent| agent.state == AgentState::Blocked)
+        .or_else(|| agents.iter().find(|agent| agent.unseen))
+        .or_else(|| agents.first())
 }
 
 fn plain(path: &Path) -> Result<&str, Notice> {
@@ -413,7 +603,7 @@ fn modifier(key: Key) -> bool {
 pub fn bounds(view: PanelView) -> (f32, f32) {
     let (min, max) = match view {
         PanelView::Tabs => TABS_WIDTH,
-        PanelView::Explorer => EXPLORER_WIDTH,
+        PanelView::Explorer | PanelView::Agents => EXPLORER_WIDTH,
     };
     (f32::from(min), f32::from(max))
 }

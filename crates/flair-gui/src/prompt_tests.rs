@@ -40,6 +40,7 @@ fn status() -> StatusLine {
         pending: None,
         copy: false,
         pane: None,
+        agents: Vec::new(),
     }
 }
 

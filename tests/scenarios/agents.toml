@@ -1,0 +1,34 @@
+program = "/bin/sh"
+args = ["-i"]
+cols = 100
+rows = 12
+[env]
+PS1 = "ready> "
+[[steps]]
+action = "wait"
+text = "ready> "
+[[steps]]
+action = "key"
+key = "a"
+ctrl = true
+[[steps]]
+action = "key"
+key = "a"
+[[steps]]
+action = "wait"
+text = "no agents"
+[[steps]]
+action = "capture"
+name = "empty"
+[[steps]]
+action = "key"
+key = "Escape"
+[[steps]]
+action = "text"
+text = "printf '\\033]7501;state=blocked:kind=permission:app=claude:title=Rml4IGxvZ2luIGJ1Zw==\\007'\r"
+[[steps]]
+action = "wait"
+text = "Needs approval"
+[[steps]]
+action = "capture"
+name = "agents"

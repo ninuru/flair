@@ -12,6 +12,7 @@ use alacritty_terminal::{
     vte::ansi::Processor,
 };
 use flair_core::{
+    agent::AgentReport,
     geom::{CellPoint, GridSize},
     isles::{PromptInfo, ShellFacts},
     proto::{PaneUpdate, PromptSnapshot},
@@ -56,6 +57,7 @@ pub enum TermEvent {
     Mark(MarkKind, Option<i32>),
     Facts(ShellFacts),
     PromptAnchor(u64, Option<PathBuf>),
+    Agent(AgentReport),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -161,7 +163,8 @@ impl Terminal {
                 | TermEvent::PtyWrite(_)
                 | TermEvent::Mark(_, _)
                 | TermEvent::Facts(_)
-                | TermEvent::PromptAnchor(_, _) => (),
+                | TermEvent::PromptAnchor(_, _)
+                | TermEvent::Agent(_) => (),
             }
         }
         let alt_changed = old_alt != self.modes().alt_screen;
@@ -213,7 +216,8 @@ impl Terminal {
                 | TermEvent::PtyWrite(_)
                 | TermEvent::Mark(_, _)
                 | TermEvent::Facts(_)
-                | TermEvent::PromptAnchor(_, _) => None,
+                | TermEvent::PromptAnchor(_, _)
+                | TermEvent::Agent(_) => None,
             })
             .or_else(|| self.cwd.clone());
         self.events

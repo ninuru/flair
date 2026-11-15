@@ -1,16 +1,20 @@
-use flair_core::theme::{Rgb, Rgba};
+use flair_core::{
+    agent::AgentState,
+    theme::{Rgb, Rgba},
+};
 
 use crate::{
     CellMetrics, UiMetrics,
-    chrome_layout::{BarField, ChromeInput, Hit, HitTarget, bar_height},
+    chrome_layout::{BarField, ChromeInput, Hit, HitTarget, PanelView, bar_height},
     isles::{icon_baseline, icon_width},
     notice::Notice,
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, TabParts},
     ui::{
-        CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CRUMB_GAP, DOT, ELLIPSIS, FIELD_RADIUS, FILES_KEY, INSET,
-        ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, LINE, NOTICE_FIELD_MIN, PROCESS_ICON_GAP, ROW_RADIUS,
-        SESSION_NAME_MAX, TAB_NAME_MAX, UNDERLINE, UNDERLINE_INSET, px,
+        BELL_KEY, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CRUMB_GAP, DOT, ELLIPSIS, FIELD_RADIUS,
+        FILES_KEY, INSET, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, LINE, NOTICE_FIELD_MIN,
+        PROCESS_ICON_GAP, ROW_RADIUS, SESSION_NAME_MAX, TAB_NAME_MAX, UNDERLINE, UNDERLINE_INSET,
+        px,
     },
 };
 
@@ -60,6 +64,11 @@ pub(crate) fn bar(
     let right = button.map_or(width - px(INSET, scale), |button| {
         button.x - px(ITEM_GAP, scale)
     });
+    let attention = agents_attention(input);
+    let indicator = button
+        .zip(attention)
+        .map(|(_, color)| (bar_item(right - size, size, ITEM_HEIGHT, scale), color));
+    let right = indicator.map_or(right, |(rect, _)| rect.x - px(ITEM_GAP, scale));
     let end = badges(input, right, scene, measure).map_or(right, |left| left - px(ITEM_GAP, scale));
     let start = session(input, end, scene, measure) + px(ITEM_GAP, scale);
     match (input.prompt, input.notice) {
@@ -73,8 +82,45 @@ pub(crate) fn bar(
         (None, None) => {}
     }
     if let Some(button) = button {
-        explorer_button(input, button, scene);
+        let color = match input.panels.is_some_and(|panels| panels.open) {
+            true => input.theme.foreground,
+            false => input.theme.surfaces().muted,
+        };
+        icon_button(
+            input,
+            button,
+            (FILES_KEY, color),
+            HitTarget::ExplorerButton,
+            scene,
+        );
     }
+    if let Some((rect, color)) = indicator {
+        icon_button(
+            input,
+            rect,
+            (BELL_KEY, color),
+            HitTarget::AgentsButton,
+            scene,
+        );
+    }
+}
+
+fn agents_attention(input: &ChromeInput) -> Option<Rgb> {
+    let agents = &input.status.agents;
+    let visible = input
+        .frame
+        .slots()
+        .any(|slot| slot.view == PanelView::Agents);
+    if visible || !agents.iter().any(|agent| agent.unseen) {
+        return None;
+    }
+    let urgent = agents.iter().any(|agent| {
+        agent.unseen && matches!(agent.state, AgentState::Blocked | AgentState::Error)
+    });
+    Some(match urgent {
+        true => input.theme.surfaces().attention,
+        false => input.theme.foreground,
+    })
 }
 
 fn split(
@@ -170,30 +216,32 @@ fn session(
     right.round() + crumb_width
 }
 
-fn explorer_button(input: &ChromeInput, rect: PxRect, scene: &mut Scene) {
+fn icon_button(
+    input: &ChromeInput,
+    rect: PxRect,
+    glyph: (char, Rgb),
+    target: HitTarget,
+    scene: &mut Scene,
+) {
     let scale = input.scale;
-    let surfaces = input.theme.surfaces();
     let hit = full_height(rect, scale);
     if hovered(input, hit) {
-        scene
-            .quads
-            .push(rounded(rect, surfaces.surface2, ROW_RADIUS, scale));
+        scene.quads.push(rounded(
+            rect,
+            input.theme.surfaces().surface2,
+            ROW_RADIUS,
+            scale,
+        ));
     }
-    let color = match input.panels.is_some_and(|panels| panels.open) {
-        true => input.theme.foreground,
-        false => surfaces.muted,
-    };
+    let (glyph, color) = glyph;
     scene.text.push(icon_text(
-        rect.x + (rect.w - icon_width(FILES_KEY, input.metrics)) / 2.0,
+        rect.x + (rect.w - icon_width(glyph, input.metrics)) / 2.0,
         rect.y + rect.h / 2.0,
-        FILES_KEY,
+        glyph,
         color,
         input.metrics,
     ));
-    scene.hits.push(Hit {
-        rect: hit,
-        target: HitTarget::ExplorerButton,
-    });
+    scene.hits.push(Hit { rect: hit, target });
 }
 
 fn badges(
