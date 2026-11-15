@@ -73,6 +73,7 @@ impl Server {
                 self.set_started(pane, Some(now));
                 if let Some(state) = self.panes.get_mut(&pane) {
                     state.last = None;
+                    state.at_prompt = false;
                 }
             }
             MarkKind::CommandEnd => {
@@ -81,11 +82,21 @@ impl Server {
                         exit: code,
                         duration: now.saturating_sub(start),
                     });
+                    state.at_prompt = false;
                 }
                 self.set_started(pane, None);
             }
-            MarkKind::PromptStart => self.set_started(pane, None),
-            MarkKind::PromptEnd => {}
+            MarkKind::PromptStart => {
+                self.set_started(pane, None);
+                if let Some(state) = self.panes.get_mut(&pane) {
+                    state.at_prompt = true;
+                }
+            }
+            MarkKind::PromptEnd => {
+                if let Some(state) = self.panes.get_mut(&pane) {
+                    state.at_prompt = true;
+                }
+            }
         }
     }
 

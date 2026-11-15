@@ -15,7 +15,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 16;
+pub const PROTOCOL: u32 = 17;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -68,6 +68,7 @@ pub enum ServerMsg {
     Settings,
     ToggleZen,
     ToggleTabs,
+    Explorer,
     PasteClipboard,
     PromptRename {
         current: String,

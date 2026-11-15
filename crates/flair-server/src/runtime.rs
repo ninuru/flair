@@ -460,7 +460,9 @@ fn run(
                         workers.insert(id, pty);
                     }
                     Err(error) => {
-                        if let Some(sender) =
+                        if server.runs_program(id) {
+                            log::warn!("could not start the program for {id:?}: {error}");
+                        } else if let Some(sender) =
                             spawn_owners.get(&id).and_then(|owner| clients.get(owner))
                         {
                             let _ = sender.try_send(ServerMsg::Error(format!(

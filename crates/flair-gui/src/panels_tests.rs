@@ -288,3 +288,6 @@ fn a_reveal_before_the_panel_is_placed_applies_on_the_next_place() {
     }));
     assert_eq!(panels.tabs_scroll, 0);
 }
+
+#[path = "panels_explorer_tests.rs"]
+mod explorer_tests;

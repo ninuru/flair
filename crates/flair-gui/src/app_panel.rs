@@ -4,6 +4,7 @@ use winit::window::CursorIcon;
 use super::*;
 use crate::{
     chrome_layout::{Frame, PanelView, max_width},
+    overlay_layout::inside,
     panels::Drag,
 };
 
@@ -70,8 +71,12 @@ impl App {
             | HitTarget::CloseTab(_)
             | HitTarget::Edge(_)
             | HitTarget::Switch(_)
-            | HitTarget::PanelBody => Some(target),
-            HitTarget::Window(_) | HitTarget::Session | HitTarget::Prompt { .. } => None,
+            | HitTarget::PanelBody
+            | HitTarget::Row(_) => Some(target),
+            HitTarget::Window(_)
+            | HitTarget::Session
+            | HitTarget::Prompt { .. }
+            | HitTarget::ExplorerButton => None,
         }
     }
 
@@ -142,6 +147,12 @@ impl App {
             }
             HitTarget::Switch(view) if left => {
                 self.panels.shown = view;
+                self.panels.focused = self.panels.open && view == PanelView::Explorer;
+                None
+            }
+            HitTarget::Row(row) if left => {
+                let outcome = self.panels.click(row, Instant::now());
+                self.explorer_outcome(outcome);
                 None
             }
             HitTarget::NewTab | HitTarget::CloseTab(_) if left => bar_command(target),
@@ -151,6 +162,8 @@ impl App {
             | HitTarget::Edge(_)
             | HitTarget::Switch(_)
             | HitTarget::PanelBody
+            | HitTarget::Row(_)
+            | HitTarget::ExplorerButton
             | HitTarget::Window(_)
             | HitTarget::Session
             | HitTarget::Prompt { .. } => None,
@@ -241,7 +254,19 @@ impl App {
         if self.panel_target().is_none() {
             return false;
         }
-        self.panels.scroll_tabs(-lines, self.status.windows.len());
+        let point = (self.pointer.x as f32, self.pointer.y as f32);
+        let view = self.frame().and_then(|frame| {
+            frame
+                .slots()
+                .find(|slot| inside(slot.rect, point))
+                .map(|slot| slot.view)
+        });
+        match view {
+            Some(PanelView::Explorer) => self.panels.scroll_explorer(-lines),
+            Some(PanelView::Tabs) | None => {
+                self.panels.scroll_tabs(-lines, self.status.windows.len());
+            }
+        }
         self.request_redraw();
         true
     }

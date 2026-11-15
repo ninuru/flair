@@ -2,7 +2,7 @@ use super::*;
 use flair_core::{
     key::{InputEvent, KeyInput},
     prefix::PrefixResult,
-    status::{StatusLine, StatusWindow},
+    status::{ActivePane, StatusLine, StatusWindow},
     tree::Session,
 };
 
@@ -16,6 +16,8 @@ impl Server {
         let client = self.clients.get(&id)?;
         let session = self.tree.session(client.view.session)?;
         let windows = self.window_entries(id, session, client.view.window, client.view.last_window);
+        let active = self.tree.active_pane(client.view.window);
+        let state = active.and_then(|pane| self.panes.get(&pane));
         Some(StatusLine {
             session: session.name.clone(),
             hidden: u16::try_from(self.tree.sessions.len() - 1).unwrap_or(u16::MAX),
@@ -33,11 +35,14 @@ impl Server {
                 .prefix
                 .pending()
                 .then(|| prefix_label(&self.config.keys.key)),
-            copy: self
-                .tree
-                .active_pane(client.view.window)
-                .and_then(|pane| self.panes.get(&pane))
-                .is_some_and(|pane| pane.terminal.copy_mode()),
+            copy: state.is_some_and(|pane| pane.terminal.copy_mode()),
+            pane: active.zip(state).map(|(pane, state)| ActivePane {
+                pane,
+                cwd: self.pane_cwd(pane).filter(|cwd| cwd.to_str().is_some()),
+                at_prompt: state.at_prompt
+                    && !state.terminal.modes().alt_screen
+                    && !state.terminal.copy_mode(),
+            }),
         })
     }
 

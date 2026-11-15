@@ -8,9 +8,9 @@ use crate::{
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, TabParts},
     ui::{
-        CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CRUMB_GAP, DOT, ELLIPSIS, FIELD_RADIUS, INSET, ITEM_GAP,
-        ITEM_HEIGHT, ITEM_PAD, LINE, NOTICE_FIELD_MIN, PROCESS_ICON_GAP, SESSION_NAME_MAX,
-        TAB_NAME_MAX, UNDERLINE, UNDERLINE_INSET, px,
+        CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CRUMB_GAP, DOT, ELLIPSIS, FIELD_RADIUS, FILES_KEY, INSET,
+        ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, LINE, NOTICE_FIELD_MIN, PROCESS_ICON_GAP, ROW_RADIUS,
+        SESSION_NAME_MAX, TAB_NAME_MAX, UNDERLINE, UNDERLINE_INSET, px,
     },
 };
 
@@ -54,8 +54,13 @@ pub(crate) fn bar(
         },
         surfaces.outline,
     ));
-    let end = badges(input, scene, measure)
-        .map_or(width - px(INSET, scale), |left| left - px(ITEM_GAP, scale));
+    let size = px(ITEM_HEIGHT, scale);
+    let button =
+        (!input.zen).then(|| bar_item(width - px(INSET, scale) - size, size, ITEM_HEIGHT, scale));
+    let right = button.map_or(width - px(INSET, scale), |button| {
+        button.x - px(ITEM_GAP, scale)
+    });
+    let end = badges(input, right, scene, measure).map_or(right, |left| left - px(ITEM_GAP, scale));
     let start = session(input, end, scene, measure) + px(ITEM_GAP, scale);
     match (input.prompt, input.notice) {
         (Some(prompt), Some(notice)) => split(input, prompt, notice, (start, end), scene, measure),
@@ -66,6 +71,9 @@ pub(crate) fn bar(
         }
         (None, None) if input.frame.bar_tabs => tabs(input, start, end, scene, measure),
         (None, None) => {}
+    }
+    if let Some(button) = button {
+        explorer_button(input, button, scene);
     }
 }
 
@@ -162,8 +170,35 @@ fn session(
     right.round() + crumb_width
 }
 
+fn explorer_button(input: &ChromeInput, rect: PxRect, scene: &mut Scene) {
+    let scale = input.scale;
+    let surfaces = input.theme.surfaces();
+    let hit = full_height(rect, scale);
+    if hovered(input, hit) {
+        scene
+            .quads
+            .push(rounded(rect, surfaces.surface2, ROW_RADIUS, scale));
+    }
+    let color = match input.panels.is_some_and(|panels| panels.open) {
+        true => input.theme.foreground,
+        false => surfaces.muted,
+    };
+    scene.text.push(icon_text(
+        rect.x + (rect.w - icon_width(FILES_KEY, input.metrics)) / 2.0,
+        rect.y + rect.h / 2.0,
+        FILES_KEY,
+        color,
+        input.metrics,
+    ));
+    scene.hits.push(Hit {
+        rect: hit,
+        target: HitTarget::ExplorerButton,
+    });
+}
+
 fn badges(
     input: &ChromeInput,
+    start: f32,
     scene: &mut Scene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> Option<f32> {
@@ -171,7 +206,7 @@ fn badges(
     let theme = input.theme;
     let surfaces = theme.surfaces();
     let pad = px(CAP_PAD, scale);
-    let mut right = input.px.0 as f32 - px(INSET, scale);
+    let mut right = start;
     let mut left = None;
     for badge in right_items(input) {
         let (fill_color, border_color, text_color) = match badge.kind {

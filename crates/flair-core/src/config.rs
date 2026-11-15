@@ -35,6 +35,7 @@ pub struct Config {
     pub font: FontConfig,
     pub window: WindowConfig,
     pub tabs: TabsConfig,
+    pub explorer: ExplorerConfig,
     pub scrollback: ScrollbackConfig,
     pub cursor: CursorConfig,
     pub bell: BellConfig,
@@ -72,6 +73,15 @@ pub struct WindowConfig {
 pub struct TabsConfig {
     pub position: TabsPosition,
     pub width: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct ExplorerConfig {
+    pub side: Side,
+    pub width: u16,
+    pub show_hidden: bool,
+    pub editor: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -254,6 +264,7 @@ impl Config {
         positive("font.line_height", config.font.line_height)?;
         positive("font.ui_size", config.font.ui_size)?;
         within("tabs.width", config.tabs.width, TABS_WIDTH)?;
+        within("explorer.width", config.explorer.width, EXPLORER_WIDTH)?;
         Ok(config)
     }
 
@@ -403,6 +414,7 @@ impl Default for Config {
             font: FontConfig::default(),
             window: WindowConfig::default(),
             tabs: TabsConfig::default(),
+            explorer: ExplorerConfig::default(),
             scrollback: ScrollbackConfig::default(),
             cursor: CursorConfig::default(),
             bell: BellConfig::default(),
@@ -448,6 +460,17 @@ impl Default for TabsConfig {
         TabsConfig {
             position: TabsPosition::Top,
             width: 200,
+        }
+    }
+}
+
+impl Default for ExplorerConfig {
+    fn default() -> ExplorerConfig {
+        ExplorerConfig {
+            side: Side::Left,
+            width: 280,
+            show_hidden: true,
+            editor: String::new(),
         }
     }
 }

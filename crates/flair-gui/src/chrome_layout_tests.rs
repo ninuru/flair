@@ -860,7 +860,11 @@ fn a_400_px_bar_keeps_the_active_tab_between_session_and_badges() {
     let layout = bar_layout(400, &status);
     let session = layout.hits[0].rect;
     let copy = text(&layout, "COPY").unwrap().x - 6.0;
-    let tabs: Vec<Hit> = layout.hits[1..].to_vec();
+    let tabs: Vec<Hit> = layout.hits[1..]
+        .iter()
+        .filter(|hit| matches!(hit.target, HitTarget::Window(_)))
+        .copied()
+        .collect();
     assert_eq!(tabs.last().unwrap().target, HitTarget::Window(WindowId(5)));
     for hit in &tabs {
         assert!(hit.rect.x >= session.x + session.w + 6.0);

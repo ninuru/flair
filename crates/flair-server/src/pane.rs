@@ -21,4 +21,5 @@ pub(crate) struct Pane {
     pub process: Option<(String, String)>,
     pub probed: Option<Millis>,
     pub probe_due: Option<Millis>,
+    pub at_prompt: bool,
 }

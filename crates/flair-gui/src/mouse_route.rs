@@ -60,7 +60,9 @@ pub(crate) fn bar_command(target: HitTarget) -> Option<Command> {
         HitTarget::Prompt { .. }
         | HitTarget::Edge(_)
         | HitTarget::Switch(_)
-        | HitTarget::PanelBody => None,
+        | HitTarget::PanelBody
+        | HitTarget::Row(_)
+        | HitTarget::ExplorerButton => None,
     }
 }
 

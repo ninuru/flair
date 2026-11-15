@@ -540,3 +540,23 @@ fn id_based_window_commands_have_no_name() {
         assert_eq!(parse_command(name), None, "{name}");
     }
 }
+
+#[test]
+fn prefix_e_opens_the_explorer_and_split_run_has_no_name() {
+    let config = KeysConfig::default();
+    assert_eq!(
+        config.binding(&plain(Key::Char('e')), true),
+        Some(Command::Explorer)
+    );
+    assert_eq!(config.binding(&plain(Key::Char('e')), false), None);
+    assert_eq!(parse_command("explorer"), Some(Command::Explorer));
+    assert!(
+        config
+            .bindings()
+            .iter()
+            .any(|b| b.chord == "e" && b.command.as_deref() == Some("explorer"))
+    );
+    for name in ["split-run", "splitrun"] {
+        assert_eq!(parse_command(name), None, "{name}");
+    }
+}

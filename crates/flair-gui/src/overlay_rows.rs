@@ -211,7 +211,7 @@ fn small(x: f32, baseline: f32, text: String, color: Rgb) -> TextRun {
     }
 }
 
-fn marked(text: &str, matches: &[usize]) -> Vec<(char, bool)> {
+pub(crate) fn marked(text: &str, matches: &[usize]) -> Vec<(char, bool)> {
     text.chars()
         .enumerate()
         .filter(|(_, c)| !c.is_control())
@@ -219,7 +219,7 @@ fn marked(text: &str, matches: &[usize]) -> Vec<(char, bool)> {
         .collect()
 }
 
-fn segments(
+pub(crate) fn segments(
     chars: &[(char, bool)],
     max: f32,
     measure: &mut impl FnMut(&str, bool) -> f32,

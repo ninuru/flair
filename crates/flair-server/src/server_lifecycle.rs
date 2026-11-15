@@ -57,6 +57,7 @@ impl Server {
             .find(|session| window.is_some_and(|(id, _)| session.last_window == id))
             .map(|session| session.id);
         self.set_started(pane, None);
+        self.runs.remove(&pane);
         if self.panes.remove(&pane).is_none() {
             return;
         }

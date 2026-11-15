@@ -36,6 +36,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "headless_explorer.rs"]
+mod explorer;
+
 const QUIET: Duration = Duration::from_millis(50);
 
 struct TempHome(PathBuf);
@@ -208,8 +211,14 @@ impl Capture {
             | ServerMsg::ReloadConfig { .. }
             | ServerMsg::PaneProcesses(_)
             | ServerMsg::Done => {}
+            ServerMsg::Explorer => {
+                if let Some(resize) = self.explorer_command()? {
+                    tx.send(resize).map_err(|e| e.to_string())?;
+                }
+            }
             ServerMsg::ToggleZen => {
                 self.zen = !self.zen;
+                self.panels.focused = false;
                 if let Some(resize) = self.refit()? {
                     tx.send(resize).map_err(|e| e.to_string())?;
                 }
@@ -242,6 +251,7 @@ impl Capture {
                 {
                     self.panels.reveal_tab(index);
                 }
+                self.follow(status.pane.clone());
                 self.status = status;
             }
             ServerMsg::Frame { seq, panes } => {
@@ -271,7 +281,11 @@ impl Capture {
                 separator_glyphs(&mut grid, layout);
                 self.band_text(&mut grid, layout);
                 let status = status_text(&status_parts(&self.status), self.size.cols);
-                format!("{status}\n{}", lines(&grid))
+                let frame = format!("{status}\n{}", lines(&grid));
+                match self.explorer_lines() {
+                    Some(explorer) => format!("{frame}\n{explorer}"),
+                    None => frame,
+                }
             }
             None => self.screen(),
         }
@@ -345,16 +359,31 @@ impl Capture {
     fn key(&mut self, key: KeyInput) -> Result<Vec<ClientMsg>, String> {
         self.place();
         let event = self.overlays.key(&key, || None);
+        if event.is_none()
+            && let Some(messages) = self.explorer_key(&key)
+        {
+            return Ok(messages);
+        }
         self.route(event, ClientMsg::Input(InputEvent::Key(key)))
     }
 
     fn text(&mut self, text: &str) -> Result<Vec<ClientMsg>, String> {
         let event = self.overlays.text(text);
+        if event.is_none()
+            && let Some(messages) = self.explorer_text(text)
+        {
+            return Ok(messages);
+        }
         self.route(event, ClientMsg::Input(InputEvent::Text(text.to_owned())))
     }
 
     fn paste(&mut self, text: &str) -> Result<Vec<ClientMsg>, String> {
         let event = self.overlays.text(text);
+        if event.is_none()
+            && let Some(messages) = self.explorer_text(text)
+        {
+            return Ok(messages);
+        }
         self.route(event, ClientMsg::Input(InputEvent::Paste(text.to_owned())))
     }
 
@@ -510,7 +539,7 @@ impl Capture {
         let Some(pixels) = &mut self.pixels else {
             return;
         };
-        if !self.overlays.is_open() {
+        if !self.overlays.is_open() && !self.panels.open {
             return;
         }
         let (config, theme) = match &self.preview {
@@ -547,6 +576,7 @@ impl Capture {
             return fs::write(output.join(format!("{name}.txt")), self.frame())
                 .map_err(|e| e.to_string());
         }
+        self.sync_hidden();
         let theme = self.shown_theme().clone();
         let config = self.effective().clone();
         let mut grid = match (&self.layout, self.pane) {

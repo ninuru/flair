@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
-use crate::ids::WindowId;
+use crate::ids::{PaneId, WindowId};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct StatusLine {
@@ -11,6 +12,14 @@ pub struct StatusLine {
     pub windows: Vec<StatusWindow>,
     pub pending: Option<String>,
     pub copy: bool,
+    pub pane: Option<ActivePane>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivePane {
+    pub pane: PaneId,
+    pub cwd: Option<PathBuf>,
+    pub at_prompt: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -57,6 +57,7 @@ pub struct Server {
     contexts: (Contexts, prompt::Pending),
     refresh_armed: bool,
     prompts_dirty: bool,
+    runs: BTreeSet<PaneId>,
 }
 
 impl Server {
@@ -74,7 +75,12 @@ impl Server {
             contexts: (Contexts::default(), prompt::Pending::Idle),
             refresh_armed: false,
             prompts_dirty: true,
+            runs: BTreeSet::new(),
         }
+    }
+
+    pub fn runs_program(&self, pane: PaneId) -> bool {
+        self.runs.contains(&pane)
     }
 
     pub fn handle(&mut self, now: Millis, event: Event, out: &mut Vec<Effect>) {
@@ -97,6 +103,9 @@ impl Server {
                     self.terminal_events(now, id, before, out);
                     self.want_process(now, id, out);
                 }
+            }
+            Event::PtySpawnFailed(id) if self.runs.contains(&id) => {
+                self.destroy_pane(now, id, out);
             }
             Event::PtySpawnFailed(id) => {
                 for (client_id, client) in &mut self.clients {

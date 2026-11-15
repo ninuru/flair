@@ -3,6 +3,7 @@ use crate::{
     CellMetrics,
     chrome_layout::{BarField, ChromeLayout, Dock, frame, hit_test, layout},
     notice::Notice,
+    panels::Panels,
     status::{ChipParts, StatusParts},
 };
 use flair_core::{
@@ -78,6 +79,7 @@ struct Case<'a> {
     window: Option<&'a WindowLayout>,
     hover: Option<(f32, f32)>,
     notice: Option<&'a Notice>,
+    panels: Option<&'a Panels>,
 }
 
 impl<'a> Case<'a> {
@@ -92,6 +94,7 @@ impl<'a> Case<'a> {
             window: None,
             hover: None,
             notice: None,
+            panels: None,
         }
     }
 
@@ -143,7 +146,7 @@ impl<'a> Case<'a> {
                 },
                 Dock::default(),
             ),
-            panels: None,
+            panels: self.panels,
         };
         layout(&input, measure)
     }
@@ -364,6 +367,10 @@ fn tab_hits_span_the_full_bar_height() {
                 rect: rect(148.0, 0.0, 76.0, 34.0),
                 target: HitTarget::Window(WindowId(2)),
             },
+            Hit {
+                rect: rect(768.0, 0.0, 24.0, 34.0),
+                target: HitTarget::ExplorerButton,
+            },
         ]
     );
     assert_eq!(
@@ -466,6 +473,7 @@ fn overflow_counts_hidden_tabs_on_the_side_where_they_are_hidden() {
         ),
         (3, 1, 791, vec![1, 2, 3], ("3", "shell"), vec![]),
     ] {
+        let width = width + 30;
         let layout = Case {
             width,
             ..Case::new(&many(count, active))
@@ -475,7 +483,10 @@ fn overflow_counts_hidden_tabs_on_the_side_where_they_are_hidden() {
             .into_iter()
             .map(|window| HitTarget::Window(WindowId(window)))
             .collect();
-        let targets: Vec<HitTarget> = layout.hits[1..].iter().map(|hit| hit.target).collect();
+        let targets: Vec<HitTarget> = layout.hits[1..layout.hits.len() - 1]
+            .iter()
+            .map(|hit| hit.target)
+            .collect();
         assert_eq!(targets, windows, "{active} {width}");
         assert!(tab(&layout, label.0, label.1).is_some(), "{active} {width}");
         let more: Vec<&TextRun> = layout
@@ -505,9 +516,9 @@ fn prefix_is_a_key_cap_and_copy_an_accent_chip_at_the_far_right() {
     let status = copy_and_prefix();
     let layout = Case::new(&status).run();
     assert_eq!(
-        quad_at(&layout, rect(766.0, 7.0, 26.0, 20.0)),
+        quad_at(&layout, rect(736.0, 7.0, 26.0, 20.0)),
         Some(&Quad {
-            rect: rect(766.0, 7.0, 26.0, 20.0),
+            rect: rect(736.0, 7.0, 26.0, 20.0),
             color: opaque(surfaces.accent_soft),
             radius: 4.0,
             border: Some(Border {
@@ -519,12 +530,12 @@ fn prefix_is_a_key_cap_and_copy_an_accent_chip_at_the_far_right() {
     let copy = text(&layout, "COPY").unwrap();
     assert_eq!(
         (copy.x, copy.baseline, copy.color, copy.bold, copy.face),
-        (772.0, 19.0, theme.accent, false, TextFace::Small)
+        (742.0, 19.0, theme.accent, false, TextFace::Small)
     );
     assert_eq!(
-        quad_at(&layout, rect(741.0, 7.0, 19.0, 20.0)),
+        quad_at(&layout, rect(711.0, 7.0, 19.0, 20.0)),
         Some(&Quad {
-            rect: rect(741.0, 7.0, 19.0, 20.0),
+            rect: rect(711.0, 7.0, 19.0, 20.0),
             color: opaque(surfaces.surface3),
             radius: 4.0,
             border: Some(Border {
@@ -542,7 +553,7 @@ fn prefix_is_a_key_cap_and_copy_an_accent_chip_at_the_far_right() {
             prefix.bold,
             prefix.face
         ),
-        (747.0, 19.0, theme.foreground, false, TextFace::Small)
+        (717.0, 19.0, theme.foreground, false, TextFace::Small)
     );
     assert!(text(&layout, "ZOOM").is_none());
 
@@ -551,8 +562,8 @@ fn prefix_is_a_key_cap_and_copy_an_accent_chip_at_the_far_right() {
         ..Case::new(&status)
     }
     .run();
-    assert!(quad_at(&layout, rect(1546.0, 14.0, 38.0, 40.0)).is_some());
-    assert_eq!(text(&layout, "COPY").unwrap().x, 1558.0);
+    assert!(quad_at(&layout, rect(1486.0, 14.0, 38.0, 40.0)).is_some());
+    assert_eq!(text(&layout, "COPY").unwrap().x, 1498.0);
 }
 
 #[test]
@@ -567,9 +578,9 @@ fn zoom_chip_sits_between_copy_and_the_prefix_when_zoomed() {
     }
     .run();
     assert_eq!(
-        quad_at(&layout, rect(734.0, 7.0, 26.0, 20.0)),
+        quad_at(&layout, rect(704.0, 7.0, 26.0, 20.0)),
         Some(&Quad {
-            rect: rect(734.0, 7.0, 26.0, 20.0),
+            rect: rect(704.0, 7.0, 26.0, 20.0),
             color: opaque(surfaces.accent_soft),
             radius: 4.0,
             border: Some(Border {
@@ -581,9 +592,9 @@ fn zoom_chip_sits_between_copy_and_the_prefix_when_zoomed() {
     let zoom = text(&layout, "ZOOM").unwrap();
     assert_eq!(
         (zoom.x, zoom.color, zoom.bold, zoom.face),
-        (740.0, theme.accent, false, TextFace::Small)
+        (710.0, theme.accent, false, TextFace::Small)
     );
-    assert_eq!(text(&layout, "^A").unwrap().x, 715.0);
+    assert_eq!(text(&layout, "^A").unwrap().x, 685.0);
 
     let unzoomed = WindowLayout {
         zoomed: false,
@@ -611,9 +622,9 @@ fn prompt_replaces_the_tabs_with_a_field_and_a_caret() {
     assert!(text(&layout, "1 shell").is_none());
     assert!(text(&layout, "2 editor").is_none());
     assert_eq!(
-        quad_at(&layout, rect(73.0, 5.0, 719.0, 24.0)),
+        quad_at(&layout, rect(73.0, 5.0, 689.0, 24.0)),
         Some(&Quad {
-            rect: rect(73.0, 5.0, 719.0, 24.0),
+            rect: rect(73.0, 5.0, 689.0, 24.0),
             color: opaque(theme.background),
             radius: 6.0,
             border: Some(Border {
@@ -638,7 +649,7 @@ fn prompt_replaces_the_tabs_with_a_field_and_a_caret() {
     );
     assert_eq!(
         layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
-        [HitTarget::Session]
+        [HitTarget::Session, HitTarget::ExplorerButton]
     );
 }
 
@@ -772,7 +783,7 @@ fn an_info_notice_replaces_the_tabs_in_muted_text_after_a_dot() {
     );
     assert_eq!(
         layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
-        [HitTarget::Session]
+        [HitTarget::Session, HitTarget::ExplorerButton]
     );
 }
 
@@ -821,13 +832,13 @@ fn a_notice_sits_right_of_an_open_prompt_field() {
         .iter()
         .find(|quad| quad.color == opaque(theme.background))
         .unwrap();
-    assert_eq!(field.rect, rect(73.0, 5.0, 512.0, 24.0));
+    assert_eq!(field.rect, rect(73.0, 5.0, 482.0, 24.0));
     assert_eq!(
-        notice_dot(&layout, 591.0).map(|quad| quad.color),
+        notice_dot(&layout, 561.0).map(|quad| quad.color),
         Some(opaque(surfaces.attention))
     );
     let run = text(&layout, "window name cannot be empty").unwrap();
-    assert_eq!((run.x, run.color), (603.0, surfaces.muted));
+    assert_eq!((run.x, run.color), (573.0, surfaces.muted));
     let label = text(&layout, "(rename-window) ").unwrap();
     assert_eq!((label.x, label.color), (83.0, surfaces.muted));
 }
@@ -847,7 +858,7 @@ fn a_notice_next_to_a_prompt_keeps_the_field_at_least_120_wide() {
             .rect
     };
     let layout = Case {
-        width: 291,
+        width: 321,
         label: "(rename-window) ",
         prompt: Some(""),
         notice: Some(&notice),
@@ -858,7 +869,7 @@ fn a_notice_next_to_a_prompt_keeps_the_field_at_least_120_wide() {
     assert_eq!(text(&layout, "window na…").unwrap().x, 211.0);
 
     let layout = Case {
-        width: 211,
+        width: 241,
         label: "(rename-window) ",
         prompt: Some(""),
         notice: Some(&notice),
@@ -877,3 +888,6 @@ fn a_notice_next_to_a_prompt_keeps_the_field_at_least_120_wide() {
 
 #[path = "chrome_bar_icon_tests.rs"]
 mod icons;
+
+#[path = "chrome_bar_button_tests.rs"]
+mod button;

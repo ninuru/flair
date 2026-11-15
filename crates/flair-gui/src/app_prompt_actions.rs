@@ -104,15 +104,21 @@ impl App {
         self.capture = capture_after(self.capture, button, action, route);
         match route {
             MouseRoute::Bar => {
-                if let Some(target) =
-                    chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y))
-                    && let Some(command) = bar_command(target)
-                {
-                    self.send(ClientMsg::Command(command));
+                match chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y)) {
+                    Some(HitTarget::ExplorerButton) => self.toggle_explorer(),
+                    Some(target) => {
+                        if let Some(command) = bar_command(target) {
+                            self.send(ClientMsg::Command(command));
+                        }
+                    }
+                    None => {}
                 }
             }
             MouseRoute::Drop => {}
             MouseRoute::Server => {
+                if action == MouseAction::Press {
+                    self.blur_explorer();
+                }
                 let mods = flair_core::key::Mods {
                     ctrl: self.mods.control_key(),
                     shift: self.mods.shift_key(),

@@ -11,7 +11,7 @@ use crate::{
     notice::Notice,
     overlays::Preview,
     settings_page::SettingsOutcome,
-    theme_file::{save, save_theme},
+    theme_file::{resolve_theme, save, save_theme},
     theme_picker::ThemeOutcome,
 };
 
@@ -22,6 +22,34 @@ impl App {
             .map_or(&self.config, |preview| &preview.config)
     }
 
+    pub(super) fn reload(&mut self, config: Config) {
+        let fonts_changed = config.font != self.effective().font;
+        self.preview = None;
+        self.config = config;
+        let (theme, notice) = resolve_theme(&self.config, &self.config_path);
+        if let Some(notice) = notice {
+            self.overlays.set_notice(notice);
+        }
+        if theme != self.theme {
+            self.theme = theme;
+            self.send(ClientMsg::Palette(self.theme.clone()));
+        }
+        if fonts_changed && let Some(surface) = &mut self.surface {
+            match Fonts::load(&self.config.font, surface.window.scale_factor()) {
+                Ok(fonts) => {
+                    surface.renderer.set_metrics(fonts.metrics());
+                    surface.fonts = fonts;
+                }
+                Err(error) => {
+                    log::warn!("could not load the configured font: {error}");
+                    self.overlays
+                        .set_notice(Notice::error(format!("font not loaded: {error}")));
+                }
+            }
+        }
+        self.send(ClientMsg::Resize(self.size()));
+        self.request_redraw();
+    }
     pub(super) fn theme_outcome(&mut self, outcome: ThemeOutcome) {
         match outcome {
             ThemeOutcome::Pending => {}
