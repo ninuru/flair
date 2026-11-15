@@ -79,6 +79,8 @@ impl Capture {
     pub(super) fn sync_hidden(&mut self) {
         let show = self.effective().explorer.show_hidden;
         self.panels.show_hidden(show);
+        let editor = self.effective().explorer.editor.clone();
+        self.panels.set_editor(editor);
     }
 
     fn explorer_outcome(&mut self, outcome: ExplorerOutcome) -> Vec<ClientMsg> {
