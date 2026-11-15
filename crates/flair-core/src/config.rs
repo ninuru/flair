@@ -75,12 +75,13 @@ pub struct TabsConfig {
     pub width: u16,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ExplorerConfig {
     pub side: Side,
     pub width: u16,
     pub show_hidden: bool,
+    pub editor: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -469,6 +470,7 @@ impl Default for ExplorerConfig {
             side: Side::Left,
             width: 280,
             show_hidden: true,
+            editor: String::new(),
         }
     }
 }

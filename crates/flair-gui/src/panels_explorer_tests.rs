@@ -376,6 +376,28 @@ fn edit_splits_an_editor_at_the_explorer_root_and_blurs() {
 }
 
 #[test]
+fn edit_runs_the_configured_editor_with_its_arguments() {
+    let temp = TempDir::new();
+    let file = temp.file(&temp.dir("src"), "main.rs");
+    let mut panels = rooted(&temp.0);
+    panels.set_editor("nvim -p".into());
+    assert_eq!(
+        panels.act(ExplorerOutcome::Edit(file.clone())),
+        ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
+            argv: vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "exec $1 \"$2\"".into(),
+                "flair-edit".into(),
+                "nvim -p".into(),
+                file.to_str().unwrap().into(),
+            ],
+            cwd: temp.0.clone(),
+        }))
+    );
+}
+
+#[test]
 fn edit_of_a_vanished_file_or_folder_shows_a_notice() {
     let temp = TempDir::new();
     let src = temp.dir("src");

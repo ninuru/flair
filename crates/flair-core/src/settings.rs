@@ -394,6 +394,14 @@ pub const SETTINGS: &[Setting] = &[
         read: |config, _| Value::Bool(config.explorer.show_hidden),
     },
     Setting {
+        key: "explorer.editor",
+        title: "Editor",
+        section: Section::Panels,
+        kind: Kind::Text,
+        description: "Command that opens files from the explorer. Empty uses $EDITOR.",
+        read: |config, _| Value::Text(config.explorer.editor.clone()),
+    },
+    Setting {
         key: "shell.program",
         title: "Shell",
         section: Section::Terminal,

@@ -61,6 +61,7 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "explorer.side",
             "explorer.width",
             "explorer.show_hidden",
+            "explorer.editor",
             "shell.program",
             "shell.args",
             "scrollback.lines",
@@ -649,6 +650,10 @@ fn the_panels_section_sets_the_explorer_side_width_and_hidden_files() {
     assert_eq!(hidden.title, "Hidden files");
     assert_eq!(hidden.kind, Kind::Toggle);
     assert_eq!(default_value(hidden), Value::Bool(true));
+    let editor = setting("explorer.editor");
+    assert_eq!(editor.section, Section::Panels);
+    assert_eq!(editor.kind, Kind::Text);
+    assert_eq!(default_value(editor), text(""));
     let mut config = Config::default();
     config.explorer.side = Side::Right;
     config.explorer.width = 400;

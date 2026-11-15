@@ -67,6 +67,7 @@ pub struct Panels {
     reveal: Option<usize>,
     pane: Option<ActivePane>,
     hidden: Option<bool>,
+    editor: String,
     armed: Option<Instant>,
     last_click: Option<(PathBuf, Instant)>,
 }
@@ -233,6 +234,14 @@ impl Panels {
         }
     }
 
+    pub fn editor(&self) -> &str {
+        &self.editor
+    }
+
+    pub fn set_editor(&mut self, editor: String) {
+        self.editor = editor;
+    }
+
     pub fn at_prompt(&self) -> bool {
         self.pane.as_ref().is_some_and(|pane| pane.at_prompt)
     }
@@ -332,16 +341,24 @@ impl Panels {
             return ExplorerAct::Notice(Notice::error(format!("{file} is gone")));
         }
         self.focused = false;
-        ExplorerAct::Send(ClientMsg::Command(Command::SplitRun {
-            argv: vec![
+        let argv = match self.editor.trim() {
+            "" => vec![
                 "/bin/sh".into(),
                 "-c".into(),
                 "exec ${EDITOR:-vi} \"$1\"".into(),
                 "flair-edit".into(),
                 file,
             ],
-            cwd,
-        }))
+            editor => vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                "exec $1 \"$2\"".into(),
+                "flair-edit".into(),
+                editor.to_owned(),
+                file,
+            ],
+        };
+        ExplorerAct::Send(ClientMsg::Command(Command::SplitRun { argv, cwd }))
     }
 
     fn open_explorer(&mut self) -> Vec<PathBuf> {

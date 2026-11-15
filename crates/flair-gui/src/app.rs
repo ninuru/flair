@@ -168,6 +168,10 @@ impl App {
         self.panels.follow_position(self.effective().tabs.position);
         self.panels
             .show_hidden(self.effective().explorer.show_hidden);
+        if self.panels.editor() != self.effective().explorer.editor {
+            let editor = self.effective().explorer.editor.clone();
+            self.panels.set_editor(editor);
+        }
         let theme = self
             .preview
             .as_ref()

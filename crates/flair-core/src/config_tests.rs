@@ -753,6 +753,7 @@ fn explorer_defaults_to_the_left_two_hundred_eighty_wide_with_hidden_files() {
     assert_eq!(explorer.side, Side::Left);
     assert_eq!(explorer.width, 280);
     assert!(explorer.show_hidden);
+    assert!(explorer.editor.is_empty());
     assert_eq!(EXPLORER_WIDTH, (160, 640));
 }
 
@@ -764,6 +765,8 @@ fn explorer_table_reads_side_width_and_hidden_files() {
     assert_eq!(config.explorer.side, Side::Right);
     assert_eq!(config.explorer.width, 320);
     assert!(!config.explorer.show_hidden);
+    let config = Config::from_toml("[explorer]\neditor = \"nvim\"\n").unwrap();
+    assert_eq!(config.explorer.editor, "nvim");
     let config = Config::from_toml("[explorer]\nside = \"left\"\n").unwrap();
     assert_eq!(config.explorer, ExplorerConfig::default());
     assert!(Config::from_toml("[explorer]\nside = \"top\"\n").is_err());
