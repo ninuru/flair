@@ -550,3 +550,27 @@ fn zsh_ctrl_c_clears_the_input_in_place_but_still_interrupts_a_command() {
     pty.kill();
     std::fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn deleted_cwd_falls_back_to_nearest_existing_ancestor() {
+    if !std::path::Path::new("/bin/sh").exists() {
+        eprintln!("skipping deleted cwd PTY test: /bin/sh unavailable");
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("flair-gone-{}", std::process::id()));
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(&root)
+        .unwrap();
+    let root = root.canonicalize().unwrap();
+    let mut pty = Pty::spawn(&SpawnSpec {
+        cwd: root.join("deleted/project"),
+        ..spec("printf ready; read x")
+    })
+    .unwrap();
+    assert!(read_until(&mut pty.reader().unwrap(), "ready").contains("ready"));
+    assert_eq!(pty.cwd().unwrap(), root);
+    pty.kill();
+    std::fs::remove_dir_all(root).unwrap();
+}

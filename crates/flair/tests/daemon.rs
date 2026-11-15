@@ -412,13 +412,15 @@ fn failed_session_spawn_does_not_disconnect_existing_clients() {
     );
     let main = daemon.attach("main", 60);
     screen(&main, "READY:");
+    let file = daemon.root.join("not-a-directory");
+    fs::write(&file, "").unwrap();
     let control = socket::connect(&daemon.path()).unwrap();
     control
         .tx
         .send(ClientMsg::Control(Control::Create {
             target: Target::Create {
                 name: Some("broken".into()),
-                root: daemon.root.join("missing-directory"),
+                root: file,
             },
             env: vec![],
         }))

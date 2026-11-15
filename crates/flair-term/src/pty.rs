@@ -9,7 +9,7 @@ use std::{
     io,
     os::fd::{AsRawFd, FromRawFd, OwnedFd},
     os::unix::fs::PermissionsExt,
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,6 +35,16 @@ impl Pty {
                 "PTY dimensions must be nonzero",
             ));
         }
+        let existing = SpawnSpec {
+            cwd: spec
+                .cwd
+                .ancestors()
+                .find(|dir| dir.exists())
+                .unwrap_or(Path::new("/"))
+                .to_path_buf(),
+            ..spec.clone()
+        };
+        let spec = &existing;
         let integration = ShellIntegration::prepare(spec)?;
         let integration_env = integration
             .as_ref()
@@ -97,7 +107,10 @@ impl Pty {
         if !spec.cwd.is_dir() {
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
-                format!("session directory does not exist: {}", spec.cwd.display()),
+                format!(
+                    "session directory is not a directory: {}",
+                    spec.cwd.display()
+                ),
             ));
         }
         let config = Options {
