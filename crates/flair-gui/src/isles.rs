@@ -452,9 +452,14 @@ fn failed_block(
         )
     };
     let edge = input.padding.0 + input.metrics.width;
-    let width = input.px.0 as f32;
+    let grid = input.frame.grid;
+    let width = grid.x + grid.w;
     let pane_rect = row_rect(0);
-    let left = if pane_rect.x < edge { 0.0 } else { pane_rect.x };
+    let left = if pane_rect.x - grid.x < edge {
+        grid.x
+    } else {
+        pane_rect.x
+    };
     let right = if width - (pane_rect.x + pane_rect.w) < edge {
         width
     } else {

@@ -85,6 +85,9 @@ impl App {
     }
 
     pub(super) fn mouse(&mut self, button: MouseButton, action: MouseAction) {
+        if self.panel_mouse(button, action) {
+            return;
+        }
         let Some(point) = self.cell() else { return };
         if self.capture == Capture::Idle
             && button == MouseButton::Left
@@ -97,7 +100,7 @@ impl App {
             self.capture = Capture::Overlay;
             return;
         }
-        let route = route_mouse(self.in_bar(), button, action, self.capture);
+        let route = route_mouse(self.in_chrome(), button, action, self.capture);
         self.capture = capture_after(self.capture, button, action, route);
         match route {
             MouseRoute::Bar => {

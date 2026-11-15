@@ -214,7 +214,15 @@ fn a_new_page_shows_appearance_with_the_first_entry_focused() {
     let sheet = page.sheet();
     assert_eq!(
         sheet.sections,
-        ["Appearance", "Font", "Window", "Terminal", "Prompt", "Keys"]
+        [
+            "Appearance",
+            "Font",
+            "Window",
+            "Panels",
+            "Terminal",
+            "Prompt",
+            "Keys"
+        ]
     );
     assert_eq!(sheet.section, Some(0));
     assert!(!sheet.sections_focused);
@@ -249,7 +257,7 @@ fn entries_show_values_and_their_source() {
     page.focus(2);
     assert_eq!(control(&page), Control::Number("1".to_owned()));
     assert_eq!(source(&page), "default");
-    section(&mut page, 5);
+    section(&mut page, 6);
     assert_eq!(control(&page), Control::Toggle(true));
     page.focus(1);
     assert_eq!(control(&page), Control::Text("C-a".to_owned()));
@@ -267,7 +275,7 @@ fn unset_colours_show_the_theme_value_as_default() {
 #[test]
 fn the_keys_section_lists_settings_then_key_bindings() {
     let mut page = page("[keys.prefix]\nc = \"none\"\n");
-    section(&mut page, 5);
+    section(&mut page, 6);
     let sheet = page.sheet();
     assert_eq!(sheet.crumb, "Keys");
     assert_eq!(sheet.groups.len(), 2);
@@ -359,7 +367,7 @@ fn tab_moves_between_the_columns() {
     for _ in 0..10 {
         press(&mut page, NamedKey::Down);
     }
-    assert_eq!(page.sheet().section, Some(5));
+    assert_eq!(page.sheet().section, Some(6));
 }
 
 #[test]
@@ -796,7 +804,7 @@ fn insert_goes_to_the_query_or_the_editor() {
 #[test]
 fn the_prompt_section_lists_the_style_icons_chips_then_the_formats() {
     let mut page = page("");
-    section(&mut page, 4);
+    section(&mut page, 5);
     let sheet = page.sheet();
     assert_eq!(sheet.crumb, "Prompt");
     assert_eq!(sheet.groups.len(), 1);
@@ -883,7 +891,7 @@ fn escape_reverts_a_pending_prompt_style() {
 #[test]
 fn space_flips_a_prompt_chip_in_the_draft_and_enter_saves_the_prompt() {
     let mut page = page("");
-    section(&mut page, 4);
+    section(&mut page, 5);
     page.click(SettingsHit::PromptEditor(PromptAction::Select(
         flair_core::isles::Chip::Kube,
     )));

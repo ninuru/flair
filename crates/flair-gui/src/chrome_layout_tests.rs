@@ -77,6 +77,8 @@ fn parts() -> StatusParts {
                 name: "shell".into(),
                 active: true,
                 last: false,
+                activity: false,
+                bell: false,
             },
             TabParts {
                 window: WindowId(2),
@@ -85,6 +87,8 @@ fn parts() -> StatusParts {
                 name: "editor".into(),
                 active: false,
                 last: false,
+                activity: false,
+                bell: false,
             },
         ],
         badges: Vec::new(),
@@ -134,6 +138,15 @@ fn run_layout(scale: f32, width: u32, window: Option<&WindowLayout>) -> ChromeLa
         overlays: None,
         notice: None,
         isles: None,
+        frame: frame(
+            (width * scale as u32, 600 * scale as u32),
+            scale,
+            false,
+            (8.0 * scale, 4.0 * scale),
+            metrics(scale),
+            Dock::default(),
+        ),
+        panels: None,
     };
     layout(&input, measure)
 }
@@ -144,23 +157,78 @@ fn grid_starts_below_bar_and_border() {
     assert_eq!(bar_height(2.0), 68.0);
     assert_eq!(bar_height(1.5), 51.0);
     assert_eq!(
-        grid_origin((800, 600), (8.0, 4.0), 1.0, false, metrics(1.0)),
+        grid_origin(
+            &frame(
+                (800, 600),
+                1.0,
+                false,
+                (8.0, 4.0),
+                metrics(1.0),
+                Dock::default()
+            ),
+            (8.0, 4.0),
+            metrics(1.0)
+        ),
         (8.0, 52.0)
     );
     assert_eq!(
-        grid_origin((1600, 1200), (16.0, 8.0), 2.0, false, metrics(2.0)),
+        grid_origin(
+            &frame(
+                (1600, 1200),
+                2.0,
+                false,
+                (16.0, 8.0),
+                metrics(2.0),
+                Dock::default()
+            ),
+            (16.0, 8.0),
+            metrics(2.0)
+        ),
         (16.0, 104.0)
     );
     assert_eq!(
-        grid_size((800, 600), (8.0, 4.0), 1.0, false, metrics(1.0)),
+        grid_size(
+            &frame(
+                (800, 600),
+                1.0,
+                false,
+                (8.0, 4.0),
+                metrics(1.0),
+                Dock::default()
+            ),
+            (8.0, 4.0),
+            metrics(1.0)
+        ),
         GridSize { cols: 98, rows: 34 }
     );
     assert_eq!(
-        grid_size((1600, 1200), (16.0, 8.0), 2.0, false, metrics(2.0)),
+        grid_size(
+            &frame(
+                (1600, 1200),
+                2.0,
+                false,
+                (16.0, 8.0),
+                metrics(2.0),
+                Dock::default()
+            ),
+            (16.0, 8.0),
+            metrics(2.0)
+        ),
         GridSize { cols: 98, rows: 34 }
     );
     assert_eq!(
-        grid_size((10, 20), (8.0, 4.0), 1.0, false, metrics(1.0)),
+        grid_size(
+            &frame(
+                (10, 20),
+                1.0,
+                false,
+                (8.0, 4.0),
+                metrics(1.0),
+                Dock::default()
+            ),
+            (8.0, 4.0),
+            metrics(1.0)
+        ),
         GridSize { cols: 1, rows: 1 }
     );
     let layout = run_layout(1.0, 800, None);
@@ -178,10 +246,18 @@ fn grid_origin_centres_columns_and_puts_the_last_row_on_the_bottom_edge() {
     for (scale, width, origin) in [(1.0, 803, (9.0, 52.0)), (2.0, 803, (19.0, 104.0))] {
         let px = (width * scale as u32, 600 * scale as u32);
         let padding = (8.0 * scale, 4.0 * scale);
-        let size = grid_size(px, padding, scale, false, metrics(scale));
+        let size = grid_size(
+            &frame(px, scale, false, padding, metrics(scale), Dock::default()),
+            padding,
+            metrics(scale),
+        );
         assert_eq!(size, GridSize { cols: 98, rows: 34 });
         assert_eq!(
-            grid_origin(px, padding, scale, false, metrics(scale)),
+            grid_origin(
+                &frame(px, scale, false, padding, metrics(scale), Dock::default()),
+                padding,
+                metrics(scale)
+            ),
             origin
         );
         let right = px.0 as f32 - origin.0 - f32::from(size.cols) * metrics(scale).width;
@@ -206,7 +282,11 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
     for (scale, width) in [(1.0, 803), (2.0, 803)] {
         let px = (width * scale as u32, 600 * scale as u32);
         let cell = metrics(scale);
-        let size = grid_size(px, (0.0, 0.0), scale, false, cell);
+        let size = grid_size(
+            &frame(px, scale, false, (0.0, 0.0), cell, Dock::default()),
+            (0.0, 0.0),
+            cell,
+        );
         let top = 35.0 * scale;
         let leftover = (
             px.0 as f32 - f32::from(size.cols) * cell.width,
@@ -214,7 +294,11 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
         );
         assert!(leftover.0 >= 0.0 && leftover.1 >= 0.0, "{leftover:?}");
         assert_eq!(
-            grid_origin(px, (0.0, 0.0), scale, false, cell),
+            grid_origin(
+                &frame(px, scale, false, (0.0, 0.0), cell, Dock::default()),
+                (0.0, 0.0),
+                cell
+            ),
             ((leftover.0 / 2.0).floor(), top + leftover.1.floor())
         );
         let theme = Config::default().theme();
@@ -234,12 +318,18 @@ fn zero_padding_puts_the_last_row_on_the_bottom_edge() {
             overlays: None,
             notice: None,
             isles: None,
+            frame: frame(px, scale, false, (0.0, 0.0), cell, Dock::default()),
+            panels: None,
         };
         let chrome = layout(&input, measure).chrome;
         let full = rect(0.0, top, px.0 as f32, px.1 as f32 - top);
         assert_eq!(
             chrome.origin,
-            grid_origin(px, (0.0, 0.0), scale, false, cell)
+            grid_origin(
+                &frame(px, scale, false, (0.0, 0.0), cell, Dock::default()),
+                (0.0, 0.0),
+                cell
+            )
         );
         assert_eq!(chrome.clip, full);
         assert_eq!(chrome.extend, full);
@@ -461,6 +551,8 @@ fn scaled_status() -> StatusLine {
                 program: String::new(),
                 active: index == 2,
                 last: index == 1,
+                activity: false,
+                bell: false,
             })
             .collect(),
         pending: Some("^A".into()),
@@ -487,6 +579,8 @@ fn overlay_messages() -> [ServerMsg; 3] {
                             program: String::new(),
                             active: index == 1,
                             last: false,
+                            activity: false,
+                            bell: false,
                         })
                         .collect(),
                 })
@@ -544,6 +638,19 @@ fn scaled_layout(
         overlays: Some(overlays),
         notice,
         isles: None,
+        frame: frame(
+            (1203, 757),
+            scale,
+            false,
+            ((8.0 * scale).round(), (4.0 * scale).round()),
+            CellMetrics {
+                width: 8.4 * scale,
+                height: 17.0 * scale,
+                baseline: 13.0 * scale,
+            },
+            Dock::default(),
+        ),
+        panels: None,
     };
     layout(&input, fractional)
 }
@@ -693,6 +800,15 @@ fn bar_layout(width: u32, status: &StatusParts) -> ChromeLayout {
         overlays: None,
         notice: None,
         isles: None,
+        frame: frame(
+            (width, 600),
+            1.0,
+            false,
+            (8.0, 4.0),
+            metrics(1.0),
+            Dock::default(),
+        ),
+        panels: None,
     };
     layout(&input, measure)
 }
@@ -717,6 +833,8 @@ fn narrow(session: &str, names: &[&str], active: usize) -> StatusParts {
                 name: (*name).into(),
                 active: offset == active,
                 last: false,
+                activity: false,
+                bell: false,
             })
             .collect(),
         badges: vec![
@@ -889,6 +1007,15 @@ fn band_layout(
             date: None,
             home: None,
         }),
+        frame: frame(
+            (800, 600),
+            1.0,
+            false,
+            (8.0, 4.0),
+            metrics(1.0),
+            Dock::default(),
+        ),
+        panels: None,
     };
     layout(&input, measure)
 }
@@ -1056,7 +1183,18 @@ fn chips_centre_on_the_shell_prompt_row_in_stacked_panes() {
         1,
     );
     let layout = band_layout(&window, &info, &plain_config());
-    let (_, top) = grid_origin((800, 600), (8.0, 4.0), 1.0, false, metrics(1.0));
+    let (_, top) = grid_origin(
+        &frame(
+            (800, 600),
+            1.0,
+            false,
+            (8.0, 4.0),
+            metrics(1.0),
+            Dock::default(),
+        ),
+        (8.0, 4.0),
+        metrics(1.0),
+    );
     let prompt_top = top + 16.0;
     let chips = band_chips(&layout);
     assert_eq!(chips.len(), 4);
@@ -1175,6 +1313,15 @@ fn zen_layout(zen: bool, notice: Option<&Notice>, window: Option<&WindowLayout>)
         overlays: None,
         notice,
         isles: None,
+        frame: frame(
+            (800, 600),
+            1.0,
+            zen,
+            padding(&config, 1.0, zen),
+            metrics(1.0),
+            Dock::default(),
+        ),
+        panels: None,
     };
     layout(&input, measure)
 }
@@ -1192,10 +1339,15 @@ fn zen_drops_the_bar_and_the_padding_and_grows_the_grid() {
     assert_eq!(chrome_top(2.0, true), 0.0);
     let size = |zen| {
         grid_size(
-            (800, 600),
+            &frame(
+                (800, 600),
+                1.0,
+                zen,
+                padding(&config, 1.0, zen),
+                metrics(1.0),
+                Dock::default(),
+            ),
             padding(&config, 1.0, zen),
-            1.0,
-            zen,
             metrics(1.0),
         )
     };
@@ -1258,3 +1410,6 @@ fn zen_keeps_separators_and_shows_notices_over_the_grid() {
             .any(|quad| quad.rect.y == 0.0 && quad.rect.w == 800.0)
     );
 }
+
+#[path = "chrome_layout_frame_tests.rs"]
+mod frame_tests;

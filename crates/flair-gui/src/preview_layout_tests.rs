@@ -49,6 +49,8 @@ fn window(id: u32, name: &str, active: bool) -> StatusWindow {
         program: String::new(),
         active,
         last: false,
+        activity: false,
+        bell: false,
     }
 }
 

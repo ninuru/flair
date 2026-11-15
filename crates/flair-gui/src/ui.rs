@@ -94,6 +94,13 @@ pub const SPACE_KEY: &str = "space";
 pub const DELETE_KEY: &str = "del";
 pub const SEARCH_KEY: &str = "/";
 pub const CRUMB_GAP: &str = " / ";
+pub const PANEL_ROW: f32 = 28.0;
+pub const EDGE_GRAB: f32 = 6.0;
+pub const SWITCHER: f32 = 36.0;
+pub const DRAG_START: f32 = 4.0;
+pub const CLOSE_KEY: char = '\u{ea76}';
+pub const BELL_KEY: char = '\u{eaa2}';
+pub const ADD_KEY: char = '\u{ea60}';
 
 pub fn px(value: f32, scale: f32) -> f32 {
     (value * scale).round()

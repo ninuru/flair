@@ -30,6 +30,7 @@ impl Notice {
             | ConfigError::Parse(_)
             | ConfigError::Keys(_)
             | ConfigError::NotPositive { .. }
+            | ConfigError::Range { .. }
             | ConfigError::ThemeName(_)
             | ConfigError::Theme { .. } => Notice::error(format!("{error}, using flair-dark")),
         }

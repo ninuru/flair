@@ -325,6 +325,7 @@ impl SettingsPage {
                 Section::Appearance
                 | Section::Font
                 | Section::Window
+                | Section::Panels
                 | Section::Terminal
                 | Section::Prompt => 0,
             };

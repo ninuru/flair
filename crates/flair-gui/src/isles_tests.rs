@@ -6,7 +6,7 @@ use std::{
 
 use super::*;
 use crate::{
-    chrome_layout::layout,
+    chrome_layout::{Dock, frame, layout},
     font::{CellMetrics, UiMetrics},
     status::{ChipParts, StatusParts},
 };
@@ -683,6 +683,19 @@ fn prompt_scene(
             date: None,
             home: None,
         }),
+        frame: frame(
+            (800, 600),
+            1.0,
+            false,
+            (8.0, 4.0),
+            CellMetrics {
+                width: 8.0,
+                height: 16.0,
+                baseline: 12.0,
+            },
+            Dock::default(),
+        ),
+        panels: None,
     };
     layout(&input, |text, _| text.chars().count() as f32 * 7.0)
 }

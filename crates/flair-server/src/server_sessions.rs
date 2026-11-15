@@ -130,8 +130,8 @@ impl Server {
                 name: session.name.clone(),
                 root: session.root.clone(),
                 windows: match session.id == view.session {
-                    true => self.window_entries(session, view.window, view.last_window),
-                    false => self.window_entries(session, session.last_window, None),
+                    true => self.window_entries(id, session, view.window, view.last_window),
+                    false => self.window_entries(id, session, session.last_window, None),
                 },
             })
             .collect()

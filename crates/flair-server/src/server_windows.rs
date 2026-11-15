@@ -118,6 +118,35 @@ impl Server {
         self.send_title(id, out);
     }
 
+    pub(super) fn move_window(&mut self, id: ClientId, window: WindowId, index: u16) {
+        let session = self.clients[&id].view.session;
+        let Some(session) = self
+            .tree
+            .sessions
+            .iter_mut()
+            .find(|candidate| candidate.id == session)
+        else {
+            return;
+        };
+        let Some(from) = session
+            .windows
+            .iter()
+            .position(|candidate| candidate.id == window)
+        else {
+            return;
+        };
+        let to = usize::from(index).clamp(1, session.windows.len()) - 1;
+        let moved = session.windows.remove(from);
+        session.windows.insert(to, moved);
+    }
+
+    pub(super) fn close_window(&mut self, now: Millis, window: WindowId, out: &mut Vec<Effect>) {
+        let panes = self.tree.window(window).unwrap().panes.clone();
+        for pane in panes {
+            self.destroy_pane(now, pane, out);
+        }
+    }
+
     pub(super) fn window_target(&self, id: ClientId, target: WindowRef) -> Option<WindowId> {
         let session = self.tree.session(self.clients[&id].view.session)?;
         match target {

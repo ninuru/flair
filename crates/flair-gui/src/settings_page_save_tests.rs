@@ -27,7 +27,7 @@ fn a_stepper_click_on_another_entry_comes_back_as_a_preview() {
 #[test]
 fn an_edit_click_on_another_entry_opens_the_editor_after_the_save() {
     let mut page = page("");
-    section(&mut page, 3);
+    section(&mut page, 4);
     page.focus(2);
     press(&mut page, NamedKey::Right);
     assert_eq!(
@@ -44,7 +44,7 @@ fn an_edit_click_on_another_entry_opens_the_editor_after_the_save() {
 #[test]
 fn a_failed_save_drops_the_queued_action() {
     let mut page = page("");
-    section(&mut page, 5);
+    section(&mut page, 6);
     page.focus(2);
     press(&mut page, NamedKey::Right);
     page.click(SettingsHit::Toggle(0));

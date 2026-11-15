@@ -64,7 +64,8 @@ pub(crate) fn bar(
             let x = start + px(ITEM_PAD, scale);
             note(input, notice, (x, end), scene, measure);
         }
-        (None, None) => tabs(input, start, end, scene, measure),
+        (None, None) if input.frame.bar_tabs => tabs(input, start, end, scene, measure),
+        (None, None) => {}
     }
 }
 

@@ -28,6 +28,8 @@ pub(crate) struct ClientState {
     pub prefix: PrefixMachine,
     pub status: Option<StatusLine>,
     pub finished: BTreeSet<SessionId>,
+    pub activity_windows: BTreeSet<WindowId>,
+    pub bell_windows: BTreeSet<WindowId>,
     pub last_click: Option<(Millis, CellPoint, u8)>,
     pub selecting: bool,
     pub mouse: Option<MouseCapture>,

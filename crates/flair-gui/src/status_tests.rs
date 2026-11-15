@@ -37,6 +37,8 @@ fn fixture() -> StatusLine {
                 program: String::new(),
                 active: true,
                 last: false,
+                activity: false,
+                bell: false,
             },
             StatusWindow {
                 id: WindowId(2),
@@ -45,6 +47,8 @@ fn fixture() -> StatusLine {
                 program: String::new(),
                 active: false,
                 last: true,
+                activity: false,
+                bell: false,
             },
         ],
         pending: None,
@@ -78,6 +82,8 @@ fn overflow_keeps_the_active_window_visible_and_hides_others() {
                 program: String::new(),
                 active: index == 30,
                 last: false,
+                activity: false,
+                bell: false,
             })
             .collect(),
         ..fixture()
@@ -178,6 +184,8 @@ fn status_parts_split_chip_tabs_and_badges() {
                 name: "shell".into(),
                 active: false,
                 last: false,
+                activity: false,
+                bell: false,
             },
             TabParts {
                 window: WindowId(2),
@@ -186,6 +194,8 @@ fn status_parts_split_chip_tabs_and_badges() {
                 name: "editor".into(),
                 active: true,
                 last: true,
+                activity: false,
+                bell: false,
             },
         ]
     );
@@ -245,6 +255,8 @@ fn status_text_keeps_wide_and_combining_characters_whole() {
                 program: String::new(),
                 active: false,
                 last: false,
+                activity: false,
+                bell: false,
             },
             StatusWindow {
                 id: WindowId(2),
@@ -253,6 +265,8 @@ fn status_text_keeps_wide_and_combining_characters_whole() {
                 program: String::new(),
                 active: true,
                 last: false,
+                activity: false,
+                bell: false,
             },
         ],
         pending: Some("^A".into()),
@@ -279,4 +293,14 @@ fn status_text_keeps_wide_and_combining_characters_whole() {
             " 1:日本語 2:e\u{301}dit               | ü日  ^A",
         ]
     );
+}
+
+#[test]
+fn status_parts_carry_activity_and_bell() {
+    let mut status = fixture();
+    status.windows[1].activity = true;
+    status.windows[1].bell = true;
+    let parts = status_parts(&status);
+    assert!(!parts.tabs[0].activity && !parts.tabs[0].bell);
+    assert!(parts.tabs[1].activity && parts.tabs[1].bell);
 }

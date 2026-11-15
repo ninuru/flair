@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     Fonts,
-    chrome_layout::{self, ChromeInput, grid_size},
+    chrome_layout::{self, ChromeInput, Dock, frame, grid_size},
     compose::compose,
     mirror::Mirror,
     overlays::Overlays,
@@ -21,13 +21,13 @@ use std::{fs, io::Write, path::Path};
 fn clicks_map_to_sections_and_controls() {
     let mut page = page("");
     type_text(&mut page, "pad");
-    section(&mut page, 3);
+    section(&mut page, 4);
     let sheet = page.sheet();
     assert_eq!(sheet.search.text, "");
-    assert_eq!(sheet.section, Some(3));
+    assert_eq!(sheet.section, Some(4));
     assert!(!sheet.sections_focused);
     assert_eq!(page.click(SettingsHit::Close), SettingsOutcome::Close);
-    section(&mut page, 5);
+    section(&mut page, 6);
     assert_eq!(
         page.click(SettingsHit::Toggle(0)),
         save("keys.enabled", Some(Value::Bool(false)))
@@ -77,7 +77,7 @@ fn a_section_click_reverts_an_open_editor() {
 #[test]
 fn a_control_click_on_another_entry_saves_the_pending_value_first() {
     let mut page = page("");
-    section(&mut page, 5);
+    section(&mut page, 6);
     page.focus(2);
     press(&mut page, NamedKey::Right);
     assert_eq!(
@@ -101,7 +101,7 @@ fn a_control_click_on_another_entry_saves_the_pending_value_first() {
 #[test]
 fn a_row_click_moves_the_focus_and_closes_other_editors() {
     let mut page = page("");
-    section(&mut page, 3);
+    section(&mut page, 4);
     press(&mut page, NamedKey::Enter);
     assert_eq!(page.focus(0), SettingsOutcome::Pending);
     assert!(matches!(control(&page), Control::Editor(_)));
@@ -195,7 +195,7 @@ fn fail_shows_the_message_on_that_entry_only() {
 #[test]
 fn a_choice_click_opens_prompt_options_and_selection_saves_at_once() {
     let mut page = page("");
-    section(&mut page, 4);
+    section(&mut page, 5);
     assert_eq!(page.click(SettingsHit::Cycle(0)), SettingsOutcome::Pending);
     assert_eq!(control(&page), Control::Choice("chips".to_owned()));
     assert_eq!(
@@ -221,7 +221,7 @@ fn refresh_keeps_a_pending_prompt_style_without_a_preview() {
 #[test]
 fn a_toggle_click_on_a_prompt_chip_saves_at_once() {
     let mut page = page("");
-    section(&mut page, 4);
+    section(&mut page, 5);
     assert_eq!(
         page.click(SettingsHit::Toggle(4)),
         save("prompt.cwd", Some(Value::Bool(false)))
@@ -256,7 +256,11 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
     );
-    let size = grid_size((W, H), padding, 1.0, false, metrics);
+    let size = grid_size(
+        &frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        padding,
+        metrics,
+    );
     let mut mirror = Mirror::default();
     mirror.apply(&[PaneUpdate {
         pane: PaneId(1),
@@ -289,7 +293,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         Path::new("/nonexistent/flair.toml"),
     ));
     let page = overlays.settings_mut().unwrap();
-    section(page, 5);
+    section(page, 6);
     page.focus(1);
     let status = StatusLine {
         session: "main".into(),
@@ -311,6 +315,8 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
         overlays: Some(&overlays),
         notice: None,
         isles: None,
+        frame: frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        panels: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
@@ -350,7 +356,7 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
             .map(|(_, rect)| *rect)
             .unwrap()
     };
-    let nav = control(SettingsHit::Section(5));
+    let nav = control(SettingsHit::Section(6));
     let first = row(0);
     let second = row(1);
     let page_rect = hits.panel;

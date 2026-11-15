@@ -21,4 +21,6 @@ pub struct StatusWindow {
     pub program: String,
     pub active: bool,
     pub last: bool,
+    pub activity: bool,
+    pub bell: bool,
 }

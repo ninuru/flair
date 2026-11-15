@@ -99,6 +99,8 @@ impl Server {
             Command::ChooseTheme => out.push(Effect::Send(id, ServerMsg::ChooseTheme)),
             Command::Settings => out.push(Effect::Send(id, ServerMsg::Settings)),
             Command::ToggleZen => out.push(Effect::Send(id, ServerMsg::ToggleZen)),
+            Command::ToggleTabs => out.push(Effect::Send(id, ServerMsg::ToggleTabs)),
+            Command::MoveWindow { window, index } => self.move_window(id, window, index),
             Command::RenameWindow(name) => {
                 let window = self.clients[&id].view.window;
                 if let Some(name) = name {
@@ -125,14 +127,12 @@ impl Server {
                 }
             }
             Command::CloseWindow => {
-                let panes = self
-                    .tree
-                    .window(self.clients[&id].view.window)
-                    .unwrap()
-                    .panes
-                    .clone();
-                for pane in panes {
-                    self.destroy_pane(now, pane, out);
+                let window = self.clients[&id].view.window;
+                self.close_window(now, window, out);
+            }
+            Command::KillWindow(window) => {
+                if let Some(window) = self.window_target(id, WindowRef::Id(window)) {
+                    self.close_window(now, window, out);
                 }
             }
             Command::Split(axis) => self.split(now, id, axis, out),
@@ -187,6 +187,9 @@ impl Server {
                         | Command::ClosePane
                         | Command::ToggleZoom
                         | Command::ToggleZen
+                        | Command::ToggleTabs
+                        | Command::MoveWindow { .. }
+                        | Command::KillWindow(_)
                         | Command::PasteClipboard
                         | Command::ReloadConfig
                         | Command::CopyMode

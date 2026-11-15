@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     CellMetrics,
-    chrome_layout::{BarField, ChromeLayout, hit_test, layout},
+    chrome_layout::{BarField, ChromeLayout, Dock, frame, hit_test, layout},
     notice::Notice,
     status::{ChipParts, StatusParts},
 };
@@ -36,6 +36,8 @@ fn parts() -> StatusParts {
                 name: "shell".into(),
                 active: true,
                 last: false,
+                activity: false,
+                bell: false,
             },
             TabParts {
                 window: WindowId(2),
@@ -44,6 +46,8 @@ fn parts() -> StatusParts {
                 name: "editor".into(),
                 active: false,
                 last: false,
+                activity: false,
+                bell: false,
             },
         ],
         badges: Vec::new(),
@@ -127,6 +131,19 @@ impl<'a> Case<'a> {
             overlays: None,
             notice: self.notice,
             isles: None,
+            frame: frame(
+                (self.width * scale as u32, 600 * scale as u32),
+                scale,
+                false,
+                (8.0 * scale, 4.0 * scale),
+                CellMetrics {
+                    width: 8.0 * scale,
+                    height: 16.0 * scale,
+                    baseline: 12.0 * scale,
+                },
+                Dock::default(),
+            ),
+            panels: None,
         };
         layout(&input, measure)
     }
@@ -306,6 +323,8 @@ fn tab_index_is_faint_inactive_names_muted_and_the_active_name_fg() {
         name: "zsh".into(),
         active: false,
         last: true,
+        activity: false,
+        bell: false,
     });
     let layout = Case::new(&status).run();
     for (index, name, x, name_x, color) in [
@@ -414,6 +433,8 @@ fn many(count: u16, active: u16) -> StatusParts {
                 name: "shell".into(),
                 active: index == active,
                 last: false,
+                activity: false,
+                bell: false,
             })
             .collect(),
         ..parts()

@@ -502,3 +502,41 @@ fn user_bindings_replace_defaults_in_place_or_append() {
     assert_eq!(copy[1].command, None);
     assert_eq!(copy[1].source, Source::File);
 }
+
+#[test]
+fn prefix_b_toggles_tabs_and_is_rebindable() {
+    let config = KeysConfig::default();
+    assert_eq!(
+        config.binding(&plain(Key::Char('b')), true),
+        Some(Command::ToggleTabs)
+    );
+    assert_eq!(config.binding(&plain(Key::Char('b')), false), None);
+    assert_eq!(parse_command("toggle-tabs"), Some(Command::ToggleTabs));
+    assert!(
+        config
+            .bindings()
+            .iter()
+            .any(|b| b.chord == "b" && b.command.as_deref() == Some("toggle-tabs"))
+    );
+    let config = KeysConfig {
+        prefix: [
+            ("b".to_owned(), "none".to_owned()),
+            ("g".to_owned(), "toggle-tabs".to_owned()),
+        ]
+        .into(),
+        ..KeysConfig::default()
+    };
+    assert!(config.validate().is_ok());
+    assert_eq!(
+        config.binding(&plain(Key::Char('g')), true),
+        Some(Command::ToggleTabs)
+    );
+    assert_eq!(config.binding(&plain(Key::Char('b')), true), None);
+}
+
+#[test]
+fn id_based_window_commands_have_no_name() {
+    for name in ["move-window", "kill-window"] {
+        assert_eq!(parse_command(name), None, "{name}");
+    }
+}

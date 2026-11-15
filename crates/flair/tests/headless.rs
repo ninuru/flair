@@ -820,3 +820,146 @@ name = "changes"
     let changes = fs::read_to_string(output.0.join("changes.txt")).unwrap();
     assert_eq!(band_labels(&changes), [cwd, "main", "2"], "{changes}");
 }
+
+#[test]
+fn prefix_b_moves_side_tabs_into_the_top_bar_and_back() {
+    let output = OutputDir::new();
+    let config = output.0.join("flair.toml");
+    fs::write(&config, "[tabs]\nposition = \"left\"\nwidth = 240\n").unwrap();
+    let scenario = output.0.join("tabs.toml");
+    let toggle = "[[steps]]\naction = \"key\"\nkey = \"a\"\nctrl = true\n[[steps]]\naction = \"key\"\nkey = \"b\"\n[[steps]]\naction = \"sleep\"\nms = 300\n";
+    let report = |marker: &str| {
+        format!(
+            "[[steps]]\naction = \"text\"\ntext = \"{marker}\"\n[[steps]]\naction = \"key\"\nkey = \"Enter\"\n[[steps]]\naction = \"wait\"\ntext = \"{marker}=\"\n"
+        )
+    };
+    let program = r#"program = "/bin/sh"
+args = ["-c", "printf 'start=%s|' \"$(stty size)\"; while read x; do printf '%s=%s|' \"$x\" \"$(stty size)\"; done"]
+[[steps]]
+action = "wait"
+text = "start="
+"#;
+    fs::write(
+        &scenario,
+        format!(
+            "{program}{toggle}{}{toggle}{}",
+            report("top"),
+            report("side")
+        ),
+    )
+    .unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "60s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--pixels",
+            "960x300",
+            "--scale",
+            "1",
+            "--timeout-ms",
+            "30000",
+            "--scenario",
+        ])
+        .arg(scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .arg("--config")
+        .arg(&config)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let screen = fs::read_to_string(output.0.join("screen.txt")).unwrap();
+    let cols = |marker: &str| -> u16 {
+        screen
+            .split(&format!("{marker}="))
+            .nth(1)
+            .and_then(|rest| rest.split('|').next())
+            .and_then(|size| size.split_whitespace().nth(1))
+            .unwrap_or_else(|| panic!("{marker} missing in {screen}"))
+            .parse()
+            .unwrap()
+    };
+    let (start, top, side) = (cols("start"), cols("top"), cols("side"));
+    assert!(top > start + 10, "{start} {top}");
+    assert_eq!(side, start);
+}
+
+#[test]
+fn pixel_capture_draws_side_tabs_left_and_right() {
+    let output = OutputDir::new();
+    let mut images = Vec::new();
+    for side in ["left", "right"] {
+        let config = output.0.join(format!("{side}.toml"));
+        fs::write(&config, format!("[tabs]\nposition = \"{side}\"\n")).unwrap();
+        let scenario = output.0.join(format!("{side}-scenario.toml"));
+        fs::write(
+            &scenario,
+            format!(
+                r#"program = "/bin/sh"
+args = ["-c", "printf 'ready> '; read x"]
+[[steps]]
+action = "wait"
+text = "ready> "
+[[steps]]
+action = "key"
+key = "a"
+ctrl = true
+[[steps]]
+action = "key"
+key = "c"
+[[steps]]
+action = "sleep"
+ms = 300
+[[steps]]
+action = "capture"
+name = "{side}"
+"#
+            ),
+        )
+        .unwrap();
+        let run = Command::new("timeout")
+            .args([
+                "90s",
+                env!("CARGO_BIN_EXE_flair"),
+                "test-headless",
+                "--pixels",
+                "640x400",
+                "--scale",
+                "1",
+                "--timeout-ms",
+                "60000",
+                "--scenario",
+            ])
+            .arg(scenario)
+            .arg("--output")
+            .arg(&output.0)
+            .arg("--config")
+            .arg(&config)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&run.stderr);
+        if !run.status.success() && stderr.contains("capture needs an EGL device") {
+            if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
+                panic!("required EGL unavailable: {stderr}");
+            }
+            eprintln!("skipped side tabs pixel capture: {stderr}");
+            return;
+        }
+        assert!(run.status.success(), "{stderr}");
+        let image = fs::read(output.0.join(format!("{side}.ppm"))).unwrap();
+        let header = "P6\n640 400\n255\n";
+        assert!(image.starts_with(header.as_bytes()), "{side}");
+        assert_eq!(image.len(), header.len() + 640 * 400 * 3, "{side}");
+        images.push(image);
+    }
+    assert_ne!(images[0], images[1]);
+}

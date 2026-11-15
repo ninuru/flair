@@ -3,7 +3,7 @@ use toml_edit::Array;
 use crate::{
     config::{
         Config, PromptAppearance, PromptDateFormat, PromptOrder, PromptPath, PromptSeparator,
-        PromptStyle, PromptTimeFormat,
+        PromptStyle, PromptTimeFormat, TABS_WIDTH, TabsPosition,
     },
     config_edit::{contains, document},
     theme::{Rgb, Rgba, Theme},
@@ -14,16 +14,18 @@ pub enum Section {
     Appearance,
     Font,
     Window,
+    Panels,
     Terminal,
     Prompt,
     Keys,
 }
 
 impl Section {
-    pub const ALL: [Section; 6] = [
+    pub const ALL: [Section; 7] = [
         Section::Appearance,
         Section::Font,
         Section::Window,
+        Section::Panels,
         Section::Terminal,
         Section::Prompt,
         Section::Keys,
@@ -34,6 +36,7 @@ impl Section {
             Section::Appearance => "Appearance",
             Section::Font => "Font",
             Section::Window => "Window",
+            Section::Panels => "Panels",
             Section::Terminal => "Terminal",
             Section::Prompt => "Prompt",
             Section::Keys => "Keys",
@@ -341,6 +344,26 @@ pub const SETTINGS: &[Setting] = &[
         },
         description: "Space above and below the terminal grid.",
         read: |config, _| Value::Integer(i64::from(config.window.padding_y)),
+    },
+    Setting {
+        key: "tabs.position",
+        title: "Tab bar",
+        section: Section::Panels,
+        kind: Kind::Choice(Choices::Of(&TabsPosition::NAMES)),
+        description: "Shows the windows in the top bar or in a side panel.",
+        read: |config, _| Value::Text(config.tabs.position.name().to_owned()),
+    },
+    Setting {
+        key: "tabs.width",
+        title: "Tab panel width",
+        section: Section::Panels,
+        kind: Kind::Integer {
+            step: 10,
+            min: TABS_WIDTH.0 as i64,
+            max: TABS_WIDTH.1 as i64,
+        },
+        description: "Width of the side tab panel in logical pixels.",
+        read: |config, _| Value::Integer(i64::from(config.tabs.width)),
     },
     Setting {
         key: "shell.program",

@@ -682,3 +682,67 @@ fn prompt_editor_rejects_invalid_orders_and_segment_options() {
         assert!(Config::from_toml(text).is_err(), "{text}");
     }
 }
+
+#[test]
+fn tabs_default_to_the_top_bar_two_hundred_wide() {
+    let tabs = Config::default().tabs;
+    assert_eq!(tabs.position, TabsPosition::Top);
+    assert_eq!(tabs.width, 200);
+    assert_eq!(TABS_WIDTH, (120, 480));
+}
+
+#[test]
+fn tabs_table_reads_position_and_width() {
+    let config = Config::from_toml("[tabs]\nposition = \"right\"\nwidth = 240\n").unwrap();
+    assert_eq!(config.tabs.position, TabsPosition::Right);
+    assert_eq!(config.tabs.width, 240);
+    let config = Config::from_toml("[tabs]\nposition = \"left\"\n").unwrap();
+    assert_eq!(config.tabs.position, TabsPosition::Left);
+    assert_eq!(config.tabs.width, 200);
+    assert!(Config::from_toml("[tabs]\nposition = \"bottom\"\n").is_err());
+    assert!(Config::from_toml("[tabs]\nheight = 3\n").is_err());
+}
+
+#[test]
+fn tabs_width_bounds_are_inclusive() {
+    for width in [120, 480] {
+        let config = Config::from_toml(&format!("[tabs]\nwidth = {width}\n")).unwrap();
+        assert_eq!(config.tabs.width, width);
+    }
+}
+
+#[test]
+fn tabs_width_outside_the_bounds_is_rejected_with_the_range() {
+    for width in [0, 90, 119, 481, 2000] {
+        let error = Config::from_toml(&format!("[tabs]\nwidth = {width}\n")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConfigError::Range {
+                    key: "tabs.width",
+                    value,
+                    min: 120,
+                    max: 480,
+                } if value == width
+            ),
+            "{error}"
+        );
+    }
+    let error = Config::from_toml("[tabs]\nwidth = 90\n").unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "invalid config: tabs.width must be from 120 to 480, got 90"
+    );
+    assert!(error.source().is_none());
+}
+
+#[test]
+fn panel_position_names() {
+    assert_eq!(TabsPosition::NAMES, ["top", "left", "right"]);
+    assert_eq!(TabsPosition::Top.name(), "top");
+    assert_eq!(TabsPosition::Left.name(), "left");
+    assert_eq!(TabsPosition::Right.name(), "right");
+    assert_eq!(Side::NAMES, ["left", "right"]);
+    assert_eq!(Side::Left.name(), "left");
+    assert_eq!(Side::Right.name(), "right");
+}

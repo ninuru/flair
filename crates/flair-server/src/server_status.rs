@@ -15,7 +15,7 @@ impl Server {
     pub(super) fn status_line(&self, id: ClientId) -> Option<StatusLine> {
         let client = self.clients.get(&id)?;
         let session = self.tree.session(client.view.session)?;
-        let windows = self.window_entries(session, client.view.window, client.view.last_window);
+        let windows = self.window_entries(id, session, client.view.window, client.view.last_window);
         Some(StatusLine {
             session: session.name.clone(),
             hidden: u16::try_from(self.tree.sessions.len() - 1).unwrap_or(u16::MAX),
@@ -43,10 +43,12 @@ impl Server {
 
     pub(super) fn window_entries(
         &self,
+        id: ClientId,
         session: &Session,
         active: WindowId,
         last: Option<WindowId>,
     ) -> Vec<StatusWindow> {
+        let client = self.clients.get(&id);
         session
             .windows
             .iter()
@@ -60,9 +62,36 @@ impl Server {
                     program,
                     active: window.id == active,
                     last: Some(window.id) == last,
+                    activity: client
+                        .is_some_and(|client| client.activity_windows.contains(&window.id)),
+                    bell: client.is_some_and(|client| client.bell_windows.contains(&window.id)),
                 }
             })
             .collect()
+    }
+
+    pub(super) fn alert(&mut self, pane: PaneId, bell: bool) {
+        let tree = &self.tree;
+        for client in self.clients.values_mut() {
+            if tree
+                .window(client.view.window)
+                .is_some_and(|window| window.panes.contains(&pane))
+            {
+                continue;
+            }
+            let Some(window) = tree.session(client.view.session).and_then(|session| {
+                session
+                    .windows
+                    .iter()
+                    .find(|window| window.panes.contains(&pane))
+            }) else {
+                continue;
+            };
+            client.activity_windows.insert(window.id);
+            if bell {
+                client.bell_windows.insert(window.id);
+            }
+        }
     }
 
     fn process(&self, pane: PaneId) -> (String, String) {
@@ -161,6 +190,11 @@ impl Server {
             let client = self.clients.get_mut(&id).unwrap();
             let current = client.view.session;
             client.finished.remove(&current);
+            let shown = client.view.window;
+            let tree = &self.tree;
+            let keep = |window: &WindowId| *window != shown && tree.window(*window).is_some();
+            client.activity_windows.retain(keep);
+            client.bell_windows.retain(keep);
             let Some(line) = self.status_line(id) else {
                 continue;
             };

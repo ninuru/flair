@@ -21,6 +21,9 @@ pub use crate::prompt_config::{
 const MAX_THEME_NAME: usize = 64;
 const SELECTION_ALPHA: u8 = 0x40;
 
+pub const TABS_WIDTH: (u16, u16) = (120, 480);
+pub const EXPLORER_WIDTH: (u16, u16) = (160, 640);
+
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
@@ -31,6 +34,7 @@ pub struct Config {
     pub env: BTreeMap<String, String>,
     pub font: FontConfig,
     pub window: WindowConfig,
+    pub tabs: TabsConfig,
     pub scrollback: ScrollbackConfig,
     pub cursor: CursorConfig,
     pub bell: BellConfig,
@@ -61,6 +65,51 @@ pub struct FontConfig {
 pub struct WindowConfig {
     pub padding_x: u16,
     pub padding_y: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TabsConfig {
+    pub position: TabsPosition,
+    pub width: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TabsPosition {
+    Top,
+    Left,
+    Right,
+}
+
+impl TabsPosition {
+    pub const NAMES: [&'static str; 3] = ["top", "left", "right"];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            TabsPosition::Top => Self::NAMES[0],
+            TabsPosition::Left => Self::NAMES[1],
+            TabsPosition::Right => Self::NAMES[2],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Side {
+    Left,
+    Right,
+}
+
+impl Side {
+    pub const NAMES: [&'static str; 2] = ["left", "right"];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Side::Left => Self::NAMES[0],
+            Side::Right => Self::NAMES[1],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -121,6 +170,12 @@ pub enum ConfigError {
         key: &'static str,
         value: f32,
     },
+    Range {
+        key: &'static str,
+        value: u16,
+        min: u16,
+        max: u16,
+    },
     ThemeName(String),
     UnknownTheme(String),
     Theme {
@@ -144,6 +199,15 @@ impl fmt::Display for ConfigError {
                     "invalid config: {key} must be a finite number greater than 0, got {value}"
                 )
             }
+            ConfigError::Range {
+                key,
+                value,
+                min,
+                max,
+            } => write!(
+                f,
+                "invalid config: {key} must be from {min} to {max}, got {value}"
+            ),
             ConfigError::ThemeName(name) => write!(
                 f,
                 "invalid theme name {name:?}, expected up to {MAX_THEME_NAME} letters, digits, dots, underscores or dashes, not starting with a dot"
@@ -161,6 +225,7 @@ impl Error for ConfigError {
             ConfigError::Parse(error) | ConfigError::Theme { error, .. } => Some(error),
             ConfigError::Keys(_)
             | ConfigError::NotPositive { .. }
+            | ConfigError::Range { .. }
             | ConfigError::ThemeName(_)
             | ConfigError::UnknownTheme(_) => None,
         }
@@ -188,6 +253,7 @@ impl Config {
         positive("font.size", config.font.size)?;
         positive("font.line_height", config.font.line_height)?;
         positive("font.ui_size", config.font.ui_size)?;
+        within("tabs.width", config.tabs.width, TABS_WIDTH)?;
         Ok(config)
     }
 
@@ -336,6 +402,7 @@ impl Default for Config {
             env: default_env(),
             font: FontConfig::default(),
             window: WindowConfig::default(),
+            tabs: TabsConfig::default(),
             scrollback: ScrollbackConfig::default(),
             cursor: CursorConfig::default(),
             bell: BellConfig::default(),
@@ -372,6 +439,15 @@ impl Default for WindowConfig {
         WindowConfig {
             padding_x: 8,
             padding_y: 0,
+        }
+    }
+}
+
+impl Default for TabsConfig {
+    fn default() -> TabsConfig {
+        TabsConfig {
+            position: TabsPosition::Top,
+            width: 200,
         }
     }
 }
@@ -429,6 +505,19 @@ fn positive(key: &'static str, value: f32) -> Result<(), ConfigError> {
         Ok(())
     } else {
         Err(ConfigError::NotPositive { key, value })
+    }
+}
+
+fn within(key: &'static str, value: u16, (min, max): (u16, u16)) -> Result<(), ConfigError> {
+    if (min..=max).contains(&value) {
+        Ok(())
+    } else {
+        Err(ConfigError::Range {
+            key,
+            value,
+            min,
+            max,
+        })
     }
 }
 
