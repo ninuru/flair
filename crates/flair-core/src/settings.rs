@@ -2,8 +2,8 @@ use toml_edit::Array;
 
 use crate::{
     config::{
-        Config, EXPLORER_WIDTH, PromptAppearance, PromptDateFormat, PromptOrder, PromptPath,
-        PromptSeparator, PromptStyle, PromptTimeFormat, Side, TABS_WIDTH, TabsPosition,
+        Config, EXPLORER_WIDTH, IconSide, PromptAppearance, PromptDateFormat, PromptOrder,
+        PromptPath, PromptSeparator, PromptStyle, PromptTimeFormat, Side, TABS_WIDTH, TabsPosition,
     },
     config_edit::{contains, document},
     theme::{Rgb, Rgba, Theme},
@@ -366,6 +366,22 @@ pub const SETTINGS: &[Setting] = &[
         read: |config, _| Value::Integer(i64::from(config.tabs.width)),
     },
     Setting {
+        key: "tabs.icons",
+        title: "Tab icons",
+        section: Section::Panels,
+        kind: Kind::Toggle,
+        description: "Shows the icon of the running program in each tab.",
+        read: |config, _| Value::Bool(config.tabs.icons),
+    },
+    Setting {
+        key: "tabs.icon_side",
+        title: "Tab icon side",
+        section: Section::Panels,
+        kind: Kind::Choice(Choices::Of(&IconSide::NAMES)),
+        description: "Places the program icon before or after the tab name.",
+        read: |config, _| Value::Text(config.tabs.icon_side.name().to_owned()),
+    },
+    Setting {
         key: "explorer.side",
         title: "Explorer side",
         section: Section::Panels,
@@ -604,7 +620,7 @@ pub const SETTINGS: &[Setting] = &[
         title: "Bindings",
         section: Section::Keys,
         kind: Kind::Toggle,
-        description: "Off also disables Ctrl+Alt+Shift+S; re-enable it in flair.toml.",
+        description: "Off also disables Ctrl+Alt+S; re-enable it in flair.toml.",
         read: |config, _| Value::Bool(config.keys.enabled),
     },
     Setting {

@@ -1,3 +1,4 @@
+use flair_core::config::IconSide;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -601,6 +602,7 @@ fn prompt_scene(
 ) -> crate::chrome_layout::ChromeLayout {
     let theme = Config::default().theme();
     let status = StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: "main".into(),
             hidden: 0,

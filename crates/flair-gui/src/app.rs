@@ -51,7 +51,7 @@ use crate::{
     probe::Probe,
     prompt_actions::{self, PromptAction, PromptMenu},
     renderer::{Renderer, WindowContext},
-    status::status_parts,
+    status::{status_parts, with_tab_icons},
     theme_file::resolve_theme,
     zen::Zen,
 };
@@ -193,6 +193,7 @@ impl App {
         let padding = self.padding(scale);
         let prompt = self.effective().prompt.clone();
         let clock = prompt.time.then(local_clock).flatten();
+        let parts = with_tab_icons(status_parts(&self.status), &self.effective().tabs);
         let Some(surface) = &mut self.surface else {
             return;
         };
@@ -200,7 +201,6 @@ impl App {
         if self.overlays.is_open() {
             grid.cursor = None;
         }
-        let parts = status_parts(&self.status);
         let px = surface.window.inner_size();
         let input = ChromeInput {
             px: (px.width, px.height),

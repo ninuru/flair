@@ -1,6 +1,6 @@
 use flair_core::{
     agent::{AgentKind, AgentState},
-    config::{Config, Side},
+    config::{Config, IconSide, Side},
     ids::{PaneId, WindowId},
     theme::{Rgb, Rgba, Theme},
 };
@@ -83,6 +83,7 @@ fn three() -> Vec<AgentParts> {
 
 fn status(agents: Vec<AgentParts>) -> StatusParts {
     StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: "main".into(),
             hidden: 0,

@@ -445,10 +445,10 @@ fn the_settings_chord_closes_the_page_and_the_undo_button_resets_a_value() {
         mods: Mods {
             ctrl: true,
             alt: true,
-            shift: true,
+            shift: false,
             super_: false,
         },
-        ..key(Key::Char('S'), None)
+        ..key(Key::Char('s'), None)
     };
     assert_eq!(page.key(&chord), SettingsOutcome::Close);
     section(&mut page, 1);
@@ -463,11 +463,11 @@ fn holding_the_settings_chord_does_not_close_the_page_on_repeat() {
         mods: Mods {
             ctrl: true,
             alt: true,
-            shift: true,
+            shift: false,
             super_: false,
         },
         repeat: true,
-        ..key(Key::Char('S'), None)
+        ..key(Key::Char('s'), None)
     };
     assert_eq!(page.key(&chord), SettingsOutcome::Pending);
 }

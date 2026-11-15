@@ -1,7 +1,7 @@
 use std::{ffi::OsString, path::PathBuf, time::Instant};
 
 use flair_core::{
-    config::{Config, Side},
+    config::{Config, IconSide, Side},
     ids::{PaneId, WindowId},
     key::{Key, KeyAction, KeyInput, Locks, Mods},
     keys::KeysConfig,
@@ -66,6 +66,7 @@ fn theme() -> Theme {
 
 fn status() -> StatusParts {
     StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: "main".into(),
             hidden: 0,

@@ -1,3 +1,4 @@
+use flair_core::config::IconSide;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -63,6 +64,7 @@ fn ui(scale: f32) -> UiMetrics {
 
 fn parts() -> StatusParts {
     StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: "main".into(),
             hidden: 0,
@@ -820,6 +822,7 @@ fn text<'a>(layout: &'a ChromeLayout, text: &str) -> Option<&'a TextRun> {
 
 fn narrow(session: &str, names: &[&str], active: usize) -> StatusParts {
     StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: session.into(),
             ..parts().chip

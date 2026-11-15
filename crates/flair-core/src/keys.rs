@@ -346,7 +346,7 @@ const ROOT_DEFAULTS: &[(&str, &str)] = &[
     ("A-7", "select-window-7"),
     ("A-8", "select-window-8"),
     ("A-9", "select-window-9"),
-    ("C-A-S-s", "settings"),
+    ("C-A-s", "settings"),
 ];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

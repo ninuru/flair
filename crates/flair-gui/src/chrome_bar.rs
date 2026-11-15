@@ -1,5 +1,6 @@
 use flair_core::{
     agent::AgentState,
+    config::IconSide,
     theme::{Rgb, Rgba},
 };
 
@@ -321,7 +322,7 @@ fn tabs(
         .collect();
     let extras: Vec<f32> = tabs
         .iter()
-        .map(|tab| icon_lead(tab.icon, input.metrics, scale))
+        .map(|tab| icon_lead(input.status.tab_icon.and(tab.icon), input.metrics, scale))
         .collect();
     let widths: Vec<f32> = labels
         .iter()
@@ -483,19 +484,30 @@ fn draw_tab(
         } else {
             surfaces.muted
         };
-        let name_x = (x + measure(index, false)).round();
+        let start = (x + measure(index, false)).round();
+        let icon = input.status.tab_icon.zip(tab.icon);
+        let name_x = match icon {
+            Some((IconSide::Before, glyph)) => {
+                (start + icon_lead(Some(glyph), input.metrics, scale)).round()
+            }
+            Some((IconSide::After, _)) | None => start,
+        };
         scene
             .text
             .push(ui_text(name_x, base, name.to_owned(), color, false));
-        if let Some(icon) = tab.icon {
+        if let Some((side, glyph)) = icon {
             let quiet = match tab.active {
                 true => surfaces.bright,
                 false => surfaces.muted,
             };
+            let icon_x = match side {
+                IconSide::Before => start,
+                IconSide::After => name_x + measure(name, false) + px(PROCESS_ICON_GAP, scale),
+            };
             scene.text.push(icon_text(
-                name_x + measure(name, false) + px(PROCESS_ICON_GAP, scale),
+                icon_x,
                 cap_centre(rect, input.ui),
-                icon,
+                glyph,
                 quiet,
                 input.metrics,
             ));
