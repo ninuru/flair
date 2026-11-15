@@ -138,7 +138,8 @@ fn compact_editor_keeps_save_visible_and_scrolls_to_every_option() {
                     | SettingsHit::Choose(_)
                     | SettingsHit::DismissDropdown
                     | SettingsHit::Cycle(_)
-                    | SettingsHit::Edit(_) => None,
+                    | SettingsHit::Edit(_)
+                    | SettingsHit::Reset(_) => None,
                 }
             })
             .collect();

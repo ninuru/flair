@@ -464,24 +464,15 @@ fn the_settings_page_reads_sources_from_the_config_file() {
     page.click(SettingsHit::Section(1));
     page.focus(1);
     let sheet = page.sheet();
-    let sources: Vec<_> = sheet.groups[0]
+    let modified: Vec<bool> = sheet.groups[0]
         .entries
         .iter()
         .map(|entry| match entry {
-            Entry::Setting { source, .. } | Entry::Binding { source, .. } => *source,
+            Entry::Setting { modified, .. } => *modified,
+            Entry::Binding { .. } => false,
         })
         .collect();
-    assert_eq!(
-        sources,
-        [
-            "default",
-            "flair.toml",
-            "default",
-            "default",
-            "default",
-            "default"
-        ]
-    );
+    assert_eq!(modified, [false, true, false, false, false, false]);
 }
 
 #[test]
@@ -520,12 +511,22 @@ fn page_keys_scroll_the_settings_page_by_the_drawn_rows() {
 }
 
 #[test]
-fn the_settings_page_ignores_clicks_on_the_page_and_the_bar() {
+fn the_settings_page_ignores_panel_clicks_and_closes_on_the_backdrop() {
     let mut overlays = Overlays::default();
     open(&mut overlays, ServerMsg::Settings);
-    assert_eq!(overlays.click(OverlayHit::Outside), OverlayEvent::Ignored);
     assert_eq!(overlays.click(OverlayHit::Panel), OverlayEvent::Ignored);
     assert!(overlays.is_open());
+    overlays
+        .settings_mut()
+        .unwrap()
+        .click(SettingsHit::Cycle(0));
+    assert_eq!(overlays.click(OverlayHit::Outside), OverlayEvent::Redraw);
+    assert!(overlays.is_open());
+    assert_eq!(
+        overlays.click(OverlayHit::Outside),
+        OverlayEvent::Settings(SettingsOutcome::Close)
+    );
+    assert!(!overlays.is_open());
 }
 
 #[test]

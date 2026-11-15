@@ -6,6 +6,7 @@ use crate::{
     mirror::Mirror,
     overlays::Overlays,
     renderer::{HeadlessContext, Renderer},
+    settings_style::{BACKGROUND, CARD, NAV_CURRENT, ROW_FOCUS, SIDEBAR, SWITCH_OFF},
     status::status_parts,
 };
 use flair_core::{
@@ -71,7 +72,6 @@ fn a_section_click_reverts_an_open_editor() {
     focus_key(&mut page, "shell.program");
     press(&mut page, NamedKey::Enter);
     assert_eq!(page.click(SettingsHit::Section(1)), SettingsOutcome::Revert);
-    assert_eq!(page.sheet().keys, edit_keys());
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn the_wheel_moves_the_focus_unless_editing() {
 fn refresh_updates_sources_and_re_previews_an_open_editor() {
     let mut page = page("");
     focus_key(&mut page, "window.padding_x");
-    assert_eq!(source(&page), "default");
+    assert!(!modified(&page));
     press(&mut page, NamedKey::Enter);
     page.key(&ctrl('u'));
     type_text(&mut page, "4");
@@ -156,7 +156,7 @@ fn refresh_updates_sources_and_re_previews_an_open_editor() {
     );
     press(&mut page, NamedKey::Escape);
     page.focus(1);
-    assert_eq!(source(&page), "flair.toml");
+    assert!(modified(&page));
     assert_eq!(control(&page), Control::Number("3".to_owned()));
 }
 
@@ -215,7 +215,6 @@ fn refresh_keeps_a_pending_prompt_style_without_a_preview() {
         SettingsOutcome::Pending
     );
     assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
-    assert_eq!(page.sheet().keys, pending_keys());
 }
 
 #[test]
@@ -359,33 +358,30 @@ fn gpu_frame_draws_the_keys_section_of_the_settings_page() {
     let nav = control(SettingsHit::Section(6));
     let first = row(0);
     let second = row(1);
-    let page_rect = hits.panel;
-    assert_eq!(at(2.0, 1.0), rgb(surfaces.surface1));
-    assert_eq!(
-        at(2.0, chrome_layout::bar_height(1.0)),
-        rgb(surfaces.outline)
-    );
+    let panel = hits.panel;
+    let bar = rgb(surfaces.surface1);
+    let dimmed = at(2.0, 1.0);
+    for (dim, full) in dimmed.iter().zip(bar) {
+        assert!(
+            u16::from(*dim) * 255 <= u16::from(full) * 100 + 255,
+            "{dimmed:?}"
+        );
+    }
     assert_eq!(
         at(first.x + first.w + 4.0, first.y + first.h / 2.0),
-        rgb(theme.background)
+        rgb(BACKGROUND)
     );
-    assert_eq!(
-        at(nav.x + nav.w + 16.0, page_rect.y + page_rect.h - 4.0),
-        rgb(surfaces.outline)
-    );
-    assert_eq!(at(nav.x + 4.0, nav.y + nav.h / 2.0), rgb(surfaces.surface3));
-    assert_eq!(
-        at(first.x + 8.0, first.y + first.h / 2.0),
-        rgb(surfaces.surface1)
-    );
+    assert_eq!(at(panel.x + 4.0, panel.y + panel.h - 20.0), rgb(SIDEBAR));
+    assert_eq!(at(nav.x + 4.0, nav.y + nav.h / 2.0), rgb(NAV_CURRENT));
+    assert_eq!(at(first.x + 2.0, first.y + first.h / 2.0), rgb(CARD));
     assert_eq!(
         at(second.x + 8.0, second.y + second.h / 2.0),
-        rgb(surfaces.surface3)
+        rgb(ROW_FOCUS)
     );
     let track = control(SettingsHit::Toggle(0));
     assert_eq!(
-        at(track.x + track.w - 4.0, track.y + track.h / 2.0),
-        rgb(theme.background)
+        at(track.x + track.w - 5.0, track.y + track.h / 2.0),
+        rgb(SWITCH_OFF)
     );
 }
 
@@ -440,4 +436,54 @@ fn dismissing_or_focusing_another_setting_closes_a_dropdown_without_saving() {
         SettingsOutcome::Pending
     );
     assert!(page.sheet().dropdown.is_none());
+}
+
+#[test]
+fn the_settings_chord_closes_the_page_and_the_undo_button_resets_a_value() {
+    let mut page = page("[font]\nsize = 14\n");
+    let chord = KeyInput {
+        mods: Mods {
+            ctrl: true,
+            alt: true,
+            shift: true,
+            super_: false,
+        },
+        ..key(Key::Char('S'), None)
+    };
+    assert_eq!(page.key(&chord), SettingsOutcome::Close);
+    section(&mut page, 1);
+    assert_eq!(page.click(SettingsHit::Reset(1)), save("font.size", None));
+    assert_eq!(page.sheet().focus, Some(1));
+}
+
+#[test]
+fn holding_the_settings_chord_does_not_close_the_page_on_repeat() {
+    let mut page = page("");
+    let chord = KeyInput {
+        mods: Mods {
+            ctrl: true,
+            alt: true,
+            shift: true,
+            super_: false,
+        },
+        repeat: true,
+        ..key(Key::Char('S'), None)
+    };
+    assert_eq!(page.key(&chord), SettingsOutcome::Pending);
+}
+
+#[test]
+fn undo_closes_the_open_editor_of_its_row_before_resetting() {
+    let mut page = page("[font]\nsize = 14\n");
+    section(&mut page, 1);
+    page.focus(1);
+    page.click(SettingsHit::Edit(1));
+    page.insert("2");
+    assert!(matches!(control(&page), Control::Editor(_)));
+    assert_eq!(page.click(SettingsHit::Reset(1)), save("font.size", None));
+    assert_eq!(control(&page), Control::Number("14".into()));
+    assert_eq!(
+        page.refresh(&Config::default(), Config::default().theme(), String::new()),
+        SettingsOutcome::Pending
+    );
 }

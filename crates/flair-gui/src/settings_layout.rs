@@ -1,24 +1,29 @@
+use flair_core::settings::Section;
+
 use crate::{
     chrome_bar::{baseline, ellipsize, fill, opaque, rounded, ui_text},
-    chrome_layout::chrome_bottom,
-    overlay_layout::{Field, OverlayInput, OverlayScene, cap, footer, inside, search},
+    overlay_layout::{Field, OverlayInput, OverlayScene, inside, visible},
     renderer::{Border, PxRect, Quad},
-    settings_rows::{entry_height, entry_row},
-    ui::{
-        CAP_HEIGHT, CAP_PAD, CONTENT_INSET, CONTENT_WIDTH, CONTROL_MAX, CRUMB_GAP, ENTRY_HEIGHT,
-        ESCAPE_KEY, FIELD_GAP, FIELD_HEIGHT, FOOTER_GAP, FOOTER_RULE_GAP, GROUP_GAP, HEADER_GAP,
-        HEADING_GAP, ITEM_GAP, ITEM_HEIGHT, LINE, NAV_BREAKPOINT, NAV_NARROW, NAV_PAD_X, NAV_WIDTH,
-        PANEL_PAD_Y, PANEL_RADIUS, ROW_GAP, ROW_PAD, ROW_RADIUS, SECTION_HEIGHT, px,
+    settings_rows::{entry_height, entry_row, glyph},
+    settings_style::{
+        BACKGROUND, CARD, CARD_BORDER, CARD_RADIUS, CLOSE_ICON, CLOSE_SIZE, CONTAINER_MAX,
+        CONTENT_MIN, CONTENT_PAD_BOTTOM, CONTENT_PAD_TOP, CONTENT_PAD_X, CRUMB_GAP, DIM, DIVIDER,
+        FOREGROUND, GHOST_HOVER, GHOST_RADIUS, HAIRLINE, HEADER_HEIGHT, HEADER_PAD_LEFT,
+        HEADER_PAD_RIGHT, HEADING_GAP, HEADING_HEIGHT, HEADING_PAD, INSET, INSET_SMALL, MUTED,
+        PANEL_BORDER, PANEL_MAX_H, PANEL_MAX_W, PANEL_RADIUS, RAIL_MIN_CONTENT, RAIL_WIDTH,
+        SECTION_GAP, SHADOW, SHADOW_DROP, SHADOW_LAYERS, SHADOW_SPREAD, SIDEBAR_MIN_CONTENT,
+        SIDEBAR_WIDTH, SMALL_HEIGHT, SMALL_WIDTH,
     },
+    ui::{LINE, px},
 };
 
 const TITLE: &str = "Settings";
-const CLOSE: &str = "close";
+const SLASH: &str = "/";
 const OFF: &str = " off";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsSheet {
-    pub sections: Vec<&'static str>,
+    pub sections: Vec<Section>,
     pub section: Option<usize>,
     pub sections_focused: bool,
     pub crumb: &'static str,
@@ -26,7 +31,6 @@ pub struct SettingsSheet {
     pub groups: Vec<Group>,
     pub focus: Option<usize>,
     pub dropdown: Option<ChoiceMenu>,
-    pub keys: Vec<(&'static str, String)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +52,7 @@ pub enum Entry {
     Setting {
         title: &'static str,
         description: &'static str,
-        source: &'static str,
+        modified: bool,
         control: Control,
         error: Option<String>,
         pending: bool,
@@ -58,7 +62,6 @@ pub enum Entry {
         command: String,
         unbound: bool,
         table: &'static str,
-        source: &'static str,
         disabled: bool,
     },
 }
@@ -86,15 +89,22 @@ pub enum SettingsHit {
     Choose(usize),
     DismissDropdown,
     Edit(usize),
+    Reset(usize),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Nav {
+    Sidebar,
+    Rail,
+    Hidden,
 }
 
 struct Frame {
-    page: PxRect,
-    nav: PxRect,
+    window: PxRect,
+    panel: PxRect,
+    nav: Nav,
     header: PxRect,
-    search: PxRect,
     viewport: PxRect,
-    footer: Option<f32>,
 }
 
 struct Placed<'a> {
@@ -116,109 +126,129 @@ pub fn layout(
 ) -> OverlayScene {
     let frame = frame(input);
     let mut scene = OverlayScene::default();
-    scene.hits.panel = frame.page;
-    if fits(frame.page, input) {
-        scene.quads.push(fill(frame.page, input.theme.background));
-    }
-    nav(sheet, &frame, input, &mut scene, measure);
-    if frame.search.w < px(CONTROL_MAX, input.scale) || !fits(frame.search, input) {
+    scene.hits.panel = frame.panel;
+    backdrop(&frame, input, &mut scene);
+    let scale = input.scale;
+    if frame.panel.w < px(HEADER_HEIGHT * 2.0, scale) || frame.panel.h < px(HEADER_HEIGHT, scale) {
         return scene;
     }
-    header(sheet, &frame, input, &mut scene, measure);
-    search(&sheet.search, frame.search, input, &mut scene, measure);
-    scene
-        .hits
-        .controls
-        .push((SettingsHit::Search, frame.search));
-    let hidden = content(sheet, &frame, input, &mut scene, measure);
-    if let Some(caps) = frame.footer {
-        let scale = input.scale;
-        let rule = PxRect {
-            x: frame.search.x,
-            y: caps - px(FOOTER_RULE_GAP, scale) - px(LINE, scale),
-            w: frame.search.w,
-            h: px(LINE, scale),
-        };
-        scene.quads.push(fill(rule, input.theme.surfaces().outline));
-        footer(
-            &sheet.keys,
-            hidden,
-            input,
-            (rule.x, caps, rule.w),
-            &mut scene,
-            measure,
-        );
+    nav::layout(sheet, &frame, input, &mut scene, measure);
+    if frame.viewport.w >= px(CONTENT_MIN, scale) {
+        content(sheet, &frame, input, &mut scene, measure);
     }
-    dropdown_layout::layout(sheet, frame.page, input, &mut scene, measure);
+    header(sheet, &frame, input, &mut scene, measure);
+    dropdown_layout::layout(sheet, frame.window, input, &mut scene, measure);
     scene
-}
-
-fn fits(rect: PxRect, input: &OverlayInput) -> bool {
-    rect.w > 0.0
-        && rect.h > 0.0
-        && rect.x >= 0.0
-        && rect.y >= 0.0
-        && rect.x + rect.w <= input.px.0 as f32
-        && rect.y + rect.h <= input.px.1 as f32
 }
 
 fn frame(input: &OverlayInput) -> Frame {
     let scale = input.scale;
     let (width, height) = (input.px.0 as f32, input.px.1 as f32);
-    let top = chrome_bottom(scale);
-    let page = PxRect {
+    let window = PxRect {
         x: 0.0,
-        y: top,
+        y: 0.0,
         w: width,
-        h: (height - top).max(0.0),
+        h: height,
     };
-    let nav_width = match width >= px(NAV_BREAKPOINT, scale) {
-        true => px(NAV_WIDTH, scale),
-        false => px(NAV_NARROW, scale),
-    }
-    .min(width);
-    let remaining = width - nav_width;
-    let w = px(CONTENT_WIDTH, scale)
-        .min(remaining - px(CONTENT_INSET, scale) * 2.0)
-        .max(0.0);
-    let x = nav_width + px(CONTENT_INSET, scale).max(((remaining - w) / 2.0).floor());
-    let header = PxRect {
-        x,
-        y: top + px(PANEL_PAD_Y, scale),
+    let small = width < px(SMALL_WIDTH, scale) || height < px(SMALL_HEIGHT, scale);
+    let inset = px(if small { INSET_SMALL } else { INSET }, scale);
+    let w = px(PANEL_MAX_W, scale).min(width - inset * 2.0).max(0.0);
+    let h = px(PANEL_MAX_H, scale).min(height - inset * 2.0).max(0.0);
+    let panel = PxRect {
+        x: ((width - w) / 2.0).round(),
+        y: ((height - h) / 2.0).round(),
         w,
-        h: px(ITEM_HEIGHT, scale),
+        h,
     };
-    let search = PxRect {
-        y: header.y + header.h + px(HEADER_GAP, scale),
-        h: px(FIELD_HEIGHT, scale),
-        ..header
+    let nav = if w >= px(SIDEBAR_WIDTH + SIDEBAR_MIN_CONTENT, scale) {
+        Nav::Sidebar
+    } else if w >= px(RAIL_WIDTH + RAIL_MIN_CONTENT, scale) {
+        Nav::Rail
+    } else {
+        Nav::Hidden
     };
-    let viewport_top = search.y + search.h + px(HEADER_GAP, scale);
-    let caps = height - px(PANEL_PAD_Y, scale) - px(CAP_HEIGHT, scale);
-    let bottom = caps - px(FOOTER_RULE_GAP, scale) * 2.0 - px(LINE, scale);
-    let (bottom, footer) = match bottom - viewport_top >= px(ENTRY_HEIGHT, scale) {
-        true => (bottom, Some(caps)),
-        false => (height - px(PANEL_PAD_Y, scale), None),
+    let nav_width = nav_width(nav, scale);
+    let column = PxRect {
+        x: panel.x + nav_width,
+        w: panel.w - nav_width,
+        ..panel
+    };
+    let header = PxRect {
+        h: px(HEADER_HEIGHT, scale).min(panel.h),
+        ..column
+    };
+    let container = px(CONTAINER_MAX, scale).min(column.w);
+    let pad = px(CONTENT_PAD_X, scale);
+    let top = header.y + header.h + px(CONTENT_PAD_TOP, scale);
+    let bottom = panel.y + panel.h - px(CONTENT_PAD_BOTTOM, scale);
+    let viewport = PxRect {
+        x: (column.x + (column.w - container) / 2.0).round() + pad,
+        y: top,
+        w: (container - pad * 2.0).max(0.0),
+        h: (bottom - top).max(0.0),
     };
     Frame {
-        page,
-        nav: PxRect {
-            w: nav_width,
-            ..page
-        },
+        window,
+        panel,
+        nav,
         header,
-        search,
-        viewport: PxRect {
-            y: viewport_top,
-            h: (bottom - viewport_top).max(0.0),
-            ..header
-        },
-        footer,
+        viewport,
+    }
+}
+
+fn nav_width(nav: Nav, scale: f32) -> f32 {
+    match nav {
+        Nav::Sidebar => px(SIDEBAR_WIDTH, scale),
+        Nav::Rail => px(RAIL_WIDTH, scale),
+        Nav::Hidden => 0.0,
     }
 }
 
 pub(crate) fn editor_rect(input: &OverlayInput) -> PxRect {
     frame(input).viewport
+}
+
+fn backdrop(frame: &Frame, input: &OverlayInput, scene: &mut OverlayScene) {
+    let scale = input.scale;
+    scene.quads.push(Quad {
+        rect: frame.window,
+        color: DIM,
+        radius: 0.0,
+        border: None,
+    });
+    let panel = frame.panel;
+    if panel.w <= 0.0 || panel.h <= 0.0 {
+        return;
+    }
+    let drop = px(SHADOW_DROP, scale);
+    for layer in (1..=SHADOW_LAYERS).rev() {
+        let spread = px(SHADOW_SPREAD, scale) * layer as f32;
+        let rect = PxRect {
+            x: panel.x - spread,
+            y: panel.y + drop - spread,
+            w: panel.w + spread * 2.0,
+            h: panel.h + spread * 2.0,
+        };
+        let fits = rect.x >= 0.0
+            && rect.y >= 0.0
+            && rect.x + rect.w <= frame.window.w
+            && rect.y + rect.h <= frame.window.h;
+        if fits {
+            scene.quads.push(Quad {
+                rect,
+                color: SHADOW,
+                radius: px(PANEL_RADIUS, scale) + spread,
+                border: None,
+            });
+        }
+    }
+    scene.quads.push(Quad {
+        border: Some(Border {
+            color: opaque(PANEL_BORDER),
+            width: px(LINE, scale),
+        }),
+        ..rounded(panel, BACKGROUND, PANEL_RADIUS, scale)
+    });
 }
 
 fn place(sheet: &SettingsSheet, scale: f32) -> Vec<Placed<'_>> {
@@ -227,18 +257,16 @@ fn place(sheet: &SettingsSheet, scale: f32) -> Vec<Placed<'_>> {
     let mut item = 0;
     for (group, entries) in sheet.groups.iter().enumerate() {
         if group > 0 {
-            top += px(GROUP_GAP, scale);
+            top += px(SECTION_GAP, scale);
         }
-        if let Some(heading) = entries.heading {
-            let height = px(ITEM_HEIGHT, scale);
-            placed.push(Placed {
-                group,
-                line: Line::Heading(heading, entries.disabled),
-                top,
-                height,
-            });
-            top += height + px(HEADING_GAP, scale);
-        }
+        let height = px(HEADING_HEIGHT, scale);
+        placed.push(Placed {
+            group,
+            line: Line::Heading(entries.heading.unwrap_or(sheet.crumb), entries.disabled),
+            top,
+            height,
+        });
+        top += height + px(HEADING_GAP, scale);
         for entry in &entries.entries {
             let height = entry_height(entry, scale);
             placed.push(Placed {
@@ -264,77 +292,6 @@ fn offset(placed: &[Placed], focus: Option<usize>, room: f32) -> f32 {
         .map_or(0.0, |line| (line.top + line.height - room).max(0.0))
 }
 
-fn nav(
-    sheet: &SettingsSheet,
-    frame: &Frame,
-    input: &OverlayInput,
-    scene: &mut OverlayScene,
-    measure: &mut impl FnMut(&str, bool) -> f32,
-) {
-    let scale = input.scale;
-    let theme = input.theme;
-    let surfaces = theme.surfaces();
-    let hairline = PxRect {
-        x: frame.nav.w,
-        w: px(LINE, scale),
-        ..frame.nav
-    };
-    if fits(hairline, input) {
-        scene.quads.push(fill(hairline, surfaces.outline));
-    }
-    let pad = px(NAV_PAD_X, scale);
-    let width = (frame.nav.w - pad * 2.0).max(0.0);
-    let title = PxRect {
-        x: pad,
-        y: frame.nav.y + px(PANEL_PAD_Y, scale),
-        w: width,
-        h: px(ITEM_HEIGHT, scale),
-    };
-    if !fits(title, input) {
-        return;
-    }
-    scene.text.push(ui_text(
-        title.x,
-        baseline(title, input.ui),
-        ellipsize(TITLE, width, true, measure),
-        theme.foreground,
-        true,
-    ));
-    let top = title.y + title.h + px(FIELD_GAP, scale);
-    let pitch = px(SECTION_HEIGHT, scale) + px(ROW_GAP, scale);
-    let text_pad = px(ROW_PAD, scale);
-    for (index, name) in sheet.sections.iter().enumerate() {
-        let rect = PxRect {
-            y: top + index as f32 * pitch,
-            h: px(SECTION_HEIGHT, scale),
-            ..title
-        };
-        if !fits(rect, input) {
-            break;
-        }
-        let hovered = input.hover.is_some_and(|point| inside(rect, point));
-        let fill_color = match (sheet.section == Some(index), hovered) {
-            (true, _) => Some(surfaces.surface3),
-            (false, true) => Some(surfaces.surface2),
-            (false, false) => None,
-        };
-        if let Some(color) = fill_color {
-            scene.quads.push(rounded(rect, color, ROW_RADIUS, scale));
-        }
-        scene.text.push(ui_text(
-            rect.x + text_pad,
-            baseline(rect, input.ui),
-            ellipsize(name, width - text_pad * 2.0, false, measure),
-            theme.foreground,
-            false,
-        ));
-        scene
-            .hits
-            .controls
-            .push((SettingsHit::Section(index), rect));
-    }
-}
-
 fn header(
     sheet: &SettingsSheet,
     frame: &Frame,
@@ -343,44 +300,74 @@ fn header(
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
     let scale = input.scale;
-    let theme = input.theme;
-    let muted = theme.surfaces().muted;
     let rect = frame.header;
-    let line = baseline(rect, input.ui);
-    let right = rect.x + rect.w;
-    let close_x = (right - measure(CLOSE, false)).round();
-    let cap_width = (measure(ESCAPE_KEY, false) * input.ui.small + px(CAP_PAD, scale) * 2.0)
-        .max(px(CAP_HEIGHT, scale))
-        .round();
-    let cap_x = close_x - px(ITEM_GAP, scale) - cap_width;
-    cap(ESCAPE_KEY, (cap_x, rect), input, scene, measure);
+    let line = px(LINE, scale);
+    scene.quads.push(fill(
+        PxRect {
+            x: rect.x,
+            y: rect.y + rect.h - line,
+            w: (rect.w - line).max(0.0),
+            h: line,
+        },
+        HAIRLINE,
+    ));
+    let size = px(CLOSE_SIZE, scale);
+    let close = PxRect {
+        x: rect.x + rect.w - px(HEADER_PAD_RIGHT, scale) - size,
+        y: (rect.y + (rect.h - size) / 2.0).round(),
+        w: size,
+        h: size,
+    };
+    if input.hover.is_some_and(|point| inside(close, point)) {
+        scene
+            .quads
+            .push(rounded(close, GHOST_HOVER, GHOST_RADIUS, scale));
+    }
     scene
         .text
-        .push(ui_text(close_x, line, CLOSE.to_owned(), muted, false));
-    scene.hits.controls.push((
-        SettingsHit::Close,
-        PxRect {
-            x: cap_x,
-            w: right - cap_x,
-            ..rect
-        },
-    ));
-    let end = cap_x - px(FOOTER_GAP, scale);
-    let mut x = rect.x;
-    for (text, color, bold) in [
-        (TITLE, muted, false),
-        (CRUMB_GAP, muted, false),
-        (sheet.crumb, theme.foreground, true),
+        .push(glyph(CLOSE_ICON, close, MUTED, input.metrics));
+    scene.hits.controls.push((SettingsHit::Close, close));
+    let end = close.x - px(CRUMB_GAP, scale);
+    let base = baseline(rect, input.ui);
+    let gap = px(CRUMB_GAP, scale);
+    let mut x = rect.x + px(HEADER_PAD_LEFT, scale);
+    let query = match frame.nav {
+        Nav::Sidebar => None,
+        Nav::Rail | Nav::Hidden => Some(&sheet.search).filter(|field| !field.text.is_empty()),
+    };
+    for (text, color, last) in [
+        (TITLE, MUTED, false),
+        (SLASH, MUTED, false),
+        (sheet.crumb, FOREGROUND, true),
     ] {
-        let shown = ellipsize(text, end - x, bold, measure);
+        if last && let Some(field) = query {
+            let (shown, caret) = visible(&field.text, field.cursor, (end - x).max(0.0), measure);
+            scene
+                .text
+                .push(ui_text(x.round(), base, shown, FOREGROUND, false));
+            scene.quads.push(fill(
+                PxRect {
+                    x: (x + caret).round(),
+                    y: (rect.y + (rect.h - input.ui.height) / 2.0).round(),
+                    w: line,
+                    h: input.ui.height.round(),
+                },
+                FOREGROUND,
+            ));
+            break;
+        }
+        let shown = ellipsize(text, end - x, false, measure);
         if shown.is_empty() {
             break;
         }
-        let width = measure(&shown, bold);
+        let width = measure(&shown, false);
         scene
             .text
-            .push(ui_text(x.round(), line, shown, color, bold));
-        x += width;
+            .push(ui_text(x.round(), base, shown, color, false));
+        if last {
+            break;
+        }
+        x += width + gap;
     }
 }
 
@@ -390,25 +377,14 @@ fn content(
     input: &OverlayInput,
     scene: &mut OverlayScene,
     measure: &mut impl FnMut(&str, bool) -> f32,
-) -> usize {
+) {
     let scale = input.scale;
-    let theme = input.theme;
-    let surfaces = theme.surfaces();
     let viewport = frame.viewport;
-    if viewport.h < px(ENTRY_HEIGHT, scale) {
-        return 0;
-    }
     let placed = place(sheet, scale);
     let offset = offset(&placed, sheet.focus, viewport.h);
-    let visible =
-        |line: &Placed| line.top >= offset && line.top + line.height <= offset + viewport.h;
-    let hidden = placed
-        .iter()
-        .filter(|line| entry(line) && !visible(line))
-        .count();
     let shown: Vec<(&Placed, PxRect)> = placed
         .iter()
-        .filter(|line| visible(line))
+        .filter(|line| line.top >= offset && line.top + line.height <= offset + viewport.h)
         .map(|line| {
             let rect = PxRect {
                 y: viewport.y + line.top - offset,
@@ -418,31 +394,31 @@ fn content(
             (line, rect)
         })
         .collect();
-    let panels: Vec<Option<(PxRect, PxRect)>> = (0..sheet.groups.len())
-        .map(|group| panel(group, &placed, &shown, scale))
+    let cards: Vec<Option<(PxRect, PxRect)>> = (0..sheet.groups.len())
+        .map(|group| card(group, &placed, &shown, scale))
         .collect();
-    for (panel, rows) in panels.iter().flatten() {
+    for (card, rows) in cards.iter().flatten() {
         scene.quads.push(Quad {
             border: Some(Border {
-                color: opaque(surfaces.outline),
+                color: opaque(CARD_BORDER),
                 width: px(LINE, scale),
             }),
-            ..rounded(*panel, surfaces.surface1, PANEL_RADIUS, scale)
+            ..rounded(*card, CARD, CARD_RADIUS, scale)
         });
         let bottom = rows.y + rows.h;
         for strip in [
             PxRect {
-                h: rows.y - panel.y,
-                ..*panel
+                h: rows.y - card.y,
+                ..*card
             },
             PxRect {
                 y: bottom,
-                h: panel.y + panel.h - bottom,
-                ..*panel
+                h: card.y + card.h - bottom,
+                ..*card
             },
         ] {
             if strip.h > 0.0 {
-                scene.quads.push(fill(strip, theme.background));
+                scene.quads.push(fill(strip, BACKGROUND));
             }
         }
     }
@@ -453,7 +429,7 @@ fn content(
                 heading_line(heading, disabled, rect, input, scene, measure)
             }
             Line::Entry(item, entry) => {
-                if panels[placed.group].is_some_and(|(_, rows)| rows.y < rect.y) {
+                if cards[placed.group].is_some_and(|(_, rows)| rows.y < rect.y) {
                     scene.quads.push(fill(
                         PxRect {
                             x: rect.x + line,
@@ -461,16 +437,19 @@ fn content(
                             w: rect.w - line * 2.0,
                             h: line,
                         },
-                        surfaces.outline,
+                        DIVIDER,
                     ));
                 }
                 let focused = !sheet.sections_focused && sheet.focus == Some(item);
-                entry_row(entry, item, rect, focused, input, scene, measure);
+                let open = sheet
+                    .dropdown
+                    .as_ref()
+                    .is_some_and(|menu| menu.item == item);
+                entry_row(entry, item, rect, (focused, open), input, scene, measure);
                 scene.hits.rows.push((item, rect));
             }
         }
     }
-    hidden
 }
 
 fn entry(line: &Placed) -> bool {
@@ -480,7 +459,7 @@ fn entry(line: &Placed) -> bool {
     }
 }
 
-fn panel(
+fn card(
     group: usize,
     placed: &[Placed],
     shown: &[(&Placed, PxRect)],
@@ -496,7 +475,7 @@ fn panel(
             .iter()
             .filter(|line| line.group == group && entry(line))
     };
-    let radius = px(PANEL_RADIUS, scale);
+    let radius = px(CARD_RADIUS, scale);
     let above = match entries().any(|line| line.top < first_line.top) {
         true => radius,
         false => 0.0,
@@ -527,18 +506,18 @@ fn heading_line(
     scene: &mut OverlayScene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
+    let x = rect.x + px(HEADING_PAD, input.scale);
+    let room = rect.x + rect.w - x;
     let line = baseline(rect, input.ui);
-    let shown = ellipsize(heading, rect.w, true, measure);
-    let end = rect.x + measure(&shown, true);
-    scene
-        .text
-        .push(ui_text(rect.x, line, shown, input.theme.foreground, true));
+    let shown = ellipsize(heading, room, true, measure);
+    let end = x + measure(&shown, true);
+    scene.text.push(ui_text(x, line, shown, FOREGROUND, true));
     if disabled {
         scene.text.push(ui_text(
             end.round(),
             line,
             ellipsize(OFF, rect.x + rect.w - end, false, measure),
-            input.theme.surfaces().muted,
+            MUTED,
             false,
         ));
     }
@@ -550,3 +529,6 @@ mod tests;
 
 #[path = "settings_dropdown_layout.rs"]
 mod dropdown_layout;
+
+#[path = "settings_nav.rs"]
+mod nav;

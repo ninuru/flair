@@ -46,12 +46,6 @@ impl PromptEditor {
         let mut sheet = sheet.clone();
         sheet.groups.clear();
         sheet.focus = None;
-        sheet.keys = vec![
-            ("Space", "toggle".into()),
-            ("Shift ←/→", "reorder".into()),
-            ("Enter", "save".into()),
-            ("Esc", "cancel".into()),
-        ];
         let mut scene = settings_layout::layout(&sheet, input, measure);
         let rect = settings_layout::editor_rect(input);
         let scale = input.scale;

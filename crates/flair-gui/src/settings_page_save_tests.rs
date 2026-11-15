@@ -21,7 +21,6 @@ fn a_stepper_click_on_another_entry_comes_back_as_a_preview() {
         preview_of(text, "window.padding_y", Some(&Value::Integer(1)))
     );
     assert_eq!(control(&page), Control::Number("1".to_owned()));
-    assert_eq!(page.sheet().keys, pending_keys());
 }
 
 #[test]
@@ -60,7 +59,6 @@ fn delete_on_a_default_entry_drops_its_pending_value() {
     press(&mut page, NamedKey::Right);
     assert_eq!(press(&mut page, NamedKey::Delete), SettingsOutcome::Revert);
     assert_eq!(control(&page), Control::Number("13".to_owned()));
-    assert_eq!(page.sheet().keys, step_keys());
     assert_eq!(press(&mut page, NamedKey::Delete), SettingsOutcome::Pending);
 }
 
@@ -166,22 +164,6 @@ fn the_editor_and_the_query_are_bounded() {
 }
 
 #[test]
-fn the_footer_follows_the_focused_entry() {
-    let mut page = page("[font]\nsize = 14\n");
-    assert_eq!(page.sheet().keys, step_keys());
-    page.focus(1);
-    assert_eq!(page.sheet().keys, edit_keys());
-    focus_key(&mut page, "font.size");
-    assert_eq!(page.sheet().keys, step_reset_keys());
-    focus_key(&mut page, "keys.enabled");
-    assert_eq!(page.sheet().keys, toggle_keys());
-    page.focus(3);
-    assert_eq!(page.sheet().keys, browse_keys());
-    press(&mut page, NamedKey::Tab);
-    assert_eq!(page.sheet().keys, sections_keys());
-}
-
-#[test]
 fn the_sheet_marks_pending_entries_and_disabled_bindings() {
     let mut page = page("[keys]\nenabled = false\n");
     focus_key(&mut page, "keys.timeout_ms");
@@ -236,8 +218,7 @@ fn a_saved_prompt_style_writes_the_prompt_table() {
     assert_eq!(config.theme, "gruvbox-dark");
     assert_eq!(reload(&mut page, &text), SettingsOutcome::Pending);
     assert_eq!(control(&page), Control::Choice("ps1".to_owned()));
-    assert_eq!(source(&page), "flair.toml");
-    assert_eq!(page.sheet().keys, step_reset_keys());
+    assert!(modified(&page));
 }
 
 #[test]

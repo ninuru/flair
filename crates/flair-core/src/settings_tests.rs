@@ -131,7 +131,7 @@ fn source_labels() {
 fn keys_enabled_warns_about_the_lock_out() {
     assert_eq!(
         setting("keys.enabled").description,
-        "Off also disables prefix S; re-enable it in flair.toml."
+        "Off also disables Ctrl+Alt+Shift+S; re-enable it in flair.toml."
     );
     assert_eq!(setting("keys.enabled").kind, Kind::Toggle);
 }

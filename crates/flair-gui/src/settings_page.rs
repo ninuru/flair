@@ -1,4 +1,5 @@
 use flair_core::{
+    command::Command,
     config::Config,
     config_edit::apply,
     key::{Key, KeyAction, KeyInput, NamedKey},
@@ -12,7 +13,6 @@ use crate::{
     overlay_layout::Field,
     prompt_editor::{PromptAction, PromptEditor},
     settings_layout::{Control, Entry, Group, SettingsHit, SettingsSheet},
-    ui::{DELETE_KEY, ENTER_KEY, ESCAPE_KEY, SEARCH_KEY, SPACE_KEY, STEP_KEY},
 };
 
 const SEARCH_PLACEHOLDER: &str = "Search settings";
@@ -66,6 +66,7 @@ enum Action {
     Step(i32),
     Edit,
     OpenChoice,
+    Reset,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -113,6 +114,14 @@ impl SettingsPage {
     pub fn key(&mut self, key: &KeyInput) -> SettingsOutcome {
         if key.action == KeyAction::Release {
             return SettingsOutcome::Pending;
+        }
+        if self.config.keys.enabled
+            && self.config.keys.binding(key, false) == Some(Command::Settings)
+        {
+            return match key.repeat {
+                true => SettingsOutcome::Pending,
+                false => SettingsOutcome::Close,
+            };
         }
         if self.dropdown.is_some() {
             return self.dropdown_key(key);
@@ -171,6 +180,7 @@ impl SettingsPage {
             SettingsHit::Cycle(item) => self.on_item(item, Action::OpenChoice),
             SettingsHit::Choose(_) | SettingsHit::DismissDropdown => SettingsOutcome::Pending,
             SettingsHit::Edit(item) => self.on_item(item, Action::Edit),
+            SettingsHit::Reset(item) => self.on_item(item, Action::Reset),
         }
     }
 
@@ -229,7 +239,7 @@ impl SettingsPage {
         let searching = !self.query.is_empty();
         let items = self.items();
         SettingsSheet {
-            sections: Section::ALL.iter().map(|section| section.title()).collect(),
+            sections: Section::ALL.to_vec(),
             section: (!searching).then_some(self.section),
             sections_focused: self.focus == Focus::Sections,
             crumb: match searching {
@@ -243,7 +253,6 @@ impl SettingsPage {
             },
             groups: self.groups(&items, searching),
             focus: (!items.is_empty()).then(|| self.item.min(items.len() - 1)),
-            keys: self.footer(),
             dropdown: self.dropdown_sheet(),
         }
     }
@@ -607,6 +616,11 @@ impl SettingsPage {
             Action::Step(delta) => self.step(delta),
             Action::Edit => self.edit(),
             Action::OpenChoice => self.open_choice(),
+            Action::Reset => {
+                let closed = self.close_editor();
+                let reset = self.reset();
+                then(closed, reset)
+            }
         }
     }
 
@@ -669,7 +683,7 @@ impl SettingsPage {
         Entry::Setting {
             title: setting.title,
             description: setting.description,
-            source: self.sources[index].label(),
+            modified: self.sources[index] == Source::File,
             control: self.control(index),
             error: self
                 .error
@@ -712,48 +726,8 @@ impl SettingsPage {
                 .unwrap_or_else(|| UNBOUND.to_owned()),
             unbound: binding.command.is_none(),
             table: binding.table.name(),
-            source: binding.source.label(),
             disabled: !self.config.keys.enabled,
         }
-    }
-
-    fn footer(&self) -> Vec<(&'static str, String)> {
-        let keys = match (&self.editor, &self.pending) {
-            (Some(_), _) => vec![(ENTER_KEY, "save"), (ESCAPE_KEY, "revert")],
-            (None, Some(_)) => vec![
-                (ENTER_KEY, "save"),
-                (ESCAPE_KEY, "revert"),
-                (STEP_KEY, "step"),
-            ],
-            (None, None) => self.browse_keys(),
-        };
-        keys.into_iter()
-            .map(|(cap, label)| (cap, label.to_owned()))
-            .collect()
-    }
-
-    fn browse_keys(&self) -> Vec<(&'static str, &'static str)> {
-        let mut keys = Vec::new();
-        match (self.focus, self.selected()) {
-            (Focus::Sections, _) => keys.push((ENTER_KEY, "open")),
-            (Focus::Items, None) => {}
-            (Focus::Items, Some(index)) => {
-                keys.push(match SETTINGS[index].kind {
-                    Kind::Toggle => (SPACE_KEY, "toggle"),
-                    Kind::Integer { .. } | Kind::Float { .. } | Kind::Choice(_) => {
-                        (STEP_KEY, "step")
-                    }
-                    Kind::Text | Kind::Font | Kind::Words | Kind::Color { .. } => {
-                        (ENTER_KEY, "edit")
-                    }
-                });
-                if self.sources[index] == Source::File {
-                    keys.push((DELETE_KEY, "reset"));
-                }
-            }
-        }
-        keys.extend([(ESCAPE_KEY, "close"), (SEARCH_KEY, "search")]);
-        keys
     }
 }
 

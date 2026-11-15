@@ -17,7 +17,7 @@ fn icons(layout: &ChromeLayout) -> Vec<&TextRun> {
 }
 
 #[test]
-fn a_tab_icon_sits_between_the_index_and_the_name_and_widens_the_tab() {
+fn a_tab_icon_follows_the_name_and_widens_the_tab() {
     let theme = Config::default().theme();
     let surfaces = theme.surfaces();
     let mut status = parts();
@@ -31,8 +31,8 @@ fn a_tab_icon_sits_between_the_index_and_the_name_and_widens_the_tab() {
     assert_eq!(
         found,
         [
-            (97.0, 19.0, "\u{f120}", surfaces.bright, false),
-            (189.0, 19.0, "\u{f308}", surfaces.muted, false),
+            (138.0, 19.0, "\u{f120}", surfaces.bright, false),
+            (237.0, 19.0, "\u{f308}", surfaces.muted, false),
         ]
     );
     let order: Vec<&str> = layout.chrome.text[2..]
@@ -40,14 +40,14 @@ fn a_tab_icon_sits_between_the_index_and_the_name_and_widens_the_tab() {
         .map(|run| run.text.as_str())
         .filter(|text| *text != FILES_KEY.to_string())
         .collect();
-    assert_eq!(order, ["1", "\u{f120}", "shell", "2", "\u{f308}", "editor"]);
+    assert_eq!(order, ["1", "shell", "\u{f120}", "2", "editor", "\u{f308}"]);
     let shell = text(&layout, "shell").unwrap();
     assert_eq!(
         (shell.x, shell.baseline, shell.color),
-        (114.0, 21.0, theme.foreground)
+        (97.0, 21.0, theme.foreground)
     );
     let editor = text(&layout, "editor").unwrap();
-    assert_eq!((editor.x, editor.color), (206.0, surfaces.muted));
+    assert_eq!((editor.x, editor.color), (189.0, surfaces.muted));
     assert_eq!(layout.hits[1].rect, rect(73.0, 0.0, 86.0, 34.0));
     assert_eq!(layout.hits[2].rect, rect(165.0, 0.0, 93.0, 34.0));
     assert!(quad_at(&layout, rect(81.0, 32.0, 70.0, 2.0)).is_some());
@@ -102,15 +102,19 @@ fn overflowing_and_ellipsized_tabs_keep_their_icons_inside_the_tab() {
                 .iter()
                 .position(|run| std::ptr::eq(run, *icon))
                 .unwrap();
-            let index = &layout.chrome.text[at - 1];
-            let name = &layout.chrome.text[at + 1];
+            let name = &layout.chrome.text[at - 1];
+            let index = &layout.chrome.text[at - 2];
             assert_eq!(
-                icon.x,
+                name.x,
                 index.x + measure(&format!("{} ", index.text), false)
             );
-            assert_eq!(name.x, icon.x + 17.0, "{width} {active}");
+            assert_eq!(
+                icon.x,
+                name.x + measure(&name.text, false) + 6.0,
+                "{width} {active}"
+            );
             assert!(
-                name.x + measure(&name.text, false) <= hit.rect.x + hit.rect.w - 10.0,
+                icon.x + 11.0 <= hit.rect.x + hit.rect.w - 10.0,
                 "{width} {active} {}",
                 name.text
             );

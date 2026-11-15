@@ -1,4 +1,5 @@
 use super::*;
+use flair_core::{command::Command, keys::KeysConfig};
 #[test]
 fn modified_enter_and_repeat_survive_translation() {
     let key = translate(
@@ -283,5 +284,25 @@ fn named_space_preserves_control_aware_text_and_missing_release_text() {
         .unwrap();
         assert_eq!(input.key, Key::Char(' '));
         assert_eq!(input.text.as_deref(), text);
+    }
+}
+
+#[test]
+fn ctrl_alt_shift_s_from_winit_resolves_to_settings() {
+    let keys = KeysConfig::default();
+    for value in ["S", "s"] {
+        let key = translate(
+            &WinitKey::Character(value.into()),
+            KeyLocation::Standard,
+            None,
+            ModifiersState::CONTROL | ModifiersState::ALT | ModifiersState::SHIFT,
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            keys.binding(&key, false),
+            Some(Command::Settings),
+            "{value}"
+        );
     }
 }

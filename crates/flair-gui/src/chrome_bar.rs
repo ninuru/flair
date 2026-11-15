@@ -484,23 +484,22 @@ fn draw_tab(
             surfaces.muted
         };
         let name_x = (x + measure(index, false)).round();
+        scene
+            .text
+            .push(ui_text(name_x, base, name.to_owned(), color, false));
         if let Some(icon) = tab.icon {
             let quiet = match tab.active {
                 true => surfaces.bright,
                 false => surfaces.muted,
             };
             scene.text.push(icon_text(
-                name_x,
+                name_x + measure(name, false) + px(PROCESS_ICON_GAP, scale),
                 cap_centre(rect, input.ui),
                 icon,
                 quiet,
                 input.metrics,
             ));
         }
-        let name_x = (name_x + icon_lead(tab.icon, input.metrics, scale)).round();
-        scene
-            .text
-            .push(ui_text(name_x, base, name.to_owned(), color, false));
     }
     if tab.active {
         let inset = px(UNDERLINE_INSET, scale);

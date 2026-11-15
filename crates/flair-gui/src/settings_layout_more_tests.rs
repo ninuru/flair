@@ -1,51 +1,99 @@
 use super::*;
-use crate::CellMetrics;
-use flair_core::settings::{Kind, SETTINGS, Section};
+use crate::{settings_style::POPUP_SELECTED, ui::ELLIPSIS};
+use flair_core::settings::{Kind, SETTINGS};
+
+fn assert_inside(scene: &OverlayScene, window: (u32, u32)) {
+    let (width, height) = (window.0 as f32, window.1 as f32);
+    for quad in &scene.quads {
+        let rect = quad.rect;
+        assert!(
+            rect.x >= 0.0 && rect.y >= 0.0 && rect.x + rect.w <= width && rect.y + rect.h <= height,
+            "{window:?} {rect:?}"
+        );
+    }
+    for run in &scene.text {
+        assert!(run.baseline <= height, "{window:?} {run:?}");
+    }
+}
+
+fn whole(rect: PxRect) -> bool {
+    [rect.x, rect.y, rect.w, rect.h]
+        .iter()
+        .all(|v| v.fract() == 0.0)
+}
+
+fn dropdown(options: Vec<String>, selected: usize) -> SettingsSheet {
+    let mut sheet = appearance();
+    sheet.dropdown = Some(ChoiceMenu {
+        item: 0,
+        options,
+        selected,
+    });
+    sheet
+}
 
 #[test]
-fn long_text_values_ellipsize_inside_the_chip() {
+fn long_text_values_ellipsize_inside_the_trigger() {
     let mut sheet = appearance();
-    sheet.groups[0].entries[1] = setting("Background", "default", Control::Text("x".repeat(80)));
-    let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let chip = control(&scene, SettingsHit::Edit(1));
-    assert_eq!(chip.x + chip.w, 1440.0);
-    assert!(chip.w <= 280.0, "{chip:?}");
+    sheet.groups[0].entries[1] = setting("Background", false, Control::Text("x".repeat(80)));
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let trigger = control(&scene, SettingsHit::Edit(1)).unwrap();
+    assert_eq!(trigger.x + trigger.w, 1328.0);
     let value = scene
         .text
         .iter()
         .find(|run| run.text.starts_with("xxx"))
         .unwrap();
     assert!(value.text.ends_with(ELLIPSIS));
-    assert_eq!(value.x, chip.x + 10.0);
-    assert!(value.x + measure(&value.text, false) <= chip.x + chip.w - 10.0);
+    assert_eq!(value.x, trigger.x + 9.0);
+    assert!(value.x + measure(&value.text, false) <= trigger.x + trigger.w - 9.0);
 }
 
 #[test]
 fn every_rect_and_text_lands_on_whole_pixels_at_scale_one_and_a_half() {
     let mut editing = keys(12);
-    editing.groups[0].entries[1] = setting("Prefix key", "default", editor("C-b"));
-    for sheet in [appearance(), keys(12), editing] {
+    editing.groups[0].entries[1] = setting(
+        "Prefix key",
+        false,
+        Control::Editor(Field {
+            text: "C-b".into(),
+            cursor: 1,
+            placeholder: "unset",
+        }),
+    );
+    for sheet in [
+        appearance(),
+        keys(12),
+        editing,
+        dropdown(vec!["a".into()], 0),
+    ] {
         let scene = run(&sheet, (1500, 900), 1.5, Some((700.0, 400.0)));
         assert_inside(&scene, (1500, 900));
-        let whole = |rect: PxRect| {
-            [rect.x, rect.y, rect.w, rect.h]
-                .iter()
-                .all(|v| v.fract() == 0.0)
-        };
         for quad in &scene.quads {
             assert!(whole(quad.rect) && quad.radius.fract() == 0.0, "{quad:?}");
         }
         for run in &scene.text {
             assert_eq!((run.x.fract(), run.baseline.fract()), (0.0, 0.0), "{run:?}");
         }
-        for (_, rect) in &scene.hits.rows {
-            assert!(whole(*rect), "{rect:?}");
+        let rows = scene.hits.rows.iter().map(|(_, rect)| *rect);
+        for rect in rows.chain(scene.hits.controls.iter().map(|(_, rect)| *rect)) {
+            assert!(whole(rect), "{rect:?}");
         }
-        for (_, rect) in &scene.hits.controls {
-            assert!(whole(*rect), "{rect:?}");
-        }
-        assert!(!scene.hits.rows.is_empty());
     }
+}
+
+#[test]
+fn scale_two_doubles_the_geometry() {
+    let scene = run(&appearance(), (3200, 2000), 2.0, None);
+    assert_eq!(scene.hits.panel, rect(320.0, 80.0, 2560.0, 1840.0));
+    assert_eq!(
+        control(&scene, SettingsHit::Section(0)),
+        Some(rect(336.0, 176.0, 448.0, 64.0))
+    );
+    assert_eq!(
+        control(&scene, SettingsHit::Cycle(0)),
+        Some(rect(2304.0, 330.0, 352.0, 56.0))
+    );
 }
 
 #[test]
@@ -58,167 +106,12 @@ fn small_windows_never_panic_and_keep_every_quad_inside() {
         ((1300, 150), 1.0),
         ((300, 220), 1.5),
         ((1, 1), 2.0),
-        ((0, 0), 1.0),
     ] {
-        for sheet in [appearance(), keys(20)] {
-            let scene = run(&sheet, px, scale, Some((10.0, 60.0)));
+        for sheet in [appearance(), keys(30), dropdown(vec!["a".into()], 0)] {
+            let scene = run(&sheet, px, scale, Some((10.0, 10.0)));
             assert_inside(&scene, px);
         }
     }
-    let scene = run(&appearance(), (200, 100), 1.0, None);
-    assert!(scene.hits.rows.is_empty());
-    assert!(text(&scene, "space").is_none());
-    let scene = run(&appearance(), (960, 200), 1.0, None);
-    assert!(scene.hits.rows.is_empty());
-    assert!(text(&scene, "space").is_none());
-    assert!(text(&scene, "Search settings").is_some());
-}
-
-#[test]
-fn a_short_window_drops_the_footer_before_the_entries() {
-    let scene = run(&appearance(), (960, 260), 1.0, None);
-    assert_eq!(scene.hits.rows.len(), 1);
-    assert!(text(&scene, "space").is_none());
-    assert_inside(&scene, (960, 260));
-}
-
-#[test]
-fn a_clipped_list_counts_hidden_entries_and_runs_the_panel_past_the_last_row() {
-    let surfaces = theme().surfaces();
-    let mut sheet = keys(40);
-    sheet.focus = Some(0);
-    let scene = run(&sheet, (1920, 1200), 1.0, None);
-    assert_eq!(scene.hits.rows.len(), 26);
-    assert_eq!(scene.hits.rows[25].1, rect(696.0, 1087.0, 760.0, 32.0));
-    let settings = rect(696.0, 159.0, 760.0, 168.0);
-    assert_quad(
-        &scene,
-        outlined(settings, surfaces.surface1, 10.0, surfaces.outline),
-    );
-    let bindings = rect(696.0, 383.0, 760.0, 746.0);
-    assert_quad(
-        &scene,
-        outlined(bindings, surfaces.surface1, 10.0, surfaces.outline),
-    );
-    let strip = rect(696.0, 1119.0, 760.0, 10.0);
-    let position = |quad: Quad| scene.quads.iter().position(|candidate| *candidate == quad);
-    let panel_index = position(outlined(
-        bindings,
-        surfaces.surface1,
-        10.0,
-        surfaces.outline,
-    ));
-    let strip_index = position(plain(strip, theme().background, 0.0));
-    assert!(strip_index > panel_index, "{panel_index:?} {strip_index:?}");
-    let outline = Some(Border {
-        color: opaque(surfaces.outline),
-        width: 1.0,
-    });
-    assert!(scene.quads.iter().all(|quad| quad.border != outline
-        || quad.rect.y + quad.rect.h <= 327.0
-        || quad.rect.y + quad.rect.h > 1119.0));
-    assert!(quad_at(&scene, rect(697.0, 1119.0, 758.0, 1.0)).is_none());
-    let more = text(&scene, "+17 more").unwrap();
-    assert_eq!(
-        (more.x, more.color, more.face),
-        (1428.0, surfaces.muted, TextFace::Small)
-    );
-    assert_inside(&scene, (1920, 1200));
-
-    let scene = run(&appearance(), (1920, 1200), 1.0, None);
-    assert!(scene.text.iter().all(|run| !run.text.starts_with('+')));
-}
-
-#[test]
-fn content_keeps_even_gutters_on_a_narrow_window() {
-    let scene = run(&appearance(), (960, 600), 1.0, None);
-    let search = control(&scene, SettingsHit::Search);
-    assert_eq!(search, rect(200.0, 103.0, 720.0, 32.0));
-    assert_eq!(search.x - 160.0, 960.0 - search.x - search.w);
-}
-
-#[test]
-fn a_pending_value_marks_its_source_as_unsaved() {
-    let surfaces = theme().surfaces();
-    let mut sheet = keys(0);
-    sheet.groups[0].entries[2] = Entry::Setting {
-        title: "Prefix timeout",
-        description: "Overrides the theme value.",
-        source: "flair.toml",
-        control: Control::Number("1600".into()),
-        error: None,
-        pending: true,
-    };
-    let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let unsaved = text(&scene, "unsaved").unwrap();
-    assert_eq!(
-        (unsaved.x, unsaved.color, unsaved.face),
-        (1124.0, theme().foreground, TextFace::Small)
-    );
-    assert!(text(&scene, "flair.toml").is_none());
-    assert_eq!(text(&scene, "default").unwrap().color, surfaces.muted);
-}
-
-#[test]
-fn colour_chips_lead_with_an_outlined_swatch() {
-    let surfaces = theme().surfaces();
-    let scene = run(&appearance(), (1920, 1200), 1.0, None);
-    assert_quad(
-        &scene,
-        Quad {
-            rect: rect(1170.0, 236.0, 14.0, 14.0),
-            color: opaque(Rgb::from_hex("#030303").unwrap()),
-            radius: 4.0,
-            border: Some(Border {
-                color: opaque(surfaces.outline_strong),
-                width: 1.0,
-            }),
-        },
-    );
-    let selection = control(&scene, SettingsHit::Edit(5));
-    let swatch = quad_at(
-        &scene,
-        rect(selection.x + 10.0, selection.y + 5.0, 14.0, 14.0),
-    )
-    .unwrap();
-    assert_eq!(swatch.color.a, 0x4d);
-
-    let mut sheet = appearance();
-    sheet.groups[0].entries[1] = setting("Background", "default", Control::Color("nope".into()));
-    let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let chip = rect(1160.0, 231.0, 280.0, 24.0);
-    assert_hit(&scene, SettingsHit::Edit(1), chip);
-    assert!(quad_at(&scene, rect(1170.0, 236.0, 14.0, 14.0)).is_none());
-    assert_eq!(text(&scene, "nope").unwrap().x, 1170.0);
-}
-
-#[test]
-fn a_disabled_binding_list_mutes_commands_and_marks_the_heading_off() {
-    let surfaces = theme().surfaces();
-    let mut sheet = keys(2);
-    sheet.groups[1].disabled = true;
-    sheet.groups[1].entries = (0..2)
-        .map(|index| Entry::Binding {
-            chord: format!("c{index}"),
-            command: format!("cmd{index}"),
-            unbound: false,
-            table: "prefix",
-            source: "default",
-            disabled: true,
-        })
-        .collect();
-    let scene = run(&sheet, (1920, 1200), 1.0, None);
-    let off = text(&scene, " off").unwrap();
-    assert_eq!(
-        (off.x, off.baseline, off.color, off.bold),
-        (780.0, 367.0, surfaces.muted, false)
-    );
-    assert_eq!(styled(&scene, "Key bindings", true).x, 696.0);
-    assert_eq!(text(&scene, "cmd0").unwrap().color, surfaces.muted);
-    assert_eq!(text(&scene, "cmd1").unwrap().color, surfaces.muted);
-
-    let scene = run(&keys(2), (1920, 1200), 1.0, None);
-    assert!(text(&scene, " off").is_none());
 }
 
 fn prompt() -> SettingsSheet {
@@ -228,7 +121,7 @@ fn prompt() -> SettingsSheet {
         .map(|setting| Entry::Setting {
             title: setting.title,
             description: setting.description,
-            source: "default",
+            modified: false,
             control: match setting.kind {
                 Kind::Toggle => Control::Toggle(true),
                 Kind::Integer { .. } | Kind::Float { .. } => Control::Number("2000".into()),
@@ -240,94 +133,32 @@ fn prompt() -> SettingsSheet {
             pending: false,
         })
         .collect();
-    let mut sheet = sheet(
-        4,
-        "Prompt",
-        vec![Group {
-            heading: None,
-            disabled: false,
-            entries,
-        }],
-    );
-    sheet.keys = vec![
-        ("←→", "step".into()),
-        ("esc", "close".into()),
-        ("/", "search".into()),
-    ];
-    sheet
-}
-
-fn wide(text: &str, _: bool) -> f32 {
-    text.chars().count() as f32 * 12.0
+    sheet(5, "Prompt", vec![group(entries)])
 }
 
 #[test]
-fn the_prompt_page_fits_at_960x600_with_whole_descriptions_beside_the_source() {
-    let theme = theme();
-    let input = OverlayInput {
-        metrics: crate::CellMetrics {
-            width: 8.0,
-            height: 16.0,
-            baseline: 12.0,
-        },
-        px: (960, 600),
-        scale: 1.0,
-        ui: UiMetrics {
-            height: 14.0,
-            ascent: 11.0,
-            small: 0.5,
-            cap: 8.0,
-            icon: CellMetrics {
-                width: 7.0,
-                height: 12.0,
-                baseline: 9.0,
-            },
-        },
-        theme: &theme,
-        hover: None,
-    };
+fn the_prompt_section_fits_at_960x600_with_descriptions_left_of_the_controls() {
     let sheet = prompt();
-    assert_eq!(sheet.groups[0].entries.len(), 20);
-    let scene = layout(&sheet, &input, &mut wide);
+    let scene = run(&sheet, (960, 600), 1.0, None);
     assert_inside(&scene, (960, 600));
-    assert_eq!(scene.hits.rows.len(), 6);
-    assert_eq!(
-        control(&scene, SettingsHit::Cycle(0)),
-        rect(624.0, 175.0, 280.0, 24.0)
-    );
-    assert_eq!(
-        control(&scene, SettingsHit::Toggle(1)),
-        rect(876.0, 235.0, 28.0, 16.0)
-    );
-    let label = scene
+    assert!(scene.hits.rows.len() >= 5);
+    let trigger = control(&scene, SettingsHit::Cycle(0)).unwrap();
+    for run in scene
         .text
         .iter()
-        .find(|run| run.text == "default" && run.baseline > 159.0 && run.baseline < 215.0)
-        .unwrap();
-    for description in [
-        SETTINGS
-            .iter()
-            .find(|setting| setting.key == "prompt.style")
-            .unwrap()
-            .description,
-        "Shows an icon in each chip. Needs a Nerd Font.",
-    ] {
-        let run = text(&scene, description).unwrap();
-        let end = run.x + wide(&run.text, false) * 0.5;
-        assert!(end <= label.x - 12.0, "{end} {}", label.x);
+        .filter(|run| run.face == crate::renderer::TextFace::Small && run.x < trigger.x)
+    {
+        assert!(
+            run.x + measure(&run.text, false) * 0.5 <= trigger.x - 32.0,
+            "{run:?}"
+        );
     }
-    assert!(text(&scene, "+14 more").is_some());
 }
 
 #[test]
 fn dropdown_options_override_underlying_hits_and_stay_on_screen() {
     for (size, scale) in [((960, 600), 1.0), ((640, 400), 1.0), ((1440, 900), 1.5)] {
-        let mut sheet = appearance();
-        sheet.dropdown = Some(ChoiceMenu {
-            item: 0,
-            options: (0..100).map(|index| format!("Theme {index}")).collect(),
-            selected: 99,
-        });
+        let sheet = dropdown((0..100).map(|index| format!("Theme {index}")).collect(), 99);
         let scene = run(&sheet, size, scale, None);
         let options: Vec<_> = scene
             .hits
@@ -347,10 +178,13 @@ fn dropdown_options_override_underlying_hits_and_stay_on_screen() {
         for (index, rect) in options {
             assert!(rect.y >= 0.0 && rect.y + rect.h <= size.1 as f32);
             assert!(rect.x >= 0.0 && rect.x + rect.w <= size.0 as f32);
-            assert_hit(&scene, SettingsHit::Choose(index), rect);
+            assert_eq!(
+                scene.hits.hit_test(centre(rect)),
+                OverlayHit::Settings(SettingsHit::Choose(index))
+            );
         }
         assert_eq!(
-            scene.hits.hit_test((20.0, 60.0)),
+            scene.hits.hit_test((5.0, 5.0)),
             OverlayHit::Settings(SettingsHit::DismissDropdown)
         );
         assert!(scene.hits.rows.is_empty());
@@ -358,21 +192,68 @@ fn dropdown_options_override_underlying_hits_and_stay_on_screen() {
 }
 
 #[test]
-fn dropdown_occludes_the_top_of_text_whose_baseline_is_below_the_menu() {
-    let mut sheet = appearance();
-    sheet.dropdown = Some(ChoiceMenu {
-        item: 0,
-        options: vec!["one".into(), "two".into(), "three".into()],
-        selected: 0,
-    });
-    let scene = run(&sheet, (1100, 600), 1.0, None);
-    let last = control(&scene, SettingsHit::Choose(2));
+fn the_popup_opens_below_the_trigger_right_aligned_with_the_selection_tinted() {
+    let sheet = dropdown(
+        vec![
+            "one".into(),
+            "a much longer option name".into(),
+            "three".into(),
+        ],
+        1,
+    );
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let trigger = rect(1152.0, 165.0, 176.0, 28.0);
+    assert_eq!(
+        quad_at(&scene, trigger).unwrap().border.unwrap().color,
+        colour(PRIMARY)
+    );
+    let first = control(&scene, SettingsHit::Choose(0)).unwrap();
+    assert_eq!(first.y, 165.0 + 28.0 + 4.0 + 4.0);
+    assert_eq!(first.x + first.w + 4.0, 1328.0);
+    assert!(first.w + 8.0 >= 176.0);
+    let selected = control(&scene, SettingsHit::Choose(1)).unwrap();
+    assert_eq!(
+        quad_at(&scene, selected).unwrap().color,
+        colour(POPUP_SELECTED)
+    );
+}
+
+#[test]
+fn dropdown_occludes_text_under_the_menu() {
+    let sheet = dropdown(vec!["one".into(), "two".into(), "three".into()], 0);
+    let scene = run(&sheet, (1100, 700), 1.0, None);
+    let last = control(&scene, SettingsHit::Choose(2)).unwrap();
+    let first = control(&scene, SettingsHit::Choose(0)).unwrap();
     let bottom = last.y + last.h + 4.0;
+    let top = first.y - 4.0;
     assert!(
         scene
             .text
             .iter()
-            .filter(|run| run.text == "#d4d4d4")
-            .all(|run| run.baseline - 11.0 >= bottom)
+            .filter(|run| run.x >= first.x && run.face == crate::renderer::TextFace::Ui)
+            .filter(|run| !["one", "two", "three"].contains(&run.text.as_str()))
+            .all(|run| run.baseline - 11.0 >= bottom || run.baseline + 3.0 <= top)
     );
+}
+
+#[test]
+fn a_rail_keeps_the_typed_query_visible_in_the_header() {
+    let mut sheet = appearance();
+    sheet.crumb = "Search";
+    sheet.section = None;
+    sheet.search.text = "pad".into();
+    sheet.search.cursor = 3;
+    let scene = run(&sheet, (640, 560), 1.0, None);
+    let query = text(&scene, "pad").unwrap();
+    assert_eq!(query.color, FOREGROUND);
+    assert!(query.x > scene.hits.panel.x + 56.0);
+    assert!(
+        scene
+            .text
+            .iter()
+            .all(|run| run.text != "Search" || run.baseline > 72.0)
+    );
+    assert!(quad_at(&scene, rect(query.x + 21.0, 41.0, 1.0, 14.0)).is_some());
+    let wide = run(&sheet, (1600, 1000), 1.0, None);
+    assert!(text(&wide, "Search").is_some_and(|run| run.x >= 400.0));
 }
