@@ -311,7 +311,7 @@ impl Panels {
             },
             ExplorerOutcome::Cd(path) if self.at_prompt() => match plain(&path) {
                 Ok(text) => ExplorerAct::Send(ClientMsg::Input(InputEvent::Text(format!(
-                    "\u{15}cd -- {}\r",
+                    "\u{5}\u{15}cd -- {}\r",
                     quote(text)
                 )))),
                 Err(notice) => ExplorerAct::Notice(notice),

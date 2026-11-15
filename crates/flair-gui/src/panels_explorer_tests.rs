@@ -349,7 +349,7 @@ fn cd_is_sent_only_at_a_prompt() {
     assert_eq!(
         ready.act(ExplorerOutcome::Cd(PathBuf::from("/p/src"))),
         ExplorerAct::Send(ClientMsg::Input(InputEvent::Text(
-            "\u{15}cd -- '/p/src'\r".into()
+            "\u{5}\u{15}cd -- '/p/src'\r".into()
         )))
     );
 }
