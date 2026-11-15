@@ -435,7 +435,9 @@ impl ApplicationHandler<UserEvent> for App {
                     self.request_redraw();
                 }
                 ServerMsg::PasteClipboard => {
-                    if let Some(text) = self.surface.as_ref().and_then(|s| s.clipboard.load()) {
+                    if let Some(text) = self.surface.as_ref().and_then(|s| s.clipboard.load())
+                        && !self.explorer_text(&text)
+                    {
                         self.send(ClientMsg::Input(InputEvent::Paste(text)));
                     }
                 }
