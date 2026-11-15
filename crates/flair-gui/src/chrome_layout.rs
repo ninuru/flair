@@ -28,6 +28,7 @@ pub enum PanelView {
     #[default]
     Tabs,
     Explorer,
+    Agents,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -104,7 +105,9 @@ pub enum HitTarget {
     Switch(PanelView),
     PanelBody,
     Row(usize),
+    Agent(PaneId),
     ExplorerButton,
+    AgentsButton,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -225,7 +228,10 @@ impl Want {
 fn wants(dock: Dock, side: Side) -> Option<Want> {
     let on = |entry: Option<(Side, f32)>| entry.filter(|(at, _)| *at == side).map(|(_, w)| w);
     let explorer = |width| Want {
-        view: PanelView::Explorer,
+        view: match dock.shown {
+            PanelView::Agents => PanelView::Agents,
+            PanelView::Tabs | PanelView::Explorer => PanelView::Explorer,
+        },
         shared: false,
         width,
         min: f32::from(EXPLORER_WIDTH.0),
@@ -321,6 +327,7 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
         match slot.view {
             PanelView::Tabs => pages.tabs = rows,
             PanelView::Explorer => pages.explorer = rows,
+            PanelView::Agents => pages.agents = rows,
         }
     }
     if input.zen && (input.prompt.is_some() || input.notice.is_some()) {

@@ -1,5 +1,13 @@
 use crate::terminal::{MarkKind, TermEvent};
-use flair_core::isles::{ShellFacts, label, plain};
+use base64::{
+    Engine,
+    alphabet::STANDARD,
+    engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig},
+};
+use flair_core::{
+    agent::{AgentKind, AgentRecord, AgentReport, AgentState},
+    isles::{ShellFacts, label, plain},
+};
 use std::path::PathBuf;
 
 #[derive(Default)]
@@ -21,6 +29,9 @@ impl OscSniffer {
                     }
                 }
                 1 => {
+                    if b == b'c' {
+                        self.events.push(TermEvent::Agent(AgentReport::Clear(None)));
+                    }
                     self.state = if b == b']' { 2 } else { 0 };
                     self.bytes.clear();
                 }
@@ -80,6 +91,12 @@ impl OscSniffer {
             if let Some(facts) = shell_facts(facts) {
                 self.events.push(TermEvent::Facts(facts));
             }
+        } else if let Some(payload) = text.strip_prefix("7501;") {
+            if payload == "?" {
+                self.events.push(TermEvent::PtyWrite(AGENT_REPLY.to_vec()));
+            } else if let Some(report) = agent_report(payload) {
+                self.events.push(TermEvent::Agent(report));
+            }
         } else if let Some(mark) = text.strip_prefix("133;") {
             let mut parts = mark.split(';');
             let kind = match parts.next() {
@@ -97,6 +114,93 @@ impl OscSniffer {
             self.events.push(TermEvent::Mark(kind, code));
         }
     }
+}
+
+const AGENT_REPLY: &[u8] =
+    b"\x1b]7501;?:states=idle,working,blocked,done,error:kinds=permission,question,auth\x1b\\";
+
+const BASE64: GeneralPurpose = GeneralPurpose::new(
+    &STANDARD,
+    GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent),
+);
+
+fn agent_report(text: &str) -> Option<AgentReport> {
+    if text.len() > 4096 {
+        return None;
+    }
+    let (mut state, mut id, mut kind, mut app, mut title, mut msg) =
+        (None, None, None, None, None, None);
+    for pair in text.split(':') {
+        let Some((key, value)) = pair.split_once('=') else {
+            continue;
+        };
+        let value = Some(value.trim());
+        match key.trim() {
+            "state" => state = value,
+            "id" => id = value,
+            "kind" => kind = value,
+            "app" => app = value,
+            "title" => title = value,
+            "msg" => msg = value,
+            _ => (),
+        }
+    }
+    let id = match id.filter(|id| !id.is_empty()) {
+        Some(id) if valid_id(id) => Some(id.to_owned()),
+        Some(_) => return None,
+        None => None,
+    };
+    let state = match state? {
+        "idle" => AgentState::Idle,
+        "working" => AgentState::Working,
+        "blocked" => AgentState::Blocked,
+        "done" => AgentState::Done,
+        "error" => AgentState::Error,
+        "clear" => return Some(AgentReport::Clear(id)),
+        _ => return None,
+    };
+    let kind = match kind.filter(|_| state == AgentState::Blocked) {
+        Some("permission") => Some(AgentKind::Permission),
+        Some("question") => Some(AgentKind::Question),
+        Some("auth") => Some(AgentKind::Auth),
+        _ => None,
+    };
+    let app = app
+        .filter(|app| !app.is_empty() && app.chars().count() <= 32)
+        .filter(|app| plain(app))
+        .map(str::to_owned);
+    Some(AgentReport::Set {
+        id: id.unwrap_or_default(),
+        record: AgentRecord {
+            state,
+            kind,
+            app,
+            title: decode(title, 192)?,
+            msg: decode(msg, 2048)?,
+        },
+    })
+}
+
+fn valid_id(id: &str) -> bool {
+    id.len() <= 128
+        && id.split('/').count() <= 8
+        && id
+            .split('/')
+            .all(|segment| !segment.is_empty() && segment.len() <= 32)
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_graphic() && b != b':' && b != b'=')
+}
+
+fn decode(value: Option<&str>, limit: usize) -> Option<Option<String>> {
+    let Some(value) = value else {
+        return Some(None);
+    };
+    let text = String::from_utf8(BASE64.decode(value).ok()?).ok()?;
+    if !plain(&text) {
+        return None;
+    }
+    Some(Some(text).filter(|text| !text.is_empty() && text.len() <= limit))
 }
 
 fn hostname(cache: &mut Option<String>) -> &str {

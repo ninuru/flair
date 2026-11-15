@@ -30,5 +30,9 @@ pub enum Effect {
         client: ClientId,
         panes: Vec<PaneId>,
     },
+    Notify {
+        title: String,
+        body: String,
+    },
     Shutdown,
 }

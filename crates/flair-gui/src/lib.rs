@@ -1,3 +1,4 @@
+mod agents_layout;
 mod app;
 pub mod atlas;
 pub mod cellgrid;

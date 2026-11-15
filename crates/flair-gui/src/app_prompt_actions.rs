@@ -106,6 +106,7 @@ impl App {
             MouseRoute::Bar => {
                 match chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y)) {
                     Some(HitTarget::ExplorerButton) => self.toggle_explorer(),
+                    Some(HitTarget::AgentsButton) => self.agents_command(),
                     Some(target) => {
                         if let Some(command) = bar_command(target) {
                             self.send(ClientMsg::Command(command));

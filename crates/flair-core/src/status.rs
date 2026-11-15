@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-use crate::ids::{PaneId, WindowId};
+use crate::{
+    agent::{AgentKind, AgentState},
+    ids::{PaneId, WindowId},
+};
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct StatusLine {
@@ -13,6 +16,7 @@ pub struct StatusLine {
     pub pending: Option<String>,
     pub copy: bool,
     pub pane: Option<ActivePane>,
+    pub agents: Vec<AgentRow>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -32,4 +36,16 @@ pub struct StatusWindow {
     pub last: bool,
     pub activity: bool,
     pub bell: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AgentRow {
+    pub session: String,
+    pub window: WindowId,
+    pub pane: PaneId,
+    pub app: String,
+    pub state: AgentState,
+    pub kind: Option<AgentKind>,
+    pub title: String,
+    pub unseen: bool,
 }

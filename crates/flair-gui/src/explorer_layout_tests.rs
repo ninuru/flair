@@ -83,6 +83,7 @@ fn status() -> StatusParts {
             bell: false,
         }],
         badges: Vec::new(),
+        agents: Vec::new(),
     }
 }
 
@@ -354,6 +355,7 @@ fn rows_scroll_whole_and_keep_absolute_hits() {
     panels.place(Pages {
         tabs: 0,
         explorer: 3,
+        agents: 0,
     });
     panels.explorer.wheel(2, 3);
     let layout = Case::new(panels).run();

@@ -45,6 +45,10 @@ impl Server {
                 probed: None,
                 probe_due: None,
                 at_prompt: false,
+                agents: BTreeMap::new(),
+                agent_program: None,
+                unseen: false,
+                notified: None,
             },
         );
         let mut pane_env: BTreeMap<_, _> = self.config.env.iter().cloned().collect();

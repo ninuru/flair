@@ -105,6 +105,7 @@ impl Server {
             Command::ToggleZen => out.push(Effect::Send(id, ServerMsg::ToggleZen)),
             Command::ToggleTabs => out.push(Effect::Send(id, ServerMsg::ToggleTabs)),
             Command::Explorer => out.push(Effect::Send(id, ServerMsg::Explorer)),
+            Command::Agents => out.push(Effect::Send(id, ServerMsg::Agents)),
             Command::SplitRun { argv, cwd } => {
                 if (1..=RUN_ARGS).contains(&argv.len())
                     && argv
@@ -210,6 +211,7 @@ impl Server {
                         | Command::ToggleZen
                         | Command::ToggleTabs
                         | Command::Explorer
+                        | Command::Agents
                         | Command::SplitRun { .. }
                         | Command::MoveWindow { .. }
                         | Command::KillWindow(_)

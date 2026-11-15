@@ -23,6 +23,8 @@ use crate::{
 };
 use std::path::PathBuf;
 
+#[path = "server_agents.rs"]
+mod agents;
 #[path = "server_copy.rs"]
 mod copy;
 #[path = "server_frames.rs"]
@@ -130,6 +132,7 @@ impl Server {
                     pane.exited = true;
                 }
                 self.set_started(id, None);
+                self.drop_agents(id);
             }
             Event::Timer(Timer::Prefix { client, generation }) => {
                 self.prefix_timer(now, client, generation, out);
@@ -386,6 +389,7 @@ impl Server {
                     self.prompts_dirty = true;
                 }
                 TermEvent::Cwd(_) => self.prompts_dirty = true,
+                TermEvent::Agent(report) => self.agent_report(now, pane, report, out),
             }
         }
         if let Some(cwd) = self.pane_cwd(pane)

@@ -63,6 +63,7 @@ fn chooser(out: &[Effect]) -> Option<(Vec<SessionNode>, SessionId)> {
         | Effect::ReadContexts
         | Effect::ReadProcess(_)
         | Effect::PaneProcesses { .. }
+        | Effect::Notify { .. }
         | Effect::Shutdown => None,
     })
 }
@@ -158,6 +159,7 @@ fn select_window_by_id_in_another_session_goes_straight_to_that_window() {
             | Effect::ReadContexts
             | Effect::ReadProcess(_)
             | Effect::PaneProcesses { .. }
+            | Effect::Notify { .. }
             | Effect::Shutdown => None,
         })
         .collect();

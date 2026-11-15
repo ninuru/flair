@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use super::*;
 use crate::{
+    agent::{AgentKind, AgentState},
     command::{Command, CopyCommand, CopyMotion, PaneRef, SelectionKind, WindowRef},
     config::Config,
     geom::{Axis, CellPoint, CellRect, Direction, GridSize},
@@ -16,7 +17,7 @@ use crate::{
         Ink, PaneFlags, PanePlacement, PanePreview, PaneUpdate, PromptSnapshot, Separator,
         ServerMsg, SessionNode, SessionPreview, Target, WindowLayout, WindowPreview,
     },
-    status::{ActivePane, StatusLine, StatusWindow},
+    status::{ActivePane, AgentRow, StatusLine, StatusWindow},
     time::Millis,
 };
 
@@ -145,6 +146,7 @@ fn client_messages() -> Vec<ClientMsg> {
         }),
         ClientMsg::Command(Command::KillWindow(WindowId(6))),
         ClientMsg::Command(Command::Explorer),
+        ClientMsg::Command(Command::Agents),
         ClientMsg::Command(Command::SplitRun {
             argv: vec![
                 "/bin/sh".to_owned(),
@@ -311,6 +313,7 @@ fn server_messages() -> Vec<ServerMsg> {
                 cwd: Some(PathBuf::from("/home/user/projekt größe")),
                 at_prompt: true,
             }),
+            agents: Vec::new(),
         }),
         ServerMsg::Status(StatusLine {
             pane: Some(ActivePane {
@@ -318,6 +321,28 @@ fn server_messages() -> Vec<ServerMsg> {
                 cwd: None,
                 at_prompt: false,
             }),
+            agents: vec![
+                AgentRow {
+                    session: "größe".to_owned(),
+                    window: WindowId(2),
+                    pane: PaneId(7),
+                    app: "claude".to_owned(),
+                    state: AgentState::Blocked,
+                    kind: Some(AgentKind::Permission),
+                    title: "Run cargo test?".to_owned(),
+                    unseen: true,
+                },
+                AgentRow {
+                    session: "work".to_owned(),
+                    window: WindowId(3),
+                    pane: PaneId(8),
+                    app: "codex".to_owned(),
+                    state: AgentState::Done,
+                    kind: None,
+                    title: String::new(),
+                    unseen: false,
+                },
+            ],
             ..StatusLine::default()
         }),
         ServerMsg::ChooseWindow,
@@ -326,6 +351,7 @@ fn server_messages() -> Vec<ServerMsg> {
         ServerMsg::ToggleZen,
         ServerMsg::ToggleTabs,
         ServerMsg::Explorer,
+        ServerMsg::Agents,
         ServerMsg::PasteClipboard,
         ServerMsg::PromptRename {
             current: "zsh".to_owned(),

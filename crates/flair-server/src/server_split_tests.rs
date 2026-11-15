@@ -331,6 +331,7 @@ fn no_history_windows_and_splits_preserve_environment_policy() {
                 | Effect::ReadContexts
                 | Effect::ReadProcess(_)
                 | Effect::PaneProcesses { .. }
+                | Effect::Notify { .. }
                 | Effect::Shutdown => None,
             })
             .unwrap();
@@ -470,6 +471,7 @@ fn exited_pane_reaps_after_staggered_clients_acknowledge_its_final_snapshot() {
                 | Effect::ReadContexts
                 | Effect::ReadProcess(_)
                 | Effect::PaneProcesses { .. }
+                | Effect::Notify { .. }
                 | Effect::Shutdown => None,
             })
             .unwrap()

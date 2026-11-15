@@ -1114,3 +1114,35 @@ fn pixel_capture_draws_the_explorer() {
     assert!(image.starts_with(header.as_bytes()));
     assert_eq!(image.len(), header.len() + 640 * 400 * 3);
 }
+
+#[test]
+fn prefix_a_lists_an_agent_reported_over_osc_7501() {
+    let output = OutputDir::new();
+    let run = Command::new("timeout")
+        .args([
+            "20s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--scenario",
+        ])
+        .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios/agents.toml"))
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}",
+        String::from_utf8_lossy(&run.stderr)
+    );
+    let empty = fs::read_to_string(output.0.join("empty.txt")).unwrap();
+    assert!(empty.contains("[agents]\nno agents"), "{empty}");
+    assert!(!empty.contains("[explorer"), "{empty}");
+    let agents = fs::read_to_string(output.0.join("agents.txt")).unwrap();
+    assert!(
+        agents.contains("Fix login bug - Needs approval (unseen)"),
+        "{agents}"
+    );
+}

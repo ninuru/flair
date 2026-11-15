@@ -75,6 +75,7 @@ fn status(tabs: Vec<TabParts>) -> StatusParts {
         },
         tabs,
         badges: Vec::new(),
+        agents: Vec::new(),
     }
 }
 

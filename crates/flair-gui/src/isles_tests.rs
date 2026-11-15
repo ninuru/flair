@@ -609,6 +609,7 @@ fn prompt_scene(
         },
         tabs: Vec::new(),
         badges: Vec::new(),
+        agents: Vec::new(),
     };
     let window = WindowLayout {
         window: WindowId(1),

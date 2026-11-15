@@ -84,6 +84,7 @@ fn wait_text(client: &flair_core::link::ClientLink, text: &str) {
             | ServerMsg::ToggleZen
             | ServerMsg::ToggleTabs
             | ServerMsg::Explorer
+            | ServerMsg::Agents
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }
@@ -310,6 +311,7 @@ fn a_prompt_in_a_repository_reports_its_branch() {
             | ServerMsg::ToggleZen
             | ServerMsg::ToggleTabs
             | ServerMsg::Explorer
+            | ServerMsg::Agents
             | ServerMsg::PasteClipboard
             | ServerMsg::PromptRename { .. }
             | ServerMsg::PromptSearch { .. }

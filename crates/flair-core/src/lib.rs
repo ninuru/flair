@@ -1,3 +1,4 @@
+pub mod agent;
 pub mod codec;
 pub mod command;
 pub mod config;

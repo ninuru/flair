@@ -1,11 +1,12 @@
 use flair_core::{
+    agent::AgentRecord,
     geom::GridSize,
     isles::{LastCommand, ShellFacts},
     proto::PaneUpdate,
     time::Millis,
 };
 use flair_term::Terminal;
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 pub(crate) struct Pane {
     pub terminal: Terminal,
@@ -22,4 +23,8 @@ pub(crate) struct Pane {
     pub probed: Option<Millis>,
     pub probe_due: Option<Millis>,
     pub at_prompt: bool,
+    pub agents: BTreeMap<String, AgentRecord>,
+    pub agent_program: Option<String>,
+    pub unseen: bool,
+    pub notified: Option<Millis>,
 }

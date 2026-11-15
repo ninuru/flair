@@ -1,5 +1,9 @@
 use super::*;
-use flair_core::status::StatusWindow;
+use flair_core::{
+    agent::{AgentKind, AgentState},
+    ids::PaneId,
+    status::{ActivePane, AgentRow, StatusWindow},
+};
 use unicode_width::UnicodeWidthStr;
 
 fn line(status: &StatusLine, cols: u16) -> String {
@@ -54,6 +58,7 @@ fn fixture() -> StatusLine {
         pending: None,
         copy: false,
         pane: None,
+        agents: Vec::new(),
     }
 }
 
@@ -304,4 +309,59 @@ fn status_parts_carry_activity_and_bell() {
     let parts = status_parts(&status);
     assert!(!parts.tabs[0].activity && !parts.tabs[0].bell);
     assert!(parts.tabs[1].activity && parts.tabs[1].bell);
+}
+
+#[test]
+fn agent_rows_become_parts_with_icon_label_and_the_active_pane() {
+    let row = |pane: u32, app: &str, state, kind| AgentRow {
+        session: "main".into(),
+        window: WindowId(1),
+        pane: PaneId(pane),
+        app: app.into(),
+        state,
+        kind,
+        title: format!("task {pane}"),
+        unseen: pane == 2,
+    };
+    let status = StatusLine {
+        agents: vec![
+            row(1, "claude", AgentState::Working, None),
+            row(2, "codex", AgentState::Blocked, Some(AgentKind::Permission)),
+        ],
+        pane: Some(ActivePane {
+            pane: PaneId(1),
+            cwd: None,
+            at_prompt: false,
+        }),
+        ..fixture()
+    };
+    let parts = status_parts(&status).agents;
+    assert_eq!(
+        parts,
+        vec![
+            AgentParts {
+                pane: PaneId(1),
+                window: WindowId(1),
+                session: "main".into(),
+                icon: process_icon("claude"),
+                title: "task 1".into(),
+                label: "Working",
+                state: AgentState::Working,
+                unseen: false,
+                active: true,
+            },
+            AgentParts {
+                pane: PaneId(2),
+                window: WindowId(1),
+                session: "main".into(),
+                icon: None,
+                title: "task 2".into(),
+                label: "Needs approval",
+                state: AgentState::Blocked,
+                unseen: true,
+                active: false,
+            },
+        ]
+    );
+    assert!(process_icon("claude").is_some());
 }

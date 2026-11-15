@@ -802,3 +802,11 @@ fn explorer_width_bounds_are_inclusive_and_checked() {
         "invalid config: explorer.width must be from 160 to 640, got 100"
     );
 }
+
+#[test]
+fn notifications_default_to_enabled_and_read_from_the_table() {
+    assert!(Config::default().notifications.enabled);
+    let config = Config::from_toml("[notifications]\nenabled = false\n").unwrap();
+    assert!(!config.notifications.enabled);
+    assert!(Config::from_toml("[notifications]\nsound = true\n").is_err());
+}

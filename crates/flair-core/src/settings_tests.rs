@@ -65,6 +65,7 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "shell.program",
             "shell.args",
             "scrollback.lines",
+            "notifications.enabled",
             "prompt.style",
             "prompt.icons",
             "prompt.user",
@@ -663,4 +664,19 @@ fn the_panels_section_sets_the_explorer_side_width_and_hidden_files() {
     assert_eq!(hidden.value(&config, &config.theme()), Value::Bool(false));
     assert!(apply("", "explorer.width", Some(&Value::Integer(100))).is_err());
     assert!(apply("", "explorer.width", Some(&Value::Integer(640))).is_ok());
+}
+
+#[test]
+fn notifications_toggle_sits_in_the_terminal_section() {
+    let notifications = setting("notifications.enabled");
+    assert_eq!(notifications.section, Section::Terminal);
+    assert_eq!(notifications.title, "Notifications");
+    assert_eq!(notifications.kind, Kind::Toggle);
+    assert_eq!(default_value(notifications), Value::Bool(true));
+    let mut config = Config::default();
+    config.notifications.enabled = false;
+    assert_eq!(
+        notifications.value(&config, &config.theme()),
+        Value::Bool(false)
+    );
 }

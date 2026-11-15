@@ -3,6 +3,7 @@ use winit::window::CursorIcon;
 
 use super::*;
 use crate::{
+    agents_layout::lines as lines_of,
     chrome_layout::{Frame, PanelView, max_width},
     overlay_layout::inside,
     panels::Drag,
@@ -72,11 +73,13 @@ impl App {
             | HitTarget::Edge(_)
             | HitTarget::Switch(_)
             | HitTarget::PanelBody
-            | HitTarget::Row(_) => Some(target),
+            | HitTarget::Row(_)
+            | HitTarget::Agent(_) => Some(target),
             HitTarget::Window(_)
             | HitTarget::Session
             | HitTarget::Prompt { .. }
-            | HitTarget::ExplorerButton => None,
+            | HitTarget::ExplorerButton
+            | HitTarget::AgentsButton => None,
         }
     }
 
@@ -146,13 +149,19 @@ impl App {
                 None
             }
             HitTarget::Switch(view) if left => {
-                self.panels.shown = view;
-                self.panels.focused = self.panels.open && view == PanelView::Explorer;
+                let agents = status_parts(&self.status).agents;
+                self.panels.switch(view, &agents);
                 None
             }
             HitTarget::Row(row) if left => {
                 let outcome = self.panels.click(row, Instant::now());
                 self.explorer_outcome(outcome);
+                None
+            }
+            HitTarget::Agent(pane) if left => {
+                let agents = status_parts(&self.status).agents;
+                let outcome = self.panels.agent_click(pane, &agents);
+                self.agents_outcome(outcome);
                 None
             }
             HitTarget::NewTab | HitTarget::CloseTab(_) if left => bar_command(target),
@@ -163,7 +172,9 @@ impl App {
             | HitTarget::Switch(_)
             | HitTarget::PanelBody
             | HitTarget::Row(_)
+            | HitTarget::Agent(_)
             | HitTarget::ExplorerButton
+            | HitTarget::AgentsButton
             | HitTarget::Window(_)
             | HitTarget::Session
             | HitTarget::Prompt { .. } => None,
@@ -189,9 +200,11 @@ impl App {
                 let Some(slot) = frame.slot(side) else {
                     return;
                 };
-                let view = match slot.shared {
-                    true => PanelView::Explorer,
-                    false => slot.view,
+                let view = match (slot.shared, slot.view) {
+                    (false, PanelView::Tabs) => PanelView::Tabs,
+                    (true, _) | (false, PanelView::Explorer | PanelView::Agents) => {
+                        PanelView::Explorer
+                    }
                 };
                 let padding = self.padding(surface.window.scale_factor());
                 let limit = max_width(&frame, side, padding, surface.fonts.metrics(), scale);
@@ -234,7 +247,7 @@ impl App {
                 if let Some((view, width)) = self.panels.live_width {
                     let key = match view {
                         PanelView::Tabs => "tabs.width",
-                        PanelView::Explorer => "explorer.width",
+                        PanelView::Explorer | PanelView::Agents => "explorer.width",
                     };
                     self.save_setting(key, Some(Value::Integer(width as i64)));
                 }
@@ -263,6 +276,10 @@ impl App {
         });
         match view {
             Some(PanelView::Explorer) => self.panels.scroll_explorer(-lines),
+            Some(PanelView::Agents) => {
+                let count = lines_of(&status_parts(&self.status).agents).len();
+                self.panels.scroll_agents(-lines, count);
+            }
             Some(PanelView::Tabs) | None => {
                 self.panels.scroll_tabs(-lines, self.status.windows.len());
             }

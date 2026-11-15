@@ -104,6 +104,7 @@ fn opened(at_prompt: bool) -> Panels {
     panels.place(Pages {
         tabs: 0,
         explorer: 10,
+        agents: 0,
     });
     panels
 }
@@ -532,6 +533,7 @@ fn the_wheel_scrolls_the_tree_by_the_placed_page() {
     panels.place(Pages {
         tabs: 0,
         explorer: 2,
+        agents: 0,
     });
     panels.scroll_explorer(5);
     assert_eq!(panels.explorer.scroll(), 2);
@@ -558,6 +560,7 @@ fn the_explorer_loses_focus_when_its_slot_is_gone() {
     panels.place(Pages {
         tabs: 4,
         explorer: 0,
+        agents: 0,
     });
     assert!(panels.open && !panels.focused);
 }
@@ -589,6 +592,7 @@ fn the_tree_scroll_never_leaves_blank_rows_below_the_last_entry() {
     panels.place(Pages {
         tabs: 0,
         explorer: 2,
+        agents: 0,
     });
     panels.scroll_explorer(5);
     assert_eq!(panels.explorer.scroll(), 2);
@@ -599,6 +603,7 @@ fn the_tree_scroll_never_leaves_blank_rows_below_the_last_entry() {
     assert!(panels.place(Pages {
         tabs: 0,
         explorer: 4,
+        agents: 0,
     }));
     assert_eq!(panels.explorer.scroll(), 0);
 }

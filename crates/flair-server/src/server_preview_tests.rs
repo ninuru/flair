@@ -66,6 +66,7 @@ fn previews(out: &[Effect]) -> Vec<SessionPreview> {
             | Effect::ReadContexts
             | Effect::ReadProcess(_)
             | Effect::PaneProcesses { .. }
+            | Effect::Notify { .. }
             | Effect::Shutdown => None,
         })
         .collect()
@@ -87,6 +88,7 @@ fn preview_timers(out: &[Effect]) -> Vec<Millis> {
             | Effect::ReadContexts
             | Effect::ReadProcess(_)
             | Effect::PaneProcesses { .. }
+            | Effect::Notify { .. }
             | Effect::Shutdown => None,
         })
         .collect()
@@ -127,6 +129,7 @@ fn choose_session_carries_the_preview_of_the_current_session_and_watches_it() {
             | Effect::ReadContexts
             | Effect::ReadProcess(_)
             | Effect::PaneProcesses { .. }
+            | Effect::Notify { .. }
             | Effect::Shutdown => None,
         })
         .expect("the chooser is sent");

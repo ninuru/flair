@@ -52,6 +52,7 @@ fn parts() -> StatusParts {
             },
         ],
         badges: Vec::new(),
+        agents: Vec::new(),
     }
 }
 
@@ -80,6 +81,7 @@ struct Case<'a> {
     hover: Option<(f32, f32)>,
     notice: Option<&'a Notice>,
     panels: Option<&'a Panels>,
+    dock: Dock,
 }
 
 impl<'a> Case<'a> {
@@ -95,6 +97,7 @@ impl<'a> Case<'a> {
             hover: None,
             notice: None,
             panels: None,
+            dock: Dock::default(),
         }
     }
 
@@ -144,7 +147,7 @@ impl<'a> Case<'a> {
                     height: 16.0 * scale,
                     baseline: 12.0 * scale,
                 },
-                Dock::default(),
+                self.dock,
             ),
             panels: self.panels,
         };

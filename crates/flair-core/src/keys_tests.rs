@@ -560,3 +560,20 @@ fn prefix_e_opens_the_explorer_and_split_run_has_no_name() {
         assert_eq!(parse_command(name), None, "{name}");
     }
 }
+
+#[test]
+fn prefix_a_opens_the_agents_overview() {
+    let config = KeysConfig::default();
+    assert_eq!(
+        config.binding(&plain(Key::Char('a')), true),
+        Some(Command::Agents)
+    );
+    assert_eq!(config.binding(&plain(Key::Char('a')), false), None);
+    assert_eq!(parse_command("agents"), Some(Command::Agents));
+    assert!(
+        config
+            .bindings()
+            .iter()
+            .any(|b| b.chord == "a" && b.command.as_deref() == Some("agents"))
+    );
+}

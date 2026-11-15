@@ -1,4 +1,8 @@
-use flair_core::{ids::WindowId, status::StatusLine};
+use flair_core::{
+    agent::AgentState,
+    ids::{PaneId, WindowId},
+    status::StatusLine,
+};
 use unicode_width::UnicodeWidthChar;
 
 use crate::process_icon::process_icon;
@@ -8,6 +12,7 @@ pub struct StatusParts {
     pub chip: ChipParts,
     pub tabs: Vec<TabParts>,
     pub badges: Vec<BadgeParts>,
+    pub agents: Vec<AgentParts>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,6 +33,19 @@ pub struct TabParts {
     pub last: bool,
     pub activity: bool,
     pub bell: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentParts {
+    pub pane: PaneId,
+    pub window: WindowId,
+    pub session: String,
+    pub icon: Option<char>,
+    pub title: String,
+    pub label: &'static str,
+    pub state: AgentState,
+    pub unseen: bool,
+    pub active: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +96,24 @@ pub fn status_parts(status: &StatusLine) -> StatusParts {
         .into_iter()
         .flatten()
         .collect(),
+        agents: status
+            .agents
+            .iter()
+            .map(|row| AgentParts {
+                pane: row.pane,
+                window: row.window,
+                session: row.session.clone(),
+                icon: process_icon(&row.app),
+                title: row.title.clone(),
+                label: row.state.label(row.kind),
+                state: row.state,
+                unseen: row.unseen,
+                active: status
+                    .pane
+                    .as_ref()
+                    .is_some_and(|pane| pane.pane == row.pane),
+            })
+            .collect(),
     }
 }
 

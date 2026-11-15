@@ -92,6 +92,7 @@ fn parts() -> StatusParts {
             },
         ],
         badges: Vec::new(),
+        agents: Vec::new(),
     }
 }
 
@@ -847,6 +848,7 @@ fn narrow(session: &str, names: &[&str], active: usize) -> StatusParts {
                 text: "^A".into(),
             },
         ],
+        agents: Vec::new(),
     }
 }
 

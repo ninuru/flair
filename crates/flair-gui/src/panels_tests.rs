@@ -143,6 +143,7 @@ fn scrolling_clamps_to_the_list_and_reveal_keeps_the_active_row_visible() {
     panels.place(Pages {
         tabs: 4,
         explorer: 0,
+        agents: 0,
     });
     panels.scroll_tabs(-3, 10);
     assert_eq!(panels.tabs_scroll, 0);
@@ -270,6 +271,7 @@ fn a_reveal_before_the_panel_is_placed_applies_on_the_next_place() {
     panels.place(Pages {
         tabs: 4,
         explorer: 0,
+        agents: 0,
     });
     panels.toggle_tabs(TabsPosition::Top);
     panels.reveal_tab(9);
@@ -279,15 +281,20 @@ fn a_reveal_before_the_panel_is_placed_applies_on_the_next_place() {
     assert!(panels.place(Pages {
         tabs: 4,
         explorer: 0,
+        agents: 0,
     }));
     assert_eq!(panels.tabs_scroll, 6);
     panels.scroll_tabs(-6, 10);
     assert!(!panels.place(Pages {
         tabs: 4,
         explorer: 0,
+        agents: 0,
     }));
     assert_eq!(panels.tabs_scroll, 0);
 }
 
 #[path = "panels_explorer_tests.rs"]
 mod explorer_tests;
+
+#[path = "panels_agents_tests.rs"]
+mod agents_tests;

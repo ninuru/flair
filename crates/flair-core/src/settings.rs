@@ -432,6 +432,14 @@ pub const SETTINGS: &[Setting] = &[
         },
     },
     Setting {
+        key: "notifications.enabled",
+        title: "Notifications",
+        section: Section::Terminal,
+        kind: Kind::Toggle,
+        description: "Sends a desktop notification when an agent needs input, finishes or fails.",
+        read: |config, _| Value::Bool(config.notifications.enabled),
+    },
+    Setting {
         key: "prompt.style",
         title: "Style",
         section: Section::Prompt,
