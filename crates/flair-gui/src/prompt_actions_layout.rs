@@ -1,9 +1,13 @@
 use crate::{
-    chrome_bar::{baseline, ellipsize, fill, opaque, rounded, ui_text},
+    chrome_bar::{baseline, ellipsize, opaque, rounded, ui_text},
     chrome_layout::bar_height,
     font::PROMPT_ICON_SCALE,
     overlay_layout::{OverlayInput, OverlayScene},
     renderer::{Border, PxRect, TextFace, TextRun},
+    t3_style::{
+        FOREGROUND, MUTED, POPUP, POPUP_BORDER, POPUP_HOVER, POPUP_PAD, POPUP_ROW_RADIUS,
+        POPUP_SELECTED, SELECT_RADIUS,
+    },
     ui::{LINE, px},
 };
 
@@ -17,7 +21,6 @@ impl PromptMenu {
     ) -> OverlayScene {
         let mut scene = OverlayScene::default();
         let scale = input.scale;
-        let surfaces = input.theme.surfaces();
         let inset = px(8.0, scale);
         let row_h = px(28.0, scale)
             .max(input.ui.height + px(8.0, scale))
@@ -50,10 +53,10 @@ impl PromptMenu {
         scene.hits.panel = panel;
         scene.quads.push(crate::renderer::Quad {
             border: Some(Border {
-                color: opaque(surfaces.outline),
+                color: opaque(POPUP_BORDER),
                 width: px(LINE, scale),
             }),
-            ..rounded(panel, surfaces.surface1, 6.0, scale)
+            ..rounded(panel, POPUP, SELECT_RADIUS, scale)
         });
         if height < field_h || width <= inset * 2.0 {
             return scene;
@@ -77,20 +80,11 @@ impl PromptMenu {
             baseline(field, input.ui),
             ellipsize(text, width - inset * 2.0, false, measure),
             if self.query.is_empty() {
-                surfaces.muted
+                MUTED
             } else {
-                input.theme.foreground
+                FOREGROUND
             },
             false,
-        ));
-        scene.quads.push(fill(
-            PxRect {
-                x: left,
-                y: y + field_h - px(LINE, scale),
-                w: width,
-                h: px(LINE, scale),
-            },
-            surfaces.outline,
         ));
         let first = self.selected.saturating_sub(capacity.saturating_sub(1));
         for (offset, item) in rows.iter().skip(first).take(count).enumerate() {
@@ -106,20 +100,22 @@ impl PromptMenu {
             });
             let selected = index == self.selected;
             if selected || hovered {
-                scene.quads.push(fill(
-                    rect,
-                    if selected {
-                        input.theme.foreground
-                    } else {
-                        surfaces.surface3
+                let pad = px(POPUP_PAD, scale);
+                scene.quads.push(rounded(
+                    PxRect {
+                        x: rect.x + pad,
+                        w: (rect.w - pad * 2.0).max(0.0),
+                        ..rect
                     },
+                    if selected {
+                        POPUP_SELECTED
+                    } else {
+                        POPUP_HOVER
+                    },
+                    POPUP_ROW_RADIUS,
+                    scale,
                 ));
             }
-            let ink = if selected {
-                input.theme.background
-            } else {
-                input.theme.foreground
-            };
             if self.chip == flair_core::isles::Chip::Docker {
                 scene.text.push(TextRun {
                     x: left + inset,
@@ -128,7 +124,7 @@ impl PromptMenu {
                         + input.metrics.baseline * PROMPT_ICON_SCALE)
                         .round(),
                     text: "\u{f308}".into(),
-                    color: ink,
+                    color: FOREGROUND,
                     bold: false,
                     face: TextFace::PromptIcon,
                 });
@@ -138,7 +134,7 @@ impl PromptMenu {
                     left + width - px(24.0, scale),
                     baseline(rect, input.ui),
                     "✓".into(),
-                    ink,
+                    MUTED,
                     false,
                 ));
             }
@@ -146,7 +142,7 @@ impl PromptMenu {
                 left + px(28.0, scale),
                 baseline(rect, input.ui),
                 ellipsize(&item.name, width - px(56.0, scale), false, measure),
-                ink,
+                FOREGROUND,
                 false,
             ));
             scene.hits.rows.push((index, rect));
@@ -168,7 +164,7 @@ impl PromptMenu {
                 left + inset,
                 baseline(rect, input.ui),
                 ellipsize(text, width - inset * 2.0, false, measure),
-                surfaces.muted,
+                MUTED,
                 false,
             ));
         }

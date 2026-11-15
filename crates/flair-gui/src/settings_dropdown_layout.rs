@@ -1,6 +1,6 @@
 use super::*;
 use crate::renderer::TextFace;
-use crate::settings_style::{
+use crate::t3_style::{
     POPUP, POPUP_BORDER, POPUP_GAP, POPUP_HOVER, POPUP_PAD, POPUP_ROW, POPUP_ROW_PAD,
     POPUP_ROW_RADIUS, POPUP_ROWS, POPUP_SELECTED, SELECT_RADIUS, SHADOW,
 };

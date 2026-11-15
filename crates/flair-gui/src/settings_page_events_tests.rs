@@ -6,8 +6,8 @@ use crate::{
     mirror::Mirror,
     overlays::Overlays,
     renderer::{HeadlessContext, Renderer},
-    settings_style::{BACKGROUND, CARD, NAV_CURRENT, ROW_FOCUS, SIDEBAR, SWITCH_OFF},
     status::status_parts,
+    t3_style::{BACKGROUND, CARD, NAV_CURRENT, ROW_FOCUS, SIDEBAR, SWITCH_OFF},
 };
 use flair_core::{
     geom::CellPoint,

@@ -3,6 +3,7 @@ use crate::{
     UiMetrics,
     overlay_layout::{Placement, Row, Sheet, layout},
     renderer::TextFace,
+    t3_style::{PRIMARY, SEARCH_ICON},
 };
 use flair_core::{
     config::Config,
@@ -140,7 +141,7 @@ fn one_thumbnail_per_window_up_to_nine_with_capped_width() {
 }
 
 #[test]
-fn the_current_window_gets_the_accent_border() {
+fn the_current_window_gets_the_primary_border() {
     let theme = Config::default().theme();
     let strip = Strip {
         windows: vec![window(1, "a", false), window(2, "b", true)],
@@ -159,7 +160,7 @@ fn the_current_window_gets_the_accent_border() {
                 opaque(theme.background),
                 6.0
             ),
-            (opaque(theme.accent), opaque(theme.background), 6.0),
+            (opaque(PRIMARY), opaque(theme.background), 6.0),
         ]
     );
 }
@@ -325,6 +326,8 @@ fn tree_sheet(rows: usize) -> Sheet {
             windows: vec![window(1, "zsh", true), window(2, "nvim", false)],
             preview: None,
         }),
+        empty: Some("No sessions."),
+        glyph: SEARCH_ICON,
     }
 }
 
@@ -337,9 +340,9 @@ fn the_sheet_reserves_the_strip_between_rows_and_footer() {
     let last_row = scene.hits.rows.last().unwrap().1;
     let thumb = scene.hits.windows[0].1;
     assert_eq!(scene.hits.rows.len(), 4);
-    assert!(thumb.y >= last_row.y + last_row.h + 25.0);
+    assert!(thumb.y >= last_row.y + last_row.h + 20.0);
     let panel = scene.hits.panel;
-    assert!(thumb.y + thumb.h <= panel.y + panel.h - 20.0 - 20.0 - 25.0);
+    assert!(thumb.y + thumb.h <= panel.y + panel.h - 40.0 - 12.0);
     let without = layout(
         &Sheet {
             strip: None,

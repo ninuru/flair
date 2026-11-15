@@ -7,7 +7,7 @@ use crate::{
     overlay_layout::{Field, OverlayInput, OverlayScene, inside, visible},
     renderer::{Border, PxRect, Quad, TextRun},
     settings_layout::{Control, Entry, SettingsHit},
-    settings_style::{
+    t3_style::{
         CHEVRON, CHEVRON_ICON, CHORD, CHORD_GAP, CHORD_PAD, CONTROL_GAP, DESCRIPTION_GAP,
         DESCRIPTION_LINE, ERROR, ERROR_LINE, FOCUS_INSET, FOCUS_RADIUS, FOREGROUND, GHOST_HOVER,
         ICON_BOX, INPUT, INPUT_BORDER, KBD_HEIGHT, KBD_RADIUS, MINUS_ICON, MUTED, PLUS_ICON,

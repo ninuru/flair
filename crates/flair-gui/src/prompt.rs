@@ -6,8 +6,9 @@ use flair_core::{
 
 use crate::{
     cursor::TextCursor,
-    overlay_layout::{Placement, Row, Sheet},
+    overlay_layout::{Field, Placement, Row, Sheet},
     process_icon::process_icon,
+    t3_style::{EDIT_ICON, SEARCH_ICON},
     ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
 
@@ -142,6 +143,7 @@ impl Prompt {
                         number: Some(window.index),
                         icon: process_icon(&window.program),
                         name: window.name.chars().filter(|c| !c.is_control()).collect(),
+                        current: window.active,
                         label: if window.active {
                             Some("active")
                         } else if window.last {
@@ -154,13 +156,34 @@ impl Prompt {
                     .collect(),
                 selected: *selected,
                 keys: vec![
-                    (ENTER_KEY, "select".to_owned()),
-                    (MOVE_KEY, "move".to_owned()),
-                    ("1-9", "jump".to_owned()),
-                    (ESCAPE_KEY, "cancel".to_owned()),
+                    (MOVE_KEY, "Navigate".to_owned()),
+                    (ENTER_KEY, "Select".to_owned()),
+                    ("1-9", "Jump".to_owned()),
+                    (ESCAPE_KEY, "Cancel".to_owned()),
                 ],
+                empty: Some("No windows."),
+                glyph: SEARCH_ICON,
             }),
-            Prompt::Rename { .. } | Prompt::Search { .. } => None,
+            Prompt::Rename { field } => Some(Sheet {
+                strip: None,
+                placement: Placement::Centred,
+                title: None,
+                field: Some(Field {
+                    text: field.text().to_owned(),
+                    cursor: field.cursor(),
+                    placeholder: "Rename window",
+                }),
+                count: (0, 0),
+                rows: Vec::new(),
+                selected: 0,
+                keys: vec![
+                    (ENTER_KEY, "Rename".to_owned()),
+                    (ESCAPE_KEY, "Cancel".to_owned()),
+                ],
+                empty: None,
+                glyph: EDIT_ICON,
+            }),
+            Prompt::Search { .. } => None,
         }
     }
 

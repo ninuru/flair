@@ -113,10 +113,10 @@ fn chooser_sheet_lists_windows_with_numbers_and_state_labels() {
     assert_eq!(
         keys,
         [
-            ("↵", "select"),
-            ("↑↓", "move"),
-            ("1-9", "jump"),
-            ("esc", "cancel")
+            ("↑↓", "Navigate"),
+            ("↵", "Select"),
+            ("1-9", "Jump"),
+            ("esc", "Cancel")
         ]
     );
 }
@@ -130,7 +130,7 @@ fn chooser_moves_the_selection_within_bounds() {
     assert_eq!(prompt.sheet().unwrap().selected, 0);
     let mut rename = Prompt::rename("x".to_owned());
     rename.move_selection(1);
-    assert_eq!(rename.sheet(), None);
+    assert_eq!(rename.sheet().unwrap().selected, 0);
 }
 
 #[test]
@@ -146,9 +146,17 @@ fn rename_edits_text_and_submits_it() {
 }
 
 #[test]
-fn rename_has_no_sheet_and_gives_bar_text() {
+fn rename_is_a_palette_field_and_still_gives_bar_text() {
     let prompt = Prompt::rename("nvim".to_owned());
-    assert_eq!(prompt.sheet(), None);
+    let sheet = prompt.sheet().unwrap();
+    let field = sheet.field.unwrap();
+    assert_eq!((field.text.as_str(), field.cursor), ("nvim", 4));
+    assert!(sheet.rows.is_empty() && sheet.empty.is_none());
+    assert_eq!(
+        sheet.keys,
+        [("↵", "Rename".to_owned()), ("esc", "Cancel".to_owned())]
+    );
+    assert_eq!(Prompt::search(true).sheet(), None);
     assert_eq!(prompt.bar_text().as_deref(), Some("(rename-window) nvim"));
     assert_eq!(Prompt::choose(&status()).bar_text(), None);
 }
