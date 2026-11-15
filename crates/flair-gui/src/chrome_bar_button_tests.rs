@@ -11,7 +11,7 @@ fn the_explorer_button_sits_at_the_far_right_of_the_bar() {
     let surfaces = Config::default().theme().surfaces();
     let status = parts();
     let layout = Case::new(&status).run();
-    let button = rect(768.0, 0.0, 24.0, 34.0);
+    let button = rect(760.0, 0.0, 28.0, 34.0);
     assert_eq!(
         hit_test(&layout.hits, (780.0, 3.0)),
         Some(HitTarget::ExplorerButton)
@@ -20,8 +20,8 @@ fn the_explorer_button_sits_at_the_far_right_of_the_bar() {
     let run = glyph(&layout).unwrap();
     assert_eq!(run.face, TextFace::PromptIcon);
     assert_eq!(run.color, surfaces.muted);
-    assert!(run.x >= 768.0 && run.x < 780.0, "{}", run.x);
-    assert!(quad_at(&layout, rect(768.0, 5.0, 24.0, 24.0)).is_none());
+    assert!(run.x >= 760.0 && run.x < 774.0, "{}", run.x);
+    assert!(quad_at(&layout, rect(760.0, 3.0, 28.0, 28.0)).is_none());
 }
 
 #[test]
@@ -34,11 +34,11 @@ fn hovering_the_button_fills_it_and_an_open_explorer_brightens_it() {
     }
     .run();
     assert_eq!(
-        quad_at(&hovered, rect(768.0, 5.0, 24.0, 24.0)),
+        quad_at(&hovered, rect(760.0, 3.0, 28.0, 28.0)),
         Some(&rounded(
-            rect(768.0, 5.0, 24.0, 24.0),
-            theme.surfaces().surface2,
-            ROW_RADIUS,
+            rect(760.0, 3.0, 28.0, 28.0),
+            tint(&theme, 6),
+            BUTTON_RADIUS,
             1.0
         ))
     );
@@ -56,8 +56,8 @@ fn hovering_the_button_fills_it_and_an_open_explorer_brightens_it() {
 fn the_badges_move_one_item_left_of_the_button() {
     let status = copy_and_prefix();
     let layout = Case::new(&status).run();
-    let copy = quad_at(&layout, rect(736.0, 7.0, 26.0, 20.0)).unwrap();
-    assert_eq!(copy.rect.x + copy.rect.w + 6.0, 768.0);
+    let copy = quad_at(&layout, rect(734.0, 9.0, 22.0, 16.0)).unwrap();
+    assert_eq!(copy.rect.x + copy.rect.w + 4.0, 760.0);
 }
 
 fn with_agents(states: &[(AgentState, bool)]) -> StatusParts {
@@ -96,7 +96,7 @@ fn the_agents_indicator_shows_only_for_unseen_rows() {
     let layout = Case::new(&status).run();
     assert!(bells(&layout).is_empty());
     assert_eq!(hit_test(&layout.hits, (750.0, 3.0)), None);
-    assert!(quad_at(&layout, rect(736.0, 7.0, 26.0, 20.0)).is_some());
+    assert!(quad_at(&layout, rect(734.0, 9.0, 22.0, 16.0)).is_some());
 }
 
 #[test]
@@ -107,29 +107,29 @@ fn an_unseen_row_puts_the_indicator_left_of_the_button_and_shifts_the_badges() {
     let bell = bells(&layout);
     assert_eq!(bell.len(), 1);
     assert_eq!(bell[0].color, theme.foreground);
-    assert!(bell[0].x >= 738.0 && bell[0].x < 750.0, "{}", bell[0].x);
+    assert!(bell[0].x >= 728.0 && bell[0].x < 742.0, "{}", bell[0].x);
     assert_eq!(
-        hit_test(&layout.hits, (750.0, 3.0)),
+        hit_test(&layout.hits, (740.0, 3.0)),
         Some(HitTarget::AgentsButton)
     );
     assert!(
         layout
             .hits
             .iter()
-            .any(|hit| hit.rect == rect(738.0, 0.0, 24.0, 34.0))
+            .any(|hit| hit.rect == rect(728.0, 0.0, 28.0, 34.0))
     );
-    assert!(quad_at(&layout, rect(706.0, 7.0, 26.0, 20.0)).is_some());
+    assert!(quad_at(&layout, rect(700.0, 9.0, 22.0, 16.0)).is_some());
     let hovered = Case {
-        hover: Some((750.0, 10.0)),
+        hover: Some((740.0, 10.0)),
         ..Case::new(&status)
     }
     .run();
     assert_eq!(
-        quad_at(&hovered, rect(738.0, 5.0, 24.0, 24.0)),
+        quad_at(&hovered, rect(728.0, 3.0, 28.0, 28.0)),
         Some(&rounded(
-            rect(738.0, 5.0, 24.0, 24.0),
-            theme.surfaces().surface2,
-            ROW_RADIUS,
+            rect(728.0, 3.0, 28.0, 28.0),
+            tint(&theme, 6),
+            BUTTON_RADIUS,
             1.0
         ))
     );

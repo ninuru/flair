@@ -2,9 +2,13 @@ use super::*;
 use crate::{
     CellMetrics,
     renderer::TextFace,
-    ui::{ELLIPSIS, ENTER_KEY, MOVE_KEY},
+    t3_style::{
+        DIM, EDIT_ICON, FOREGROUND, MONOGRAM, MUTED, PALETTE, PALETTE_CURRENT, PALETTE_FOOTER,
+        PALETTE_HIGHLIGHT, PALETTE_KEYCAP, PANEL_BORDER, QUIET, SEARCH_ICON,
+    },
+    ui::{ELLIPSIS, ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
-use flair_core::config::Config;
+use flair_core::{config::Config, theme::Rgb};
 
 fn measure(text: &str, _: bool) -> f32 {
     text.chars().count() as f32 * 7.0
@@ -67,10 +71,12 @@ fn sessions(rows: Vec<Row>, selected: usize) -> Sheet {
         rows,
         selected,
         keys: vec![
-            (ENTER_KEY, "switch".into()),
-            (MOVE_KEY, "move".into()),
-            ("esc", "close".into()),
+            (MOVE_KEY, "Navigate".into()),
+            (ENTER_KEY, "Switch".into()),
+            (ESCAPE_KEY, "Close".into()),
         ],
+        empty: Some("No matching sessions."),
+        glyph: SEARCH_ICON,
     }
 }
 
@@ -96,24 +102,27 @@ fn many(count: usize, selected: usize) -> Sheet {
 
 fn windows() -> Sheet {
     Sheet {
-        strip: None,
         title: Some("Windows"),
         field: None,
         count: (2, 2),
         rows: vec![
             Row {
                 number: Some(1),
+                icon: Some('\u{f120}'),
                 name: "nvim".into(),
                 label: Some("active"),
+                current: true,
                 ..Row::default()
             },
             Row {
-                number: Some(12),
+                number: Some(2),
+                icon: Some('\u{f120}'),
                 name: "zsh".into(),
                 label: Some("last"),
                 ..Row::default()
             },
         ],
+        selected: 1,
         ..three()
     }
 }
@@ -126,587 +135,401 @@ fn quad_at(scene: &OverlayScene, rect: PxRect) -> Option<&Quad> {
     scene.quads.iter().find(|quad| quad.rect == rect)
 }
 
-#[test]
-fn centred_panel_sits_at_the_panel_top_and_fits_its_rows() {
-    let surfaces = Config::default().theme().surfaces();
-    for (px, scale, panel) in [
-        ((960, 600), 1.0, rect(120.0, 200.0, 720.0, 222.0)),
-        ((1920, 1200), 1.0, rect(600.0, 200.0, 720.0, 222.0)),
-        ((1920, 1200), 2.0, rect(240.0, 400.0, 1440.0, 444.0)),
-    ] {
-        let scene = run(&three(), px, scale, None);
-        assert_eq!(
-            scene.quads[0],
-            Quad {
-                rect: rect(0.0, 35.0 * scale, px.0 as f32, px.1 as f32 - 35.0 * scale),
-                color: BACKDROP,
-                radius: 0.0,
-                border: None,
-            }
-        );
-        assert_eq!(
-            scene.quads[1],
-            Quad {
-                rect: panel,
-                color: opaque(surfaces.surface1),
-                radius: 10.0 * scale,
-                border: Some(Border {
-                    color: opaque(surfaces.outline),
-                    width: scale,
-                }),
-            },
-            "{px:?} {scale}"
-        );
-        assert_eq!(scene.hits.panel, panel);
-    }
+fn colour(color: Rgb) -> flair_core::theme::Rgba {
+    opaque(color)
 }
 
 #[test]
-fn short_windows_centre_the_panel_below_the_bar() {
-    let scene = run(&three(), (600, 400), 1.0, None);
-    let panel = scene.hits.panel;
-    assert_eq!(panel.w, 552.0);
-    assert_eq!(panel.x, 24.0);
-    let room = 400.0 - 35.0 - 40.0;
-    assert_eq!(panel.y, 55.0 + ((room - panel.h) / 2.0).floor());
-}
-
-#[test]
-fn palette_field_is_a_borderless_band_with_the_total_and_a_full_width_hairline() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let scene = run(&three(), (960, 600), 1.0, None);
-    let hairline = quad_at(&scene, rect(120.0, 244.0, 720.0, 1.0)).unwrap();
-    assert_eq!(hairline.color, opaque(surfaces.outline));
+fn the_palette_dims_the_window_and_centres_a_576_wide_panel() {
+    let scene = run(&three(), (1600, 1000), 1.0, None);
+    assert_eq!(
+        scene.quads[0],
+        Quad {
+            rect: rect(0.0, 0.0, 1600.0, 1000.0),
+            color: DIM,
+            radius: 0.0,
+            border: None,
+        }
+    );
+    let panel = rect(512.0, 100.0, 576.0, 46.0 + 16.0 + 96.0 + 40.0);
+    assert_eq!(scene.hits.panel, panel);
+    let quad = quad_at(&scene, panel).unwrap();
+    assert_eq!((quad.color, quad.radius), (colour(PALETTE), 16.0));
+    assert_eq!(quad.border.unwrap().color, colour(PANEL_BORDER));
     assert!(
         scene
             .quads
             .iter()
-            .all(|quad| quad.color != opaque(theme.background))
+            .any(|quad| quad.rect.y > panel.y && quad.rect.w > panel.w)
     );
+}
+
+#[test]
+fn the_palette_sits_below_the_bar_on_short_windows() {
+    let scene = run(&three(), (800, 300), 1.0, None);
+    assert_eq!(scene.hits.panel.y, 42.0);
+    assert_eq!(scene.hits.panel.w, 576.0);
+    let narrow = run(&three(), (400, 600), 1.0, None);
+    assert_eq!(narrow.hits.panel.x, 16.0);
+    assert_eq!(narrow.hits.panel.w, 368.0);
+}
+
+#[test]
+fn the_input_row_has_a_search_glyph_a_placeholder_a_caret_and_no_divider() {
+    let scene = run(&three(), (1600, 1000), 1.0, None);
+    let glyph = text(&scene, &SEARCH_ICON.to_string()).unwrap();
+    assert_eq!(glyph.face, TextFace::PromptIcon);
     let placeholder = text(&scene, "Search sessions").unwrap();
-    assert_eq!(
-        (placeholder.x, placeholder.baseline, placeholder.color),
-        (158.0, 226.0, surfaces.faint)
-    );
-    let caret = quad_at(&scene, rect(154.0, 215.0, 1.0, 14.0)).unwrap();
-    assert_eq!(caret.color, opaque(theme.accent));
+    assert_eq!((placeholder.x, placeholder.color), (552.0, MUTED));
     let count = text(&scene, "3").unwrap();
-    assert_eq!(
-        (count.x, count.color, count.face),
-        (803.0, surfaces.muted, TextFace::Small)
-    );
-    assert_eq!(scene.hits.rows[0].1.y, 253.0);
-}
-
-#[test]
-fn palette_field_draws_the_query_with_a_caret_and_counts_matches_of_all() {
-    let theme = Config::default().theme();
-    let mut sheet = three();
-    sheet.field = Some(Field {
-        text: "flair".into(),
-        cursor: 2,
-        placeholder: "Search sessions",
-    });
-    sheet.count = (1, 3);
-    let scene = run(&sheet, (960, 600), 1.0, None);
-    let query = text(&scene, "flair").unwrap();
-    assert_eq!((query.x, query.color), (154.0, theme.foreground));
-    assert!(quad_at(&scene, rect(168.0, 215.0, 1.0, 14.0)).is_some());
-    assert!(text(&scene, "Search sessions").is_none());
-    let count = text(&scene, "1 of 3").unwrap();
-    assert_eq!((count.x, count.face), (785.0, TextFace::Small));
-}
-
-#[test]
-fn long_queries_scroll_to_keep_the_caret_inside_the_field() {
-    let mut sheet = three();
-    sheet.field = Some(Field {
-        text: "q".repeat(200),
-        cursor: 200,
-        placeholder: "",
-    });
-    let scene = run(&sheet, (960, 600), 1.0, None);
-    let caret = scene
-        .quads
-        .iter()
-        .find(|quad| quad.rect.w == 1.0 && quad.rect.h == 14.0)
-        .unwrap();
-    let count = text(&scene, "3 of 3").unwrap();
-    assert!(caret.rect.x < count.x, "{caret:?}");
-    let shown = scene
-        .text
-        .iter()
-        .find(|run| run.text.starts_with('q'))
-        .unwrap();
-    assert!(shown.x + measure(&shown.text, false) <= count.x);
-}
-
-#[test]
-fn sheets_without_a_field_show_a_bold_title_and_the_count() {
-    let theme = Config::default().theme();
-    let scene = run(&windows(), (960, 600), 1.0, None);
-    let title = text(&scene, "Windows").unwrap();
-    assert!(title.bold);
-    assert_eq!(
-        (title.x, title.baseline, title.color),
-        (154.0, 226.0, theme.foreground)
-    );
-    let count = text(&scene, "2").unwrap();
-    assert_eq!((count.x, count.color), (803.0, theme.surfaces().muted));
-    assert!(quad_at(&scene, rect(120.0, 244.0, 720.0, 1.0)).is_some());
-    assert_eq!(scene.hits.rows[0].1.y, 253.0);
-}
-
-#[test]
-fn selected_row_is_accent_soft_with_a_left_bar_and_hovered_row_surface2() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let rows: Vec<PxRect> = (0..3)
-        .map(|index| rect(144.0, 253.0 + 36.0 * index as f32, 672.0, 32.0))
-        .collect();
-    let scene = run(&three(), (960, 600), 1.0, Some((300.0, 300.0)));
-    let selected = quad_at(&scene, rows[0]).unwrap();
-    assert_eq!(
-        (selected.color, selected.radius),
-        (opaque(surfaces.accent_soft), 6.0)
-    );
-    let bar = quad_at(&scene, rect(144.0, 260.0, 2.0, 18.0)).unwrap();
-    assert_eq!(bar.color, opaque(theme.accent));
-    assert_eq!(
-        quad_at(&scene, rows[1]).unwrap().color,
-        opaque(surfaces.surface2)
-    );
-    assert!(quad_at(&scene, rows[2]).is_none());
-    assert_eq!(
+    assert_eq!((count.color, count.face), (QUIET, TextFace::Small));
+    assert!(quad_at(&scene, rect(552.0, 116.0, 1.0, 14.0)).is_some());
+    assert!(
         scene
             .quads
             .iter()
-            .filter(|quad| quad.color == opaque(theme.accent) && quad.rect.w == 2.0)
-            .count(),
-        1
+            .all(|quad| !(quad.rect.h == 1.0 && quad.rect.y > 110.0 && quad.rect.y < 150.0))
     );
-    assert_eq!(
-        scene.hits.rows,
-        rows.iter().copied().enumerate().collect::<Vec<_>>()
-    );
-    let double = run(&three(), (1920, 1200), 2.0, None);
-    let first = double.hits.rows[0].1;
-    let bar = rect(first.x, first.y + 14.0, 4.0, first.h - 28.0);
-    assert!(quad_at(&double, bar).is_some());
 }
 
 #[test]
-fn rows_draw_the_name_a_right_aligned_mono_path_and_the_label_left_of_it() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let scene = run(&three(), (960, 600), 1.0, None);
-    let name = text(&scene, "flair").unwrap();
-    assert_eq!(
-        (name.x, name.baseline, name.color, name.face, name.bold),
-        (154.0, 273.0, theme.foreground, TextFace::Ui, false)
-    );
-    let other = text(&scene, "rust-catchers").unwrap();
-    assert_eq!((other.color, other.bold), (surfaces.bright, false));
-    let path = text(&scene, "~/IdeaProjects/flair").unwrap();
-    assert_eq!(
-        (path.x, path.baseline, path.color, path.face, path.bold),
-        (666.0, 273.0, surfaces.muted, TextFace::Icon, false)
-    );
-    let current = text(&scene, "current").unwrap();
-    assert_eq!(
-        (current.x, current.color, current.face),
-        (632.0, surfaces.muted, TextFace::Small)
-    );
-    let other_path = text(&scene, "~/projects/rust-catchers").unwrap();
-    assert_eq!(other_path.x + 24.0 * 7.0, 806.0);
-    assert_eq!(current.baseline, name.baseline);
-}
-
-#[test]
-fn matched_characters_are_bold_foreground_and_the_rest_bright() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
+fn a_query_shows_with_the_caret_and_counts_matches_of_all() {
     let mut sheet = three();
-    sheet.rows[1].name_matches = vec![0, 1, 5];
-    sheet.rows[1].detail_matches = vec![2, 3];
-    sheet.rows[0].name_matches = vec![0];
-    let scene = run(&sheet, (960, 600), 1.0, None);
-    let runs: Vec<_> = scene
-        .text
-        .iter()
-        .filter(|run| run.face == TextFace::Ui && run.baseline == 309.0)
-        .map(|run| (run.text.as_str(), run.x, run.color, run.bold))
-        .collect();
-    assert_eq!(
-        runs,
-        [
-            ("ru", 154.0, theme.foreground, true),
-            ("st-", 168.0, surfaces.bright, false),
-            ("c", 189.0, theme.foreground, true),
-            ("atchers", 196.0, surfaces.bright, false),
-        ]
-    );
-    let detail: Vec<_> = scene
-        .text
-        .iter()
-        .filter(|run| run.face == TextFace::Icon && run.baseline == 309.0)
-        .map(|run| (run.text.as_str(), run.x, run.color))
-        .collect();
-    assert_eq!(
-        detail,
-        [
-            ("~/", 638.0, surfaces.muted),
-            ("pr", 652.0, surfaces.bright),
-            ("ojects/rust-catchers", 666.0, surfaces.muted),
-        ]
-    );
-    assert_eq!(text(&scene, "f").unwrap().color, theme.foreground);
-    assert_eq!(text(&scene, "lair").unwrap().color, surfaces.bright);
+    sheet.field = Some(Field {
+        text: "fl".into(),
+        cursor: 1,
+        placeholder: "Search sessions",
+    });
+    sheet.count = (1, 3);
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let query = text(&scene, "fl").unwrap();
+    assert_eq!((query.x, query.color), (552.0, FOREGROUND));
+    assert!(text(&scene, "1 of 3").is_some());
+    assert!(quad_at(&scene, rect(559.0, 116.0, 1.0, 14.0)).is_some());
 }
 
 #[test]
-fn long_paths_lose_their_head_and_long_names_their_tail() {
-    let long = format!("~/{}/tail", "deep/".repeat(80));
-    let name = "n".repeat(60);
-    let sheet = sessions(vec![row(&name, Some(&long), None)], 0);
-    let scene = run(&sheet, (960, 600), 1.0, None);
-    let path = scene
-        .text
-        .iter()
-        .find(|run| run.text.ends_with("/tail"))
-        .unwrap();
-    assert!(path.text.starts_with(ELLIPSIS), "{}", path.text);
+fn rows_are_32_tall_with_a_highlight_for_the_selection_and_hover() {
+    let scene = run(&three(), (1600, 1000), 1.0, Some((800.0, 200.0)));
+    let rows: Vec<PxRect> = scene.hits.rows.iter().map(|(_, rect)| *rect).collect();
     assert_eq!(
-        (path.face, path.color),
-        (TextFace::Icon, Config::default().theme().surfaces().muted)
+        rows,
+        [
+            rect(520.0, 154.0, 560.0, 32.0),
+            rect(520.0, 186.0, 560.0, 32.0),
+            rect(520.0, 218.0, 560.0, 32.0),
+        ]
     );
-    assert_eq!(path.x + path.text.chars().count() as f32 * 7.0, 806.0);
-    let shown = scene
-        .text
-        .iter()
-        .find(|run| run.text.starts_with('n'))
-        .unwrap();
-    assert!(shown.text.ends_with(ELLIPSIS));
-    assert!(measure(&shown.text, false) <= 180.0);
-    assert!(path.x >= shown.x + measure(&shown.text, false) + 10.0);
+    for index in [0, 1] {
+        let quad = quad_at(&scene, rows[index]).unwrap();
+        assert_eq!((quad.color, quad.radius), (colour(PALETTE_HIGHLIGHT), 4.0));
+    }
+    assert!(quad_at(&scene, rows[2]).is_none());
+    let name = text(&scene, "flair").unwrap();
+    assert_eq!((name.x, name.color), (528.0, FOREGROUND));
+    let label = text(&scene, "current").unwrap();
+    assert_eq!((label.color, label.face), (QUIET, TextFace::Small));
 }
 
 #[test]
-fn numbers_sit_in_a_faint_column_and_depth_indents_the_row() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
+fn the_current_item_is_tinted_quieter_than_the_highlight() {
+    let scene = run(&windows(), (1600, 1000), 1.0, None);
+    let first = scene.hits.rows[0].1;
+    assert_eq!(
+        quad_at(&scene, first).unwrap().color,
+        colour(PALETTE_CURRENT)
+    );
+    let second = scene.hits.rows[1].1;
+    assert_eq!(
+        quad_at(&scene, second).unwrap().color,
+        colour(PALETTE_HIGHLIGHT)
+    );
+}
+
+#[test]
+fn titled_sheets_show_a_group_label_and_numbers_as_right_shortcuts() {
+    let scene = run(&windows(), (1600, 1000), 1.0, None);
+    let label = text(&scene, "Windows").unwrap();
+    assert_eq!(
+        (label.x, label.color, label.face),
+        (528.0, MUTED, TextFace::Small)
+    );
+    assert!(text(&scene, &SEARCH_ICON.to_string()).is_none());
+    assert_eq!(scene.hits.rows[0].1, rect(520.0, 136.0, 560.0, 32.0));
+    let number = text(&scene, "1").unwrap();
+    assert_eq!((number.color, number.face), (QUIET, TextFace::Small));
+    assert!(number.x > text(&scene, "active").unwrap().x);
+    assert_eq!(number.x, (1072.0_f32 - 3.5).round());
+    let icon = text(&scene, "\u{f120}").unwrap();
+    assert_eq!(icon.color, MUTED);
+    assert_eq!(text(&scene, "nvim").unwrap().x, 528.0 + 16.0 + 8.0);
+}
+
+#[test]
+fn session_rows_lead_with_a_monogram() {
+    let mut sheet = three();
+    for row in &mut sheet.rows {
+        row.monogram = true;
+    }
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let tile = quad_at(&scene, rect(528.0, 162.0, 16.0, 16.0)).unwrap();
+    assert_eq!((tile.color, tile.radius), (colour(MONOGRAM), 4.0));
+    assert_eq!(text(&scene, "F").unwrap().color, FOREGROUND);
+    assert_eq!(text(&scene, "flair").unwrap().x, 552.0);
+}
+
+#[test]
+fn rows_draw_a_right_aligned_mono_path_and_the_label_left_of_it() {
+    let scene = run(&three(), (1600, 1000), 1.0, None);
+    let path: Vec<&TextRun> = scene
+        .text
+        .iter()
+        .filter(|run| run.face == TextFace::Icon && run.baseline < 186.0)
+        .collect();
+    let joined: String = path.iter().map(|run| run.text.as_str()).collect();
+    assert_eq!(joined, "~/IdeaProjects/flair");
+    let start = path[0].x;
+    assert_eq!(start + 20.0 * 7.0, 1072.0);
+    let label = text(&scene, "current").unwrap();
+    assert_eq!(label.x, (start - 8.0 - 3.5 * 7.0).round());
+}
+
+#[test]
+fn matched_characters_are_bold() {
+    let mut sheet = three();
+    sheet.rows[1].name_matches = vec![0, 1];
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let bold = scene.text.iter().find(|run| run.text == "ru").unwrap();
+    assert!(bold.bold);
+    assert_eq!(bold.color, FOREGROUND);
+    assert!(!text(&scene, "st-catchers").unwrap().bold);
+}
+
+#[test]
+fn long_names_and_paths_ellipsize() {
+    let sheet = sessions(
+        vec![row(
+            &"n".repeat(80),
+            Some(&format!("~/{}", "p".repeat(200))),
+            None,
+        )],
+        0,
+    );
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let name = scene
+        .text
+        .iter()
+        .find(|run| run.text.starts_with("nnn"))
+        .unwrap();
+    assert!(name.text.ends_with(ELLIPSIS));
+    assert!(measure(&name.text, false) <= 220.0);
+    assert!(
+        scene
+            .text
+            .iter()
+            .any(|run| run.face == TextFace::Icon && run.text.starts_with(ELLIPSIS))
+    );
+}
+
+#[test]
+fn depth_indents_the_row() {
     let mut sheet = windows();
-    sheet.rows.push(Row {
-        depth: 1,
-        number: Some(3),
-        name: "logs".into(),
-        ..Row::default()
-    });
-    sheet.rows.push(Row {
-        depth: 1,
-        name: "bare".into(),
-        ..Row::default()
-    });
-    let scene = run(&sheet, (960, 600), 1.0, None);
-    let one = text(&scene, "1").unwrap();
-    assert_eq!(
-        (one.x, one.color, one.face),
-        (154.0, surfaces.faint, TextFace::Small)
-    );
-    assert_eq!(text(&scene, "12").unwrap().x, 154.0);
-    assert_eq!(text(&scene, "nvim").unwrap().x, 174.0);
-    assert_eq!(one.baseline, text(&scene, "nvim").unwrap().baseline);
-    assert_eq!(text(&scene, "3").unwrap().x, 174.0);
-    assert_eq!(text(&scene, "logs").unwrap().x, 194.0);
-    assert_eq!(text(&scene, "bare").unwrap().x, 174.0);
-    let active = text(&scene, "active").unwrap();
-    assert_eq!((active.x, active.face), (785.0, TextFace::Small));
+    sheet.rows[1].depth = 1;
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    assert_eq!(text(&scene, "zsh").unwrap().x, 528.0 + 16.0 + 16.0 + 8.0);
 }
 
 #[test]
-fn empty_state_shows_no_matches_and_keeps_the_footer() {
-    let theme = Config::default().theme();
-    let scene = run(&many(0, 0), (960, 600), 1.0, None);
-    let empty = text(&scene, "No matches").unwrap();
-    assert_eq!((empty.x, empty.color), (154.0, theme.surfaces().muted));
+fn an_empty_list_shows_the_sheet_message_centred_and_keeps_the_footer() {
+    let scene = run(&many(0, 0), (1600, 1000), 1.0, None);
+    let message = text(&scene, "No matching sessions.").unwrap();
+    assert_eq!(message.color, MUTED);
+    assert_eq!(message.x, (520.0 + (560.0 - 21.0 * 7.0) / 2.0_f32).round());
+    assert_eq!(scene.hits.panel.h, 46.0 + 16.0 + 100.0 + 40.0);
+    assert!(text(&scene, "Navigate").is_some());
+}
+
+#[test]
+fn a_field_without_a_list_is_just_the_input_and_the_footer() {
+    let sheet = Sheet {
+        title: None,
+        rows: Vec::new(),
+        count: (0, 0),
+        empty: None,
+        glyph: EDIT_ICON,
+        keys: vec![(ENTER_KEY, "Rename".into()), (ESCAPE_KEY, "Cancel".into())],
+        field: Some(Field {
+            text: "zsh".into(),
+            cursor: 3,
+            placeholder: "Rename window",
+        }),
+        ..three()
+    };
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    assert_eq!(scene.hits.panel.h, 46.0 + 40.0);
+    assert!(text(&scene, &EDIT_ICON.to_string()).is_some());
+    assert!(text(&scene, "0").is_none());
     assert!(scene.hits.rows.is_empty());
-    assert!(text(&scene, "switch").is_some());
-    assert_eq!(scene.hits.panel.h, 150.0);
 }
 
 #[test]
-fn many_rows_scroll_to_the_selection_and_count_the_hidden_rows() {
-    let scene = run(&many(20, 15), (960, 600), 1.0, None);
-    let shown: Vec<usize> = scene.hits.rows.iter().map(|(index, _)| *index).collect();
-    assert_eq!(shown, (9..16).collect::<Vec<_>>());
-    assert_eq!(scene.hits.rows[0].1.y, 253.0);
-    let more = text(&scene, "+13 more").unwrap();
-    assert_eq!(more.face, TextFace::Small);
-    assert_eq!(more.x, 788.0);
-    assert_eq!(scene.hits.panel.y + scene.hits.panel.h, 566.0);
-    let top = run(&many(20, 0), (960, 600), 1.0, None);
-    assert_eq!(top.hits.rows[0].0, 0);
-    assert!(text(&run(&three(), (960, 600), 1.0, None), "+0 more").is_none());
+fn many_rows_cap_the_panel_and_scroll_to_the_selection() {
+    let scene = run(&many(50, 40), (1600, 1000), 1.0, None);
+    assert_eq!(scene.hits.rows.len(), 9);
+    assert_eq!(scene.hits.rows.last().unwrap().0, 40);
+    assert!(scene.hits.panel.h <= 420.0);
 }
 
 #[test]
-fn footer_draws_a_rule_then_key_caps_and_verbs() {
-    let surfaces = Config::default().theme().surfaces();
-    let scene = run(&three(), (960, 600), 1.0, None);
-    let rule = quad_at(&scene, rect(144.0, 369.0, 672.0, 1.0)).unwrap();
-    assert_eq!(rule.color, opaque(surfaces.outline));
-    let enter = quad_at(&scene, rect(144.0, 382.0, 20.0, 20.0)).unwrap();
-    assert_eq!(enter.color, opaque(surfaces.surface3));
-    assert_eq!(
-        enter.border,
-        Some(Border {
-            color: opaque(surfaces.outline_strong),
-            width: 1.0,
-        })
-    );
-    assert_eq!(enter.radius, 4.0);
-    assert_eq!(text(&scene, ENTER_KEY).unwrap().face, TextFace::Small);
-    let switch = text(&scene, "switch").unwrap();
-    assert_eq!((switch.x, switch.color), (170.0, surfaces.muted));
-    let moves = quad_at(&scene, rect(170.0 + 42.0 + 16.0, 382.0, 20.0, 20.0));
-    assert!(moves.is_some());
-    assert!(text(&scene, "close").is_some());
-    let narrow = run(&three(), (200, 600), 1.0, None);
-    assert!(text(&narrow, "close").is_none());
+fn the_footer_has_a_tinted_band_with_key_caps_and_verbs() {
+    let scene = run(&three(), (1600, 1000), 1.0, None);
+    let panel = scene.hits.panel;
+    let band = rect(513.0, panel.y + panel.h - 41.0, 574.0, 40.0);
+    assert_eq!(quad_at(&scene, band).unwrap().color, colour(PALETTE_FOOTER));
+    let caps: Vec<&Quad> = scene
+        .quads
+        .iter()
+        .filter(|quad| quad.color == colour(PALETTE_KEYCAP))
+        .collect();
+    assert_eq!(caps.len(), 3);
+    assert_eq!(caps[0].rect.x, 529.0);
+    assert_eq!(caps[0].rect.h, 20.0);
+    let verbs: Vec<&str> = scene
+        .text
+        .iter()
+        .filter(|run| run.color == MUTED && run.face == TextFace::Ui && run.baseline > band.y)
+        .map(|run| run.text.as_str())
+        .collect();
+    assert_eq!(verbs, ["Navigate", "Switch", "Close"]);
+    assert_eq!(text(&scene, MOVE_KEY).unwrap().color, FOREGROUND);
 }
 
 #[test]
 fn hit_test_finds_rows_the_panel_and_outside() {
-    let scene = run(&three(), (960, 600), 1.0, None);
-    assert_eq!(scene.hits.hit_test((300.0, 300.0)), OverlayHit::Row(1));
-    assert_eq!(scene.hits.hit_test((300.0, 210.0)), OverlayHit::Panel);
-    assert_eq!(scene.hits.hit_test((300.0, 287.0)), OverlayHit::Panel);
-    assert_eq!(scene.hits.hit_test((5.0, 100.0)), OverlayHit::Outside);
-    assert_eq!(scene.hits.hit_test((300.0, 20.0)), OverlayHit::Outside);
-    assert_eq!(scene.hits.page(), 3);
-    assert_eq!(OverlayHits::default().page(), 1);
-    assert!(scene.hits.controls.is_empty());
+    let scene = run(&three(), (1600, 1000), 1.0, None);
+    assert_eq!(scene.hits.hit_test((600.0, 190.0)), OverlayHit::Row(1));
+    assert_eq!(scene.hits.hit_test((600.0, 120.0)), OverlayHit::Panel);
+    assert_eq!(scene.hits.hit_test((100.0, 500.0)), OverlayHit::Outside);
 }
 
 #[test]
 fn hit_test_prefers_controls_over_rows() {
-    let mut hits = run(&three(), (960, 600), 1.0, None).hits;
-    let row = hits.rows[1].1;
-    hits.controls.push((
-        SettingsHit::Toggle(1),
-        rect(row.x + row.w - 40.0, row.y, 40.0, row.h),
-    ));
-    let y = f64::from(row.y + 4.0);
+    let mut hits = OverlayHits {
+        panel: rect(0.0, 0.0, 100.0, 100.0),
+        ..OverlayHits::default()
+    };
+    hits.rows.push((0, rect(0.0, 0.0, 100.0, 50.0)));
+    hits.controls
+        .push((SettingsHit::Close, rect(0.0, 0.0, 20.0, 20.0)));
     assert_eq!(
-        hits.hit_test((f64::from(row.x + row.w - 10.0), y)),
-        OverlayHit::Settings(SettingsHit::Toggle(1))
+        hits.hit_test((5.0, 5.0)),
+        OverlayHit::Settings(SettingsHit::Close)
     );
-    assert_eq!(
-        hits.hit_test((f64::from(row.x + 10.0), y)),
-        OverlayHit::Row(1)
-    );
-    assert_eq!(hits.page(), 3);
+    assert_eq!(hits.hit_test((50.0, 30.0)), OverlayHit::Row(0));
 }
 
 #[test]
-fn theme_panel_docks_right_below_the_bar_without_backdrop() {
-    let surfaces = Config::default().theme().surfaces();
+fn the_theme_palette_docks_right_below_the_bar_without_a_dim() {
     let sheet = Sheet {
         placement: Placement::Docked,
-        ..many(3, 0)
+        ..three()
     };
-    for (scale, panel) in [
-        (1.0, rect(472.0, 43.0, 320.0, 549.0)),
-        (2.0, rect(944.0, 86.0, 640.0, 1098.0)),
-    ] {
-        let px = (800 * scale as u32, 600 * scale as u32);
-        let scene = run(&sheet, px, scale, None);
-        assert_eq!(
-            scene.quads[0],
-            Quad {
-                rect: panel,
-                color: opaque(surfaces.surface1),
-                radius: 10.0 * scale,
-                border: Some(Border {
-                    color: opaque(surfaces.outline),
-                    width: scale,
-                }),
-            }
-        );
-        assert!(scene.quads.iter().all(|quad| quad.color != BACKDROP));
-    }
-    let scene = run(&sheet, (800, 600), 1.0, None);
-    let rule = 43.0 + 549.0 - 20.0 - 20.0 - 12.0 - 1.0;
-    assert!(quad_at(&scene, rect(496.0, rule, 272.0, 1.0)).is_some());
-    assert!(quad_at(&scene, rect(472.0, 87.0, 320.0, 1.0)).is_some());
-    let tall = run(&many(40, 39), (800, 600), 1.0, None);
-    let docked = run(
-        &Sheet {
-            placement: Placement::Docked,
-            ..many(40, 39)
-        },
-        (800, 600),
-        1.0,
-        None,
-    );
-    assert!(docked.hits.rows.len() > tall.hits.rows.len());
-    assert_eq!(docked.hits.rows.last().unwrap().0, 39);
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    assert_eq!(scene.hits.panel.x, 1600.0 - 16.0 - 360.0);
+    assert_eq!(scene.hits.panel.y, 42.0);
+    assert!(scene.quads.iter().all(|quad| quad.color != DIM));
 }
 
-#[test]
-fn names_without_detail_use_the_whole_row() {
-    let name = "w".repeat(60);
-    let sheet = sessions(
-        vec![Row {
-            number: Some(1),
-            name: name.clone(),
-            ..Row::default()
-        }],
-        0,
-    );
-    let scene = run(&sheet, (960, 600), 1.0, None);
-    assert!(text(&scene, &name).is_some());
-}
-
-fn assert_inside(scene: &OverlayScene, window: (u32, u32), scale: f32) {
-    let panel = scene.hits.panel;
-    let margin = px(PANEL_PAD_X, scale);
-    assert!(panel.x >= margin, "{panel:?}");
-    assert!(panel.x + panel.w <= window.0 as f32 - margin, "{panel:?}");
-    assert!(panel.y >= chrome_bottom(scale), "{panel:?}");
-    assert!(panel.y + panel.h <= window.1 as f32, "{panel:?}");
-    for quad in &scene.quads[1..] {
+fn assert_inside(scene: &OverlayScene, window: (u32, u32)) {
+    let (width, height) = (window.0 as f32, window.1 as f32);
+    for quad in &scene.quads {
         let rect = quad.rect;
         assert!(
-            rect.x >= panel.x && rect.x + rect.w <= panel.x + panel.w,
-            "{rect:?}"
-        );
-        assert!(
-            rect.y >= panel.y && rect.y + rect.h <= panel.y + panel.h,
-            "{rect:?}"
+            rect.x >= 0.0 && rect.y >= 0.0 && rect.x + rect.w <= width && rect.y + rect.h <= height,
+            "{window:?} {rect:?}"
         );
     }
 }
 
 #[test]
-fn small_windows_keep_the_panel_inside_with_its_margins() {
-    for (px, scale, rows) in [
-        ((600, 400), 1.0, 5),
-        ((400, 300), 1.0, 3),
-        ((600, 400), 1.5, 2),
+fn small_windows_keep_everything_inside_and_drop_the_footer_when_no_row_fits() {
+    for (px, scale) in [
+        ((300, 200), 1.0),
+        ((200, 120), 1.0),
+        ((60, 40), 1.0),
+        ((1, 1), 2.0),
     ] {
-        let scene = run(&many(12, 0), px, scale, None);
-        assert_inside(&scene, px, scale);
-        assert_eq!(scene.hits.rows.len(), rows, "{px:?} {scale}");
-        assert!(text(&scene, &format!("+{} more", 12 - rows)).is_some());
-        let count = text(&scene, "12").unwrap();
-        assert!(count.x + measure("12", false) <= scene.hits.panel.x + scene.hits.panel.w);
-        assert!(text(&scene, "Search sessions").is_some());
+        for sheet in [three(), many(30, 29), windows(), many(0, 0)] {
+            let scene = run(&sheet, px, scale, None);
+            assert_inside(&scene, px);
+        }
     }
-}
-
-#[test]
-fn rows_then_the_footer_drop_before_the_palette_field() {
-    let scene = run(&many(12, 0), (400, 200), 1.0, None);
-    assert_inside(&scene, (400, 200), 1.0);
+    let scene = run(&many(30, 0), (800, 200), 1.0, None);
     assert_eq!(scene.hits.rows.len(), 1);
-    assert!(text(&scene, "esc").is_none());
-    assert!(text(&scene, "+11 more").is_none());
-    assert!(text(&scene, "Search sessions").is_some());
+    assert!(text(&scene, "Navigate").is_some());
+    let tight = run(&many(30, 0), (800, 170), 1.0, None);
+    assert!(text(&tight, "Navigate").is_none());
 }
 
 #[test]
-fn the_palette_field_drops_before_the_panel_leaves_a_tiny_window() {
-    for height in [130, 100] {
-        let scene = run(&many(12, 0), (400, height), 1.0, None);
-        assert_inside(&scene, (400, height), 1.0);
-        assert!(scene.hits.rows.is_empty());
-        assert!(text(&scene, "Search sessions").is_none());
-        assert!(text(&scene, "12").is_none());
+fn every_rect_and_text_lands_on_whole_pixels_at_scale_one_and_a_half() {
+    let mut sheet = windows();
+    sheet.rows[0].monogram = true;
+    for sheet in [three(), sheet, many(0, 0)] {
+        let scene = run(&sheet, (1500, 900), 1.5, Some((700.0, 300.0)));
+        assert_inside(&scene, (1500, 900));
+        for quad in &scene.quads {
+            let r = quad.rect;
+            assert!(
+                [r.x, r.y, r.w, r.h, quad.radius]
+                    .iter()
+                    .all(|v| v.fract() == 0.0),
+                "{quad:?}"
+            );
+        }
+        for run in &scene.text {
+            assert_eq!((run.x.fract(), run.baseline.fract()), (0.0, 0.0), "{run:?}");
+        }
     }
 }
 
 #[test]
 fn non_ascii_row_names_ellipsize_on_whole_chars() {
-    let long = "\u{dc}berlanger Fenstername \u{e4}\u{f6}\u{fc} \u{df}";
-    let cjk = &"\u{958b}\u{767a}\u{30b5}\u{30fc}\u{30d0}\u{30fc}\u{306e}\u{30ed}\u{30b0}".repeat(8);
-    let sheet = sessions(
-        vec![row(long, None, Some("current")), row(cjk, None, None)],
-        0,
-    );
-    let scene = run(&sheet, (300, 300), 1.0, None);
-    let first = scene
+    let sheet = sessions(vec![row(&"ä".repeat(200), None, None)], 0);
+    let scene = run(&sheet, (800, 600), 1.0, None);
+    let name = scene
         .text
         .iter()
-        .find(|run| run.face == TextFace::Ui && run.text.starts_with("\u{dc}ber"))
+        .find(|run| run.text.starts_with('ä'))
         .unwrap();
-    let kept = first.text.strip_suffix(ELLIPSIS).unwrap();
-    assert!(long.starts_with(kept));
-    let scene = run(
-        &sessions(vec![row(cjk, None, None)], 0),
-        (300, 300),
-        1.0,
-        None,
-    );
-    let second = scene
-        .text
-        .iter()
-        .find(|run| run.face == TextFace::Ui && run.text.starts_with('\u{958b}'))
-        .unwrap();
-    assert!(cjk.starts_with(second.text.trim_end_matches(ELLIPSIS)));
-    assert!(second.text.ends_with(ELLIPSIS));
+    assert!(name.text.ends_with(ELLIPSIS));
 }
 
 #[test]
-fn icons_sit_in_a_muted_column_after_the_number_that_aligns_every_name() {
-    let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let mut sheet = windows();
-    sheet.rows[0].icon = Some('\u{e62b}');
-    let scene = run(&sheet, (960, 600), 1.0, None);
-    let icons: Vec<_> = scene
-        .text
-        .iter()
-        .filter(|run| run.text == "\u{e62b}")
-        .map(|run| (run.x, run.baseline, run.color, run.face, run.bold))
-        .collect();
-    assert_eq!(
-        icons,
-        [(174.0, 271.0, surfaces.muted, TextFace::PromptIcon, false)]
-    );
-    assert_eq!(text(&scene, "nvim").unwrap().x, 191.0);
-    assert_eq!(text(&scene, "zsh").unwrap().x, 191.0);
-    assert_eq!(text(&scene, "nvim").unwrap().baseline, 273.0);
-}
-
-#[test]
-fn sheets_without_icons_reserve_no_icon_column() {
-    let scene = run(&windows(), (960, 600), 1.0, None);
-    assert!(
-        scene
-            .text
+fn a_short_window_budgets_the_empty_message_and_the_footer_inside_the_panel() {
+    for height in [1000, 260, 200, 170, 140, 120, 90, 60] {
+        let scene = run(&many(0, 0), (800, height), 1.0, None);
+        let panel = scene.hits.panel;
+        assert!(panel.y + panel.h <= height as f32, "{height}");
+        for run in &scene.text {
+            assert!(
+                run.baseline - 11.0 >= panel.y && run.baseline + 3.0 <= panel.y + panel.h,
+                "{height} {run:?}"
+            );
+        }
+        let message = text(&scene, "No matching sessions.");
+        let footer = scene
+            .quads
             .iter()
-            .all(|run| !run.text.starts_with('\u{e62b}'))
-    );
-    assert_eq!(text(&scene, "nvim").unwrap().x, 174.0);
-    assert_eq!(text(&scene, "zsh").unwrap().x, 174.0);
-    let scene = run(&three(), (960, 600), 1.0, None);
-    assert_eq!(text(&scene, "flair").unwrap().x, 154.0);
-}
-
-#[test]
-fn the_icon_column_only_shifts_rows_at_the_depth_that_has_icons() {
-    let mut sheet = windows();
-    sheet.rows.push(Row {
-        depth: 1,
-        number: Some(3),
-        icon: Some('\u{f120}'),
-        name: "logs".into(),
-        ..Row::default()
-    });
-    let scene = run(&sheet, (960, 600), 1.0, None);
-    assert_eq!(text(&scene, "nvim").unwrap().x, 174.0);
-    assert_eq!(text(&scene, "\u{f120}").unwrap().x, 194.0);
-    assert_eq!(text(&scene, "logs").unwrap().x, 211.0);
+            .find(|quad| quad.color == colour(PALETTE_FOOTER) && quad.radius == 0.0);
+        if let (Some(message), Some(footer)) = (message, footer) {
+            assert!(message.baseline + 3.0 <= footer.rect.y, "{height}");
+        }
+    }
+    let roomy = run(&many(0, 0), (800, 1000), 1.0, None);
+    assert!(text(&roomy, "No matching sessions.").is_some());
+    assert!(text(&roomy, "Navigate").is_some());
+    let short = run(&many(0, 0), (800, 200), 1.0, None);
+    assert!(text(&short, "No matching sessions.").is_some());
+    assert!(text(&short, "Navigate").is_none());
 }

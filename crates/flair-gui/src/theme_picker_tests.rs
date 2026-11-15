@@ -7,6 +7,7 @@ use crate::{
     overlays::Overlays,
     renderer::{HeadlessContext, Renderer},
     status::status_parts,
+    t3_style::{PALETTE, PALETTE_HIGHLIGHT, PANEL_BORDER},
 };
 use flair_core::{
     config::Config,
@@ -181,7 +182,7 @@ fn sheet_docks_the_themes_with_the_saved_label_and_the_query_caret() {
         .iter()
         .map(|(key, verb)| (*key, verb.as_str()))
         .collect();
-    assert_eq!(keys, [("↵", "save"), ("↑↓", "move"), ("esc", "revert")]);
+    assert_eq!(keys, [("↑↓", "Navigate"), ("↵", "Save"), ("esc", "Revert")]);
     picker.insert("grü");
     let field = picker.sheet().field.unwrap();
     assert_eq!(
@@ -310,26 +311,27 @@ fn gpu_frame_previews_gruvbox_in_a_docked_panel_without_backdrop() {
             }
         }
     }
-    let panel = chrome.chrome.modal[0];
-    assert!(panel.border.is_some(), "{panel:?}");
+    let panel = *chrome
+        .chrome
+        .modal
+        .iter()
+        .find(|quad| quad.border.is_some())
+        .unwrap();
     let rect = panel.rect;
     let middle = rect.y + rect.h / 2.0;
-    assert_eq!(at(2.0, 1.0), rgb(surfaces.surface1));
+    assert_eq!(at(2.0, 1.0), rgb(theme.background));
     assert_eq!(
         at(2.0, chrome_layout::bar_height(1.0)),
-        rgb(surfaces.outline)
+        rgb(surfaces.surface1)
     );
-    assert_eq!(at(rect.x - 2.0, middle), rgb(theme.background));
-    assert_eq!(at(rect.x, middle), rgb(surfaces.outline));
-    assert_eq!(at(rect.x + 4.0, middle), rgb(surfaces.surface1));
-    assert_eq!(at(W as f32 - 10.0, middle), rgb(surfaces.surface1));
-    assert_eq!(at(W as f32 - 2.0, middle), rgb(theme.background));
+    assert_eq!(at(rect.x - 30.0, middle), rgb(theme.background));
+    assert_eq!(at(rect.x, middle), rgb(PANEL_BORDER));
+    assert_eq!(at(rect.x + 4.0, middle), rgb(PALETTE));
     assert_eq!(at(rect.x + 20.0, H as f32 - 3.0), rgb(theme.background));
-    assert_eq!(at(rect.x + 20.0, rect.y - 3.0), rgb(theme.background));
     let row = chrome.overlay.as_ref().unwrap().rows[0].1;
     assert_eq!(
         at(row.x + row.w - 4.0, row.y + row.h / 2.0),
-        rgb(surfaces.accent_soft)
+        rgb(PALETTE_HIGHLIGHT)
     );
 }
 

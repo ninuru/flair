@@ -1,12 +1,13 @@
 use super::*;
 use crate::{
     CellMetrics, Fonts,
-    chrome_bar::opaque,
+    chrome_bar::{opaque, tint},
     chrome_layout::{self, ChromeInput, ChromeLayout, Dock, bar_height, grid_origin, grid_size},
     isles::Isles,
     overlays::Overlays,
     renderer::{HeadlessContext, Renderer},
     status::status_parts,
+    t3_style::{DIM, PALETTE, PALETTE_HIGHLIGHT, PANEL_BORDER},
 };
 use flair_core::{
     config::{Config, PromptConfig},
@@ -568,41 +569,34 @@ fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
     let surfaces = theme.surfaces();
     let bar = bar_height(1.0);
     assert_eq!(bar, 34.0);
-    for x in [2.0, 400.0, 797.0] {
-        assert_eq!(frame.at(x, 1.0), rgb(surfaces.surface1), "bar at {x}");
-        assert_eq!(frame.at(x, bar - 1.0), rgb(surfaces.surface1), "bar at {x}");
-        assert_eq!(frame.at(x, bar), rgb(surfaces.outline), "border at {x}");
+    for x in [2.0, 797.0] {
+        assert_eq!(frame.at(x, 1.0), rgb(theme.background), "bar at {x}");
+        assert_eq!(frame.at(x, bar - 1.0), rgb(theme.background), "bar at {x}");
+        assert_eq!(frame.at(x, bar), rgb(surfaces.surface1), "border at {x}");
     }
-    let underline = chrome
+    let pill = chrome
         .chrome
         .quads
         .iter()
-        .find(|quad| quad.color == opaque(theme.accent) && quad.rect.y == bar - 2.0)
-        .expect("active tab underline");
+        .find(|quad| quad.color == opaque(tint(&theme, 8)) && quad.rect.y < bar)
+        .expect("active tab pill");
     let tab = chrome
         .hits
         .iter()
         .map(|hit| hit.rect)
-        .find(|rect| rect.x < underline.rect.x && underline.rect.x < rect.x + rect.w)
+        .find(|rect| rect.x == pill.rect.x)
         .unwrap();
-    assert_eq!(
-        (underline.rect.x, underline.rect.w, underline.rect.h),
-        (tab.x + 8.0, tab.w - 16.0, 2.0)
+    assert_eq!((pill.rect.w, pill.rect.h), (tab.w, 24.0));
+    let middle = pill.rect.y + pill.rect.h / 2.0;
+    assert_eq!(frame.at(pill.rect.x + 2.0, middle), rgb(tint(&theme, 8)));
+    assert_eq!(frame.at(pill.rect.x - 2.0, middle), rgb(theme.background));
+    assert!(
+        chrome
+            .chrome
+            .quads
+            .iter()
+            .all(|quad| quad.color != opaque(theme.accent) || quad.rect.y > bar)
     );
-    let accent = rgb(theme.accent);
-    let left = underline.rect.x;
-    let right = left + underline.rect.w;
-    for y in [bar - 2.0, bar - 1.0] {
-        assert_eq!(frame.at(left + 1.0, y), accent, "underline at {y}");
-        assert_eq!(frame.at(right - 1.0, y), accent, "underline at {y}");
-        assert_eq!(
-            frame.at(left - 1.0, y),
-            rgb(surfaces.surface1),
-            "inset at {y}"
-        );
-        assert_eq!(frame.at(right, y), rgb(surfaces.surface1), "inset at {y}");
-    }
-    assert_eq!(frame.at(left + 1.0, bar - 3.0), rgb(surfaces.surface1));
     let padding = (
         f32::from(config.window.padding_x),
         f32::from(config.window.padding_y),
@@ -621,7 +615,7 @@ fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
     let above = if origin.1 > 35.0 {
         rgb(theme.background)
     } else {
-        rgb(surfaces.outline)
+        rgb(surfaces.surface1)
     };
     for y in [35.0, origin.1 - 1.0] {
         assert_eq!(frame.at(origin.0 + 1.0, y), above, "top margin at {y}");
@@ -685,7 +679,7 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
     let bottom = origin.1 + f32::from(size.rows) * metrics.height;
     let row = origin.1 + metrics.height * 3.5;
     for x in [0.0, 400.0, 799.0] {
-        assert_eq!(frame.at(x, 34.0), rgb(surfaces.outline), "bar line at {x}");
+        assert_eq!(frame.at(x, 34.0), rgb(surfaces.surface1), "bar line at {x}");
         assert_eq!(frame.at(x, 35.0), rgb(first), "top margin at {x}");
         assert_eq!(frame.at(x, 299.0), rgb(rest), "bottom margin at {x}");
     }
@@ -706,45 +700,32 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
 }
 
 #[test]
-fn gpu_frame_draws_a_picker_in_a_rounded_modal_over_a_backdrop() {
+fn gpu_frame_draws_a_picker_as_a_palette_over_a_dim() {
     let Some((frame, chrome, _)) = draw_chrome_frame(true, None, "modal") else {
         return;
     };
     frame.dump("FLAIR_MODAL_PPM");
-    let surfaces = Config::default().theme().surfaces();
-    let [backdrop, modal, ..] = chrome.chrome.modal.as_slice() else {
-        panic!("modal quads {:?}", chrome.chrome.modal);
-    };
-    assert_eq!(backdrop.color.a, 102);
+    let theme = Config::default().theme();
+    let dim = chrome.chrome.modal[0];
+    assert_eq!(dim.color, DIM);
     assert!(!chrome.chrome.modal_text.is_empty());
-    assert_eq!(frame.at(797.0, 1.0), rgb(surfaces.surface1));
-    assert_eq!(frame.at(797.0, 34.0), rgb(surfaces.outline));
+    let modal = chrome
+        .chrome
+        .modal
+        .iter()
+        .find(|quad| quad.border.is_some())
+        .unwrap();
     let rect = modal.rect;
-    assert_eq!(modal.radius, 10.0);
-    assert_ne!(frame.at(rect.x, rect.y), rgb(surfaces.surface1));
-    assert_eq!(frame.at(rect.x + 8.0, rect.y + 8.0), rgb(surfaces.surface1));
-    assert_eq!(
-        frame.at(rect.x + rect.w / 2.0, rect.y),
-        rgb(surfaces.outline)
-    );
-    assert_eq!(
-        frame.at(rect.x, rect.y + rect.h / 2.0),
-        rgb(surfaces.outline)
-    );
-    assert_eq!(
-        frame.at(rect.x + rect.w / 2.0, rect.y + 4.0),
-        rgb(surfaces.surface1)
-    );
+    assert_eq!(modal.radius, 16.0);
+    assert_ne!(frame.at(797.0, 1.0), rgb(theme.background));
+    assert_eq!(frame.at(rect.x + 8.0, rect.y + 8.0), rgb(PALETTE));
+    assert_eq!(frame.at(rect.x, rect.y + rect.h / 2.0), rgb(PANEL_BORDER));
     let hits = chrome.overlay.as_ref().unwrap();
     let (index, row) = hits.rows[0];
     assert_eq!(index, 0);
     assert_eq!(
-        frame.at(row.x + row.w / 2.0, row.y + row.h - 3.0),
-        rgb(surfaces.accent_soft)
-    );
-    assert_eq!(
-        frame.at(row.x + row.w / 2.0, row.y + row.h + 1.0),
-        rgb(surfaces.surface1)
+        frame.at(row.x + 2.0, row.y + row.h - 3.0),
+        rgb(PALETTE_HIGHLIGHT)
     );
 }
 

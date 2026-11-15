@@ -140,7 +140,7 @@ fn opens_on_the_current_session_with_every_session_collapsed() {
         rows,
         [
             (0, Some(1), "main", Some("2 windows"), None),
-            (0, Some(2), "notes", Some("1 window"), Some("current")),
+            (0, Some(2), "notes", Some("1 window"), None),
             (0, Some(3), "work", Some("3 windows"), None),
         ]
     );
@@ -153,12 +153,12 @@ fn opens_on_the_current_session_with_every_session_collapsed() {
     assert_eq!(
         keys,
         [
-            (ENTER_KEY, "switch"),
-            ("j k", "move"),
-            ("h l", "fold"),
-            ("1-9", "jump"),
-            (SEARCH_KEY, "search"),
-            (ESCAPE_KEY, "close"),
+            ("j k", "Navigate"),
+            (ENTER_KEY, "Switch"),
+            ("h l", "Fold"),
+            ("1-9", "Jump"),
+            (SEARCH_KEY, "Search"),
+            (ESCAPE_KEY, "Close"),
         ]
     );
 }
@@ -307,9 +307,9 @@ fn slash_opens_search_on_the_current_selection() {
     assert_eq!(
         keys,
         [
-            (ENTER_KEY, "switch"),
-            (MOVE_KEY, "move"),
-            (ESCAPE_KEY, "back")
+            (MOVE_KEY, "Navigate"),
+            (ENTER_KEY, "Switch"),
+            (ESCAPE_KEY, "Back")
         ]
     );
 }

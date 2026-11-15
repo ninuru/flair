@@ -465,7 +465,10 @@ impl Overlays {
     }
 
     pub fn bar_field(&self) -> Option<BarField<'_>> {
-        let prompt = self.prompt.as_ref()?;
+        let prompt = self.prompt.as_ref().filter(|prompt| match prompt {
+            Prompt::Search { .. } => true,
+            Prompt::Choose { .. } | Prompt::Rename { .. } => false,
+        })?;
         Some(BarField {
             label: prompt.field_prefix()?,
             text: prompt.field_text()?,
@@ -492,7 +495,10 @@ impl Overlays {
             || self.theme_picker.is_some()
             || self.picker.is_some()
             || self.tree.is_some()
-            || matches!(self.prompt, Some(Prompt::Choose { .. }))
+            || matches!(
+                self.prompt,
+                Some(Prompt::Choose { .. } | Prompt::Rename { .. })
+            )
     }
 
     fn dismiss(&mut self) -> OverlayEvent {

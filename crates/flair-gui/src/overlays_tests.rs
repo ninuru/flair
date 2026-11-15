@@ -6,7 +6,10 @@ use flair_core::{
 use std::fs;
 
 use super::*;
-use crate::settings_layout::{Entry, SettingsHit, SettingsSheet};
+use crate::{
+    CellMetrics, UiMetrics,
+    settings_layout::{Entry, SettingsHit, SettingsSheet},
+};
 
 fn press(key: Key) -> KeyInput {
     KeyInput {
@@ -761,4 +764,47 @@ fn open_preview(overlays: &mut Overlays, session: u32) -> bool {
         &Config::default(),
         Path::new("/nonexistent/flair.toml"),
     )
+}
+
+#[test]
+fn rename_is_a_palette_off_the_bar_and_the_backdrop_cancels_it() {
+    let mut overlays = Overlays::default();
+    open(
+        &mut overlays,
+        ServerMsg::PromptRename {
+            current: "zsh".to_owned(),
+        },
+    );
+    assert!(overlays.bar_field().is_none());
+    let theme = Config::default().theme();
+    let input = OverlayInput {
+        metrics: CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
+        px: (800, 600),
+        scale: 1.0,
+        ui: UiMetrics {
+            height: 14.0,
+            ascent: 11.0,
+            small: 0.5,
+            cap: 8.0,
+            icon: CellMetrics {
+                width: 7.0,
+                height: 12.0,
+                baseline: 9.0,
+            },
+        },
+        theme: &theme,
+        hover: None,
+    };
+    let scene = overlays
+        .layout(&input, &mut |text, _| text.chars().count() as f32 * 7.0)
+        .unwrap();
+    assert!(scene.text.iter().any(|run| run.text == "zsh"));
+    overlays.place(Some(scene.hits));
+    assert_eq!(overlays.hit_test((5.0, 500.0)), Some(OverlayHit::Outside));
+    overlays.click(OverlayHit::Outside);
+    assert!(!overlays.is_open());
 }

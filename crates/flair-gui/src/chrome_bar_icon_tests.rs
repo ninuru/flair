@@ -31,8 +31,8 @@ fn a_tab_icon_follows_the_name_and_widens_the_tab() {
     assert_eq!(
         found,
         [
-            (138.0, 19.0, "\u{f120}", surfaces.bright, false),
-            (237.0, 19.0, "\u{f308}", surfaces.muted, false),
+            (126.0, 19.0, "\u{f120}", surfaces.bright, false),
+            (219.0, 19.0, "\u{f308}", surfaces.muted, false),
         ]
     );
     let order: Vec<&str> = layout.chrome.text[2..]
@@ -44,20 +44,20 @@ fn a_tab_icon_follows_the_name_and_widens_the_tab() {
     let shell = text(&layout, "shell").unwrap();
     assert_eq!(
         (shell.x, shell.baseline, shell.color),
-        (97.0, 21.0, theme.foreground)
+        (85.0, 21.0, theme.foreground)
     );
     let editor = text(&layout, "editor").unwrap();
-    assert_eq!((editor.x, editor.color), (189.0, surfaces.muted));
-    assert_eq!(layout.hits[1].rect, rect(73.0, 0.0, 86.0, 34.0));
-    assert_eq!(layout.hits[2].rect, rect(165.0, 0.0, 93.0, 34.0));
-    assert!(quad_at(&layout, rect(81.0, 32.0, 70.0, 2.0)).is_some());
+    assert_eq!((editor.x, editor.color), (171.0, surfaces.muted));
+    assert_eq!(layout.hits[1].rect, rect(63.0, 0.0, 82.0, 34.0));
+    assert_eq!(layout.hits[2].rect, rect(149.0, 0.0, 89.0, 34.0));
+    assert!(quad_at(&layout, rect(63.0, 5.0, 82.0, 24.0)).is_some());
     let hovered = Case {
         hover: Some((200.0, 10.0)),
         ..Case::new(&status)
     }
     .run();
     assert_eq!(icons(&hovered)[1].color, surfaces.muted);
-    assert_eq!(text(&hovered, "editor").unwrap().color, surfaces.bright);
+    assert_eq!(text(&hovered, "editor").unwrap().color, theme.foreground);
 }
 
 #[test]
@@ -66,9 +66,9 @@ fn tabs_without_an_icon_keep_their_width_and_draw_no_icon() {
     status.tabs[1].icon = Some('\u{f308}');
     let layout = Case::new(&status).run();
     assert_eq!(icons(&layout).len(), 1);
-    assert_eq!(layout.hits[1].rect, rect(73.0, 0.0, 69.0, 34.0));
-    assert_eq!(text(&layout, "shell").unwrap().x, 97.0);
-    assert_eq!(layout.hits[2].rect, rect(148.0, 0.0, 93.0, 34.0));
+    assert_eq!(layout.hits[1].rect, rect(63.0, 0.0, 65.0, 34.0));
+    assert_eq!(text(&layout, "shell").unwrap().x, 85.0);
+    assert_eq!(layout.hits[2].rect, rect(132.0, 0.0, 89.0, 34.0));
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn overflowing_and_ellipsized_tabs_keep_their_icons_inside_the_tab() {
                 "{width} {active}"
             );
             assert!(
-                icon.x + 11.0 <= hit.rect.x + hit.rect.w - 10.0,
+                icon.x + 11.0 <= hit.rect.x + hit.rect.w - 8.0,
                 "{width} {active} {}",
                 name.text
             );
@@ -133,15 +133,15 @@ fn tab_icons_can_lead_the_name_or_be_switched_off() {
         ..status.clone()
     };
     let before = Case::new(&before_status).run();
-    assert_eq!(icons(&before)[0].x, 97.0);
-    assert_eq!(text(&before, "shell").unwrap().x, 114.0);
-    assert_eq!(before.hits[1].rect, rect(73.0, 0.0, 86.0, 34.0));
+    assert_eq!(icons(&before)[0].x, 85.0);
+    assert_eq!(text(&before, "shell").unwrap().x, 102.0);
+    assert_eq!(before.hits[1].rect, rect(63.0, 0.0, 82.0, 34.0));
     let off_status = StatusParts {
         tab_icon: None,
         ..status
     };
     let off = Case::new(&off_status).run();
     assert!(icons(&off).is_empty());
-    assert_eq!(text(&off, "shell").unwrap().x, 97.0);
-    assert_eq!(off.hits[1].rect, rect(73.0, 0.0, 69.0, 34.0));
+    assert_eq!(text(&off, "shell").unwrap().x, 85.0);
+    assert_eq!(off.hits[1].rect, rect(63.0, 0.0, 65.0, 34.0));
 }

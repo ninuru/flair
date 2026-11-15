@@ -2,17 +2,16 @@ use flair_core::settings::Section;
 
 use crate::{
     chrome_bar::{baseline, ellipsize, fill, opaque, rounded, ui_text},
-    overlay_layout::{Field, OverlayInput, OverlayScene, inside, visible},
+    overlay_layout::{Field, OverlayInput, OverlayScene, inside, shadow, visible},
     renderer::{Border, PxRect, Quad},
     settings_rows::{entry_height, entry_row, glyph},
-    settings_style::{
+    t3_style::{
         BACKGROUND, CARD, CARD_BORDER, CARD_RADIUS, CLOSE_ICON, CLOSE_SIZE, CONTAINER_MAX,
         CONTENT_MIN, CONTENT_PAD_BOTTOM, CONTENT_PAD_TOP, CONTENT_PAD_X, CRUMB_GAP, DIM, DIVIDER,
         FOREGROUND, GHOST_HOVER, GHOST_RADIUS, HAIRLINE, HEADER_HEIGHT, HEADER_PAD_LEFT,
         HEADER_PAD_RIGHT, HEADING_GAP, HEADING_HEIGHT, HEADING_PAD, INSET, INSET_SMALL, MUTED,
         PANEL_BORDER, PANEL_MAX_H, PANEL_MAX_W, PANEL_RADIUS, RAIL_MIN_CONTENT, RAIL_WIDTH,
-        SECTION_GAP, SHADOW, SHADOW_DROP, SHADOW_LAYERS, SHADOW_SPREAD, SIDEBAR_MIN_CONTENT,
-        SIDEBAR_WIDTH, SMALL_HEIGHT, SMALL_WIDTH,
+        SECTION_GAP, SIDEBAR_MIN_CONTENT, SIDEBAR_WIDTH, SMALL_HEIGHT, SMALL_WIDTH,
     },
     ui::{LINE, px},
 };
@@ -220,28 +219,7 @@ fn backdrop(frame: &Frame, input: &OverlayInput, scene: &mut OverlayScene) {
     if panel.w <= 0.0 || panel.h <= 0.0 {
         return;
     }
-    let drop = px(SHADOW_DROP, scale);
-    for layer in (1..=SHADOW_LAYERS).rev() {
-        let spread = px(SHADOW_SPREAD, scale) * layer as f32;
-        let rect = PxRect {
-            x: panel.x - spread,
-            y: panel.y + drop - spread,
-            w: panel.w + spread * 2.0,
-            h: panel.h + spread * 2.0,
-        };
-        let fits = rect.x >= 0.0
-            && rect.y >= 0.0
-            && rect.x + rect.w <= frame.window.w
-            && rect.y + rect.h <= frame.window.h;
-        if fits {
-            scene.quads.push(Quad {
-                rect,
-                color: SHADOW,
-                radius: px(PANEL_RADIUS, scale) + spread,
-                border: None,
-            });
-        }
-    }
+    shadow(panel, frame.window, scale, scene);
     scene.quads.push(Quad {
         border: Some(Border {
             color: opaque(PANEL_BORDER),
