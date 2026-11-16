@@ -174,6 +174,7 @@ fn client_messages() -> Vec<ClientMsg> {
         }),
         ClientMsg::Preview(Some(SessionId(3))),
         ClientMsg::Preview(None),
+        ClientMsg::CancelPrefix,
     ]
 }
 
@@ -352,6 +353,8 @@ fn server_messages() -> Vec<ServerMsg> {
         ServerMsg::ToggleTabs,
         ServerMsg::Explorer,
         ServerMsg::Agents,
+        ServerMsg::PaneEdge(Direction::Left),
+        ServerMsg::PaneEdge(Direction::Down),
         ServerMsg::PasteClipboard,
         ServerMsg::PromptRename {
             current: "zsh".to_owned(),

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     command::Command,
-    geom::{Axis, CellPoint, CellRect, GridSize},
+    geom::{Axis, CellPoint, CellRect, Direction, GridSize},
     ids::{ClientId, PaneId, SessionId, WindowId},
     isles::PromptInfo,
     key::InputEvent,
@@ -15,7 +15,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 18;
+pub const PROTOCOL: u32 = 19;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -38,6 +38,7 @@ pub enum ClientMsg {
     Detach,
     Control(Control),
     Preview(Option<SessionId>),
+    CancelPrefix,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +99,7 @@ pub enum ServerMsg {
     },
     PaneProcesses(Vec<u32>),
     Preview(SessionPreview),
+    PaneEdge(Direction),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

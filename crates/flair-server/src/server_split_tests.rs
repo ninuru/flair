@@ -1,7 +1,7 @@
 use super::*;
 use flair_core::{
     command::{PaneRef, WindowRef},
-    geom::Axis,
+    geom::{Axis, Direction},
 };
 
 fn run(server: &mut Server, id: ClientId, command: Command) -> Vec<Effect> {
@@ -733,4 +733,113 @@ fn pane_processes_follows_the_calling_pane_and_errors_without_a_window() {
         out.as_slice(),
         [Effect::Send(ClientId(99), ServerMsg::Error(_))]
     ));
+}
+
+fn edges(out: &[Effect]) -> Vec<(ClientId, Direction)> {
+    out.iter()
+        .filter_map(|effect| {
+            if let Effect::Send(id, ServerMsg::PaneEdge(direction)) = effect {
+                Some((*id, *direction))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[test]
+fn select_pane_toward_the_window_edge_tells_only_the_requesting_client() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut out = Vec::new();
+    server.handle(Millis(2), Event::Client(ClientId(2), hello()), &mut out);
+    for direction in [
+        Direction::Left,
+        Direction::Right,
+        Direction::Up,
+        Direction::Down,
+    ] {
+        let out = run(
+            &mut server,
+            ClientId(1),
+            Command::SelectPane(PaneRef::Direction(direction)),
+        );
+        assert_eq!(edges(&out), [(ClientId(1), direction)]);
+        assert_eq!(server.client_pane(ClientId(1)), Some(PaneId(1)));
+    }
+}
+
+#[test]
+fn select_pane_with_a_neighbour_moves_and_reports_no_edge() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    run(&mut server, ClientId(1), Command::Split(Axis::Horizontal));
+    let right = server.client_pane(ClientId(1)).unwrap();
+    let out = run(
+        &mut server,
+        ClientId(1),
+        Command::SelectPane(PaneRef::Direction(Direction::Left)),
+    );
+    assert!(edges(&out).is_empty());
+    assert_ne!(server.client_pane(ClientId(1)), Some(right));
+    let out = run(
+        &mut server,
+        ClientId(1),
+        Command::SelectPane(PaneRef::Direction(Direction::Left)),
+    );
+    assert_eq!(edges(&out), [(ClientId(1), Direction::Left)]);
+    let out = run(
+        &mut server,
+        ClientId(1),
+        Command::SelectPane(PaneRef::Id(PaneId(999))),
+    );
+    assert!(edges(&out).is_empty());
+}
+
+#[test]
+fn cancel_prefix_drops_a_pending_prefix_without_touching_the_pane() {
+    let (mut server, initial) = setup();
+    ack(&mut server, &initial);
+    let mut out = Vec::new();
+    server.handle(
+        Millis(3),
+        Event::Client(
+            ClientId(1),
+            ClientMsg::Input(InputEvent::Key(KeyInput {
+                key: Key::Char('a'),
+                mods: Mods {
+                    ctrl: true,
+                    ..Mods::default()
+                },
+                text: None,
+                repeat: false,
+                keypad: false,
+                action: KeyAction::Press,
+                unshifted: None,
+                shifted: None,
+                base: None,
+                locks: Locks::default(),
+            })),
+        ),
+        &mut out,
+    );
+    assert!(server.clients[&ClientId(1)].prefix.pending());
+    out.clear();
+    server.handle(
+        Millis(4),
+        Event::Client(ClientId(1), ClientMsg::CancelPrefix),
+        &mut out,
+    );
+    assert!(!server.clients[&ClientId(1)].prefix.pending());
+    assert!(
+        !out.iter()
+            .any(|effect| matches!(effect, Effect::WritePty(..)))
+    );
+    out.clear();
+    server.handle(
+        Millis(5),
+        Event::Client(ClientId(1), ClientMsg::CancelPrefix),
+        &mut out,
+    );
+    assert!(out.is_empty());
 }

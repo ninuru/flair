@@ -153,6 +153,7 @@ impl Overlays {
             | ServerMsg::ToggleTabs
             | ServerMsg::Explorer
             | ServerMsg::Agents
+            | ServerMsg::PaneEdge(_)
             | ServerMsg::SetClipboard { .. }
             | ServerMsg::Layout(_)
             | ServerMsg::Status(_)

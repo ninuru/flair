@@ -295,6 +295,7 @@ impl App {
             .key(&key, || surface.as_ref().and_then(|s| s.clipboard.load()))
         {
             Some(event) => self.overlay_event(event),
+            None if self.leave_panel(&key) => {}
             None if self.agents_key(&key) => {}
             None if self.explorer_key(&key) => {}
             None => self.send(ClientMsg::Input(InputEvent::Key(key))),
@@ -393,6 +394,7 @@ impl ApplicationHandler<UserEvent> for App {
                 ServerMsg::Bell => {}
                 ServerMsg::Explorer => self.explorer_command(),
                 ServerMsg::Agents => self.agents_command(),
+                ServerMsg::PaneEdge(direction) => self.pane_edge(direction),
                 ServerMsg::ToggleZen => {
                     self.zen = self.zen.toggled();
                     self.panels.focused = false;

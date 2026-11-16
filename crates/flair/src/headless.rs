@@ -223,6 +223,13 @@ impl Capture {
                     tx.send(resize).map_err(|e| e.to_string())?;
                 }
             }
+            ServerMsg::PaneEdge(direction) => {
+                if self.agents_visible() || self.explorer_visible() {
+                    let agents = status_parts(&self.status).agents;
+                    let side = self.effective().explorer.side;
+                    self.panels.edge(direction, side, &agents);
+                }
+            }
             ServerMsg::ToggleZen => {
                 self.zen = !self.zen;
                 self.panels.focused = false;
@@ -366,6 +373,9 @@ impl Capture {
     fn key(&mut self, key: KeyInput) -> Result<Vec<ClientMsg>, String> {
         self.place();
         let event = self.overlays.key(&key, || None);
+        if event.is_none() && self.leave_panel(&key) {
+            return Ok(vec![ClientMsg::CancelPrefix]);
+        }
         if event.is_none()
             && let Some(messages) = self.agents_key(&key)
         {

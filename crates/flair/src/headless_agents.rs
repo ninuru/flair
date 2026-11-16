@@ -42,6 +42,24 @@ impl Capture {
         })
     }
 
+    pub(super) fn leave_panel(&mut self, key: &KeyInput) -> bool {
+        if !(self.agents_visible() || self.explorer_visible()) {
+            return false;
+        }
+        let config = self
+            .preview
+            .as_ref()
+            .map_or(&self.config, |preview| &preview.config);
+        let pending = self.status.pending.is_some();
+        self.panels.leave(
+            key,
+            &config.keys,
+            pending,
+            Instant::now(),
+            config.explorer.side,
+        )
+    }
+
     pub(super) fn agents_text(&self) -> bool {
         self.agents_visible() && self.panels.agents_text()
     }
@@ -74,7 +92,7 @@ impl Capture {
         status_parts(&self.status).agents
     }
 
-    fn agents_visible(&self) -> bool {
+    pub(super) fn agents_visible(&self) -> bool {
         match &self.pixels {
             Some(pixels) => pixels
                 .frame(self.effective(), self.zen, &self.panels)

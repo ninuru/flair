@@ -102,7 +102,7 @@ impl Capture {
         }
     }
 
-    fn explorer_visible(&self) -> bool {
+    pub(super) fn explorer_visible(&self) -> bool {
         match &self.pixels {
             Some(pixels) => pixels
                 .frame(self.effective(), self.zen, &self.panels)

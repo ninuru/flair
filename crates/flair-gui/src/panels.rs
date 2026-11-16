@@ -5,8 +5,9 @@ use std::{
 
 use flair_core::{
     agent::AgentState,
-    command::Command,
+    command::{Command, PaneRef},
     config::{Config, EXPLORER_WIDTH, Side, TABS_WIDTH, TabsPosition},
+    geom::Direction,
     ids::{PaneId, WindowId},
     key::{InputEvent, Key, KeyAction, KeyInput, NamedKey},
     keys::{KeyChord, KeysConfig},
@@ -437,6 +438,46 @@ impl Panels {
         }
     }
 
+    pub fn edge(&mut self, direction: Direction, side: Side, agents: &[AgentParts]) -> bool {
+        if !self.open || self.focused || !toward(direction, side) {
+            return false;
+        }
+        match self.shown {
+            PanelView::Explorer => self.focused = true,
+            PanelView::Agents => self.show_agents(agents),
+            PanelView::Tabs => return false,
+        }
+        true
+    }
+
+    pub fn leave(
+        &mut self,
+        key: &KeyInput,
+        keys: &KeysConfig,
+        pending: bool,
+        now: Instant,
+        side: Side,
+    ) -> bool {
+        if !(self.files_focused() || self.agents_focused())
+            || !keys.enabled
+            || key.action != KeyAction::Press
+            || key.repeat
+        {
+            return false;
+        }
+        let prefixed = pending || self.armed.is_some_and(|until| now < until);
+        let away = matches!(
+            keys.binding(key, prefixed),
+            Some(Command::SelectPane(PaneRef::Direction(direction)))
+                if toward(direction, opposite(side))
+        );
+        if away {
+            self.focused = false;
+            self.armed = None;
+        }
+        away
+    }
+
     pub fn agents_key(
         &mut self,
         key: &KeyInput,
@@ -555,6 +596,22 @@ fn start(agents: &[AgentParts]) -> Option<&AgentParts> {
         .find(|agent| agent.state == AgentState::Blocked)
         .or_else(|| agents.iter().find(|agent| agent.unseen))
         .or_else(|| agents.first())
+}
+
+fn toward(direction: Direction, side: Side) -> bool {
+    match (direction, side) {
+        (Direction::Left, Side::Left) | (Direction::Right, Side::Right) => true,
+        (Direction::Left, Side::Right)
+        | (Direction::Right, Side::Left)
+        | (Direction::Up | Direction::Down, Side::Left | Side::Right) => false,
+    }
+}
+
+fn opposite(side: Side) -> Side {
+    match side {
+        Side::Left => Side::Right,
+        Side::Right => Side::Left,
+    }
 }
 
 fn plain(path: &Path) -> Result<&str, Notice> {

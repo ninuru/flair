@@ -270,9 +270,15 @@ impl Server {
                     .neighbor(window.active_pane, direction, window.area())
             }
         };
-        if let Some(pane) = pane {
-            self.tree.window_mut(window_id).unwrap().active_pane = pane;
-            self.invalidate_window(window_id, out);
+        match (pane, target) {
+            (Some(pane), PaneRef::Id(_) | PaneRef::Direction(_)) => {
+                self.tree.window_mut(window_id).unwrap().active_pane = pane;
+                self.invalidate_window(window_id, out);
+            }
+            (None, PaneRef::Direction(direction)) => {
+                out.push(Effect::Send(id, ServerMsg::PaneEdge(direction)));
+            }
+            (None, PaneRef::Id(_)) => {}
         }
     }
 

@@ -1145,3 +1145,53 @@ fn prefix_a_lists_an_agent_reported_over_osc_7501() {
         "{agents}"
     );
 }
+
+#[test]
+fn select_pane_moves_focus_into_the_explorer_and_back_to_the_terminal() {
+    let output = OutputDir::new();
+    let tree = explorer_tree(&output.0);
+    let root = tree.display().to_string();
+    let scenario = output.0.join("edge.toml");
+    let alt = |key: &str| {
+        format!(
+            "[[steps]]\naction = \"key\"\nkey = {key:?}\nalt = true\n[[steps]]\naction = \"sleep\"\nms = 300\n"
+        )
+    };
+    fs::write(
+        &scenario,
+        format!(
+            "program = \"/bin/sh\"\nargs = [\"-c\", \"printf 'ready> '; read x; printf 'got:%s|' \\\"$x\\\"; read y\"]\ncwd = {root:?}\n{}{}{}{}{}",
+            steps(&[
+                ("wait", "ready> "),
+                ("prefix", "e"),
+                ("wait", " .hidden"),
+                ("key", "Escape"),
+            ]),
+            alt("h"),
+            steps(&[("key", "j"), ("wait", "*  > sub")]),
+            alt("l"),
+            steps(&[("text", "ok\r"), ("wait", "got:ok|")]),
+        ),
+    )
+    .unwrap();
+    let run = Command::new("timeout")
+        .args([
+            "20s",
+            env!("CARGO_BIN_EXE_flair"),
+            "test-headless",
+            "--scenario",
+        ])
+        .arg(&scenario)
+        .arg("--output")
+        .arg(&output.0)
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&run.stderr),
+        fs::read_to_string(output.0.join("frame.txt")).unwrap_or_default()
+    );
+}

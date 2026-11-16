@@ -1,4 +1,7 @@
-use flair_core::command::{Command, PaneRef, WindowRef};
+use flair_core::{
+    command::{Command, PaneRef, WindowRef},
+    geom::Direction,
+};
 
 use super::*;
 use crate::{chrome_layout::PanelView, panels::AgentsOutcome};
@@ -48,6 +51,45 @@ impl App {
                 self.request_redraw();
             }
         }
+    }
+
+    pub(super) fn pane_edge(&mut self, direction: Direction) {
+        let agents = status_parts(&self.status).agents;
+        let side = self.effective().explorer.side;
+        if self.side_view_visible() && self.panels.edge(direction, side, &agents) {
+            self.request_redraw();
+        }
+    }
+
+    pub(super) fn leave_panel(&mut self, key: &KeyInput) -> bool {
+        if !self.side_view_visible() {
+            return false;
+        }
+        let config = self
+            .preview
+            .as_ref()
+            .map_or(&self.config, |preview| &preview.config);
+        let pending = self.status.pending.is_some();
+        let left = self.panels.leave(
+            key,
+            &config.keys,
+            pending,
+            Instant::now(),
+            config.explorer.side,
+        );
+        if left {
+            self.send(ClientMsg::CancelPrefix);
+            self.request_redraw();
+        }
+        left
+    }
+
+    fn side_view_visible(&self) -> bool {
+        self.frame().is_some_and(|frame| {
+            frame
+                .slots()
+                .any(|slot| matches!(slot.view, PanelView::Explorer | PanelView::Agents))
+        })
     }
 
     fn agents_visible(&self) -> bool {
