@@ -3,21 +3,6 @@ const ELLIPSIS: char = '\u{2026}';
 
 const SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "dash", "nu"];
 const INTERPRETERS: &[&str] = &["python", "node", "bun", "deno", "perl", "ruby"];
-const SUBCOMMANDS: &[&str] = &[
-    "docker",
-    "podman",
-    "kubectl",
-    "git",
-    "cargo",
-    "npm",
-    "pnpm",
-    "yarn",
-    "systemctl",
-    "journalctl",
-    "make",
-    "just",
-];
-const FILES: &[&str] = &["nvim", "vim", "vi", "nano", "hx", "less", "bat", "tail"];
 
 const SUDO_VALUES: &[&str] = &[
     "-u", "-g", "-C", "-D", "-R", "-T", "-p", "-U", "-h", "--user", "--group", "--chdir",
@@ -78,10 +63,6 @@ fn label(program: &str, args: &[String]) -> Option<String> {
         operand(args, SSH_VALUES).and_then(|index| host(&args[index]))
     } else if program == "mosh" {
         operand(args, MOSH_VALUES).and_then(|index| host(&args[index]))
-    } else if SUBCOMMANDS.contains(&program) {
-        operand(args, subcommand_values(program)).map(|index| format!("{program} {}", args[index]))
-    } else if FILES.contains(&program) {
-        operand(args, file_values(program)).map(|index| format!("{program} {}", base(&args[index])))
     } else if INTERPRETERS.contains(&family) {
         script(program, args).map(|index| base(&args[index]).to_owned())
     } else {
@@ -109,70 +90,6 @@ fn script(program: &str, args: &[String]) -> Option<usize> {
     match (family(program), args[index].as_str()) {
         ("deno" | "bun", "run") => operand(&args[index + 1..], values).map(|next| index + 1 + next),
         _ => Some(index),
-    }
-}
-
-fn subcommand_values(program: &str) -> &'static [&'static str] {
-    match program {
-        "git" => &["-C", "-c", "--git-dir", "--work-tree", "--namespace"],
-        "docker" | "podman" => &[
-            "-H",
-            "-c",
-            "-l",
-            "--host",
-            "--context",
-            "--config",
-            "--log-level",
-        ],
-        "kubectl" => &[
-            "-n",
-            "-s",
-            "--namespace",
-            "--context",
-            "--cluster",
-            "--server",
-            "--kubeconfig",
-            "--user",
-        ],
-        "make" => &["-C", "-f", "-I", "-o", "-W", "--directory", "--file"],
-        "just" => &["-f", "-d", "--justfile", "--working-directory"],
-        "systemctl" => &[
-            "-t",
-            "-p",
-            "-H",
-            "-M",
-            "-n",
-            "--type",
-            "--property",
-            "--host",
-        ],
-        "journalctl" => &[
-            "-u", "-n", "-p", "-t", "-S", "-U", "-o", "-M", "-D", "-g", "--unit", "--lines",
-            "--since", "--until", "--output",
-        ],
-        "npm" | "pnpm" | "yarn" => &["-C", "--prefix", "--dir", "--cwd", "--filter"],
-        _ => &[],
-    }
-}
-
-fn file_values(program: &str) -> &'static [&'static str] {
-    match program {
-        "nvim" | "vim" | "vi" => &[
-            "-c", "-S", "-u", "-i", "-t", "-q", "-T", "-w", "-W", "--cmd",
-        ],
-        "tail" => &["-n", "-c", "-s", "--pid", "--lines", "--bytes"],
-        "less" => &[
-            "-b", "-h", "-j", "-p", "-P", "-o", "-O", "-t", "-T", "-x", "-y", "-z",
-        ],
-        "bat" => &[
-            "-l",
-            "-r",
-            "-H",
-            "--language",
-            "--line-range",
-            "--highlight-line",
-        ],
-        _ => &[],
     }
 }
 

@@ -104,7 +104,7 @@ fn status_follows_windows_titles_renames_and_last_window() {
     let first_pane = server.tree.sessions[0].windows[0].active_pane;
     let out = process_read(&mut server, 2, first_pane, &["nvim", "notes.md"]);
     let line = status(&out).unwrap();
-    assert_eq!(line.windows[0].name, "nvim notes.md");
+    assert_eq!(line.windows[0].name, "nvim");
     assert_eq!(line.windows[0].program, "nvim");
     let out = send(
         &mut server,
