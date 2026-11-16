@@ -363,10 +363,6 @@ fn tab_hits_span_the_full_bar_height() {
                 rect: rect(132.0, 0.0, 72.0, 34.0),
                 target: HitTarget::Window(WindowId(2)),
             },
-            Hit {
-                rect: rect(760.0, 0.0, 28.0, 34.0),
-                target: HitTarget::ExplorerButton,
-            },
         ]
     );
     assert_eq!(
@@ -451,26 +447,25 @@ fn overflow_counts_hidden_tabs_on_the_side_where_they_are_hidden() {
         (
             30,
             30,
-            291,
+            289,
             vec![29, 30],
             ("30", "shell"),
             vec![(71.0, "+28")],
         ),
-        (30, 30, 191, vec![30], ("30", "shell"), vec![(71.0, "+29")]),
-        (30, 30, 151, vec![30], ("30", "shell"), vec![]),
-        (30, 1, 291, vec![1, 2], ("1", "shell"), vec![(209.0, "+28")]),
-        (30, 30, 140, vec![30], ("30", "sh…"), vec![]),
+        (30, 30, 189, vec![30], ("30", "shell"), vec![(71.0, "+29")]),
+        (30, 30, 149, vec![30], ("30", "shell"), vec![]),
+        (30, 1, 289, vec![1, 2], ("1", "shell"), vec![(209.0, "+28")]),
+        (30, 30, 138, vec![30], ("30", "sh…"), vec![]),
         (
             30,
             15,
-            291,
+            289,
             vec![15],
             ("15", "shell"),
             vec![(71.0, "+14"), (188.0, "+15")],
         ),
-        (3, 1, 791, vec![1, 2, 3], ("3", "shell"), vec![]),
+        (3, 1, 789, vec![1, 2, 3], ("3", "shell"), vec![]),
     ] {
-        let width = width + 30;
         let layout = Case {
             width,
             ..Case::new(&many(count, active))
@@ -480,10 +475,7 @@ fn overflow_counts_hidden_tabs_on_the_side_where_they_are_hidden() {
             .into_iter()
             .map(|window| HitTarget::Window(WindowId(window)))
             .collect();
-        let targets: Vec<HitTarget> = layout.hits[1..layout.hits.len() - 1]
-            .iter()
-            .map(|hit| hit.target)
-            .collect();
+        let targets: Vec<HitTarget> = layout.hits[1..].iter().map(|hit| hit.target).collect();
         assert_eq!(targets, windows, "{active} {width}");
         assert!(tab(&layout, label.0, label.1).is_some(), "{active} {width}");
         let more: Vec<&TextRun> = layout
@@ -512,9 +504,9 @@ fn copy_is_an_accent_tinted_badge_and_the_prefix_a_neutral_one_at_the_far_right(
     let status = copy_and_prefix();
     let layout = Case::new(&status).run();
     assert_eq!(
-        quad_at(&layout, rect(734.0, 9.0, 22.0, 16.0)),
+        quad_at(&layout, rect(766.0, 9.0, 22.0, 16.0)),
         Some(&Quad {
-            rect: rect(734.0, 9.0, 22.0, 16.0),
+            rect: rect(766.0, 9.0, 22.0, 16.0),
             color: opaque(blend(theme.background, theme.accent, 16)),
             radius: 4.0,
             border: None,
@@ -523,12 +515,12 @@ fn copy_is_an_accent_tinted_badge_and_the_prefix_a_neutral_one_at_the_far_right(
     let copy = text(&layout, "COPY").unwrap();
     assert_eq!(
         (copy.x, copy.color, copy.bold, copy.face),
-        (738.0, theme.accent, false, TextFace::Small)
+        (770.0, theme.accent, false, TextFace::Small)
     );
     assert_eq!(
-        quad_at(&layout, rect(712.0, 9.0, 16.0, 16.0)),
+        quad_at(&layout, rect(744.0, 9.0, 16.0, 16.0)),
         Some(&Quad {
-            rect: rect(712.0, 9.0, 16.0, 16.0),
+            rect: rect(744.0, 9.0, 16.0, 16.0),
             color: opaque(tint(&theme, 10)),
             radius: 4.0,
             border: None,
@@ -537,7 +529,7 @@ fn copy_is_an_accent_tinted_badge_and_the_prefix_a_neutral_one_at_the_far_right(
     let prefix = text(&layout, "^A").unwrap();
     assert_eq!(
         (prefix.x, prefix.color, prefix.bold, prefix.face),
-        (716.0, theme.foreground, false, TextFace::Small)
+        (748.0, theme.foreground, false, TextFace::Small)
     );
     assert!(text(&layout, "ZOOM").is_none());
 
@@ -546,8 +538,8 @@ fn copy_is_an_accent_tinted_badge_and_the_prefix_a_neutral_one_at_the_far_right(
         ..Case::new(&status)
     }
     .run();
-    assert!(quad_at(&layout, rect(1480.0, 18.0, 32.0, 32.0)).is_some());
-    assert_eq!(text(&layout, "COPY").unwrap().x, 1488.0);
+    assert!(quad_at(&layout, rect(1544.0, 18.0, 32.0, 32.0)).is_some());
+    assert_eq!(text(&layout, "COPY").unwrap().x, 1552.0);
 }
 
 #[test]
@@ -561,9 +553,9 @@ fn zoom_chip_sits_between_copy_and_the_prefix_when_zoomed() {
     }
     .run();
     assert_eq!(
-        quad_at(&layout, rect(706.0, 9.0, 22.0, 16.0)),
+        quad_at(&layout, rect(738.0, 9.0, 22.0, 16.0)),
         Some(&Quad {
-            rect: rect(706.0, 9.0, 22.0, 16.0),
+            rect: rect(738.0, 9.0, 22.0, 16.0),
             color: opaque(blend(theme.background, theme.accent, 16)),
             radius: 4.0,
             border: None,
@@ -572,9 +564,9 @@ fn zoom_chip_sits_between_copy_and_the_prefix_when_zoomed() {
     let zoom = text(&layout, "ZOOM").unwrap();
     assert_eq!(
         (zoom.x, zoom.color, zoom.bold, zoom.face),
-        (710.0, theme.accent, false, TextFace::Small)
+        (742.0, theme.accent, false, TextFace::Small)
     );
-    assert_eq!(text(&layout, "^A").unwrap().x, 688.0);
+    assert_eq!(text(&layout, "^A").unwrap().x, 720.0);
 
     let unzoomed = WindowLayout {
         zoomed: false,
@@ -610,9 +602,9 @@ fn prompt_replaces_the_tabs_with_a_field_and_a_caret() {
     assert!(text(&layout, "1 shell").is_none());
     assert!(text(&layout, "2 editor").is_none());
     assert_eq!(
-        quad_at(&layout, rect(63.0, 5.0, 693.0, 24.0)),
+        quad_at(&layout, rect(63.0, 5.0, 725.0, 24.0)),
         Some(&Quad {
-            rect: rect(63.0, 5.0, 693.0, 24.0),
+            rect: rect(63.0, 5.0, 725.0, 24.0),
             color: opaque(tint(&theme, 4)),
             radius: 6.0,
             border: Some(Border {
@@ -637,7 +629,7 @@ fn prompt_replaces_the_tabs_with_a_field_and_a_caret() {
     );
     assert_eq!(
         layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
-        [HitTarget::Session, HitTarget::ExplorerButton]
+        [HitTarget::Session]
     );
 }
 
@@ -700,7 +692,7 @@ fn long_prompts_show_their_tail_inside_the_field() {
         ..Case::new(&status)
     }
     .run();
-    let field_end = 760.0;
+    let field_end = 792.0;
     assert_eq!(field_label(&layout).map(|run| run.x), Some(73.0));
     let run = layout.chrome.text.iter().find(|run| run.x == 80.0).unwrap();
     assert!(run.text.starts_with('…') && run.text.ends_with("end"));
@@ -708,7 +700,7 @@ fn long_prompts_show_their_tail_inside_the_field() {
     assert!(caret(&layout).unwrap().x <= field_end - 10.0);
 
     let layout = Case {
-        width: 131,
+        width: 99,
         label: "/",
         prompt: Some(&prompt),
         ..Case::new(&status)
@@ -771,7 +763,7 @@ fn an_info_notice_replaces_the_tabs_in_muted_text_after_a_dot() {
     );
     assert_eq!(
         layout.hits.iter().map(|hit| hit.target).collect::<Vec<_>>(),
-        [HitTarget::Session, HitTarget::ExplorerButton]
+        [HitTarget::Session]
     );
 }
 
@@ -820,13 +812,13 @@ fn a_notice_sits_right_of_an_open_prompt_field() {
         .iter()
         .find(|quad| quad.border.is_some())
         .unwrap();
-    assert_eq!(field.rect, rect(63.0, 5.0, 486.0, 24.0));
+    assert_eq!(field.rect, rect(63.0, 5.0, 518.0, 24.0));
     assert_eq!(
-        notice_dot(&layout, 555.0).map(|quad| quad.color),
+        notice_dot(&layout, 587.0).map(|quad| quad.color),
         Some(opaque(surfaces.attention))
     );
     let run = text(&layout, "window name cannot be empty").unwrap();
-    assert_eq!((run.x, run.color), (567.0, surfaces.muted));
+    assert_eq!((run.x, run.color), (599.0, surfaces.muted));
     let label = text(&layout, "(rename-window) ").unwrap();
     assert_eq!((label.x, label.color), (73.0, surfaces.muted));
 }
@@ -845,7 +837,7 @@ fn a_notice_next_to_a_prompt_keeps_the_field_at_least_120_wide() {
             .rect
     };
     let layout = Case {
-        width: 321,
+        width: 289,
         label: "(rename-window) ",
         prompt: Some(""),
         notice: Some(&notice),
@@ -856,7 +848,7 @@ fn a_notice_next_to_a_prompt_keeps_the_field_at_least_120_wide() {
     assert_eq!(text(&layout, "window na…").unwrap().x, 201.0);
 
     let layout = Case {
-        width: 241,
+        width: 209,
         label: "(rename-window) ",
         prompt: Some(""),
         notice: Some(&notice),

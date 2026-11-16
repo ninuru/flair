@@ -20,6 +20,7 @@ pub struct OverlayInput<'a> {
     pub ui: UiMetrics,
     pub theme: &'a Theme,
     pub hover: Option<(f32, f32)>,
+    pub icons: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +62,19 @@ pub struct Sheet {
     pub strip: Option<Strip>,
     pub empty: Option<&'static str>,
     pub glyph: char,
+}
+
+impl Sheet {
+    pub fn without_icons(self) -> Sheet {
+        Sheet {
+            rows: self
+                .rows
+                .into_iter()
+                .map(|row| Row { icon: None, ..row })
+                .collect(),
+            ..self
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]

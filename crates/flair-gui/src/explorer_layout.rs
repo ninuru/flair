@@ -305,6 +305,7 @@ fn keys(
         ui: input.ui,
         theme: input.theme,
         hover: None,
+        icons: true,
     };
     let inset = px(INSET, scale);
     let mut drawn = OverlayScene::default();

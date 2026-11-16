@@ -106,7 +106,6 @@ pub enum HitTarget {
     PanelBody,
     Row(usize),
     Agent(PaneId),
-    ExplorerButton,
     AgentsButton,
 }
 
@@ -342,6 +341,7 @@ pub fn layout(input: &ChromeInput, mut measure: impl FnMut(&str, bool) -> f32) -
                 ui: input.ui,
                 theme: input.theme,
                 hover: input.hover,
+                icons: input.status.tab_icon.is_some(),
             },
             &mut measure,
         )

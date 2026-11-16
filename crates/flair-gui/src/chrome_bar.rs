@@ -13,11 +13,11 @@ use crate::{
     status::{BadgeKind, BadgeParts, TabParts},
     t3_style::{
         BADGE_HEIGHT, BADGE_NEUTRAL_TINT, BADGE_PAD, BADGE_RADIUS, BADGE_TINT, BAR_PAD, BAR_TINT,
-        BUTTON_GAP, BUTTON_HOVER_TINT, BUTTON_RADIUS, BUTTON_SIZE, CRUMB_SLASH, CRUMB_SPACE,
-        TAB_ACTIVE_TINT, TAB_GAP, TAB_HEIGHT, TAB_HOVER_TINT, TAB_PAD, TAB_RADIUS,
+        BUTTON_HOVER_TINT, BUTTON_RADIUS, BUTTON_SIZE, CRUMB_SLASH, CRUMB_SPACE, TAB_ACTIVE_TINT,
+        TAB_GAP, TAB_HEIGHT, TAB_HOVER_TINT, TAB_PAD, TAB_RADIUS,
     },
     ui::{
-        BELL_KEY, DOT, ELLIPSIS, FIELD_RADIUS, FILES_KEY, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, LINE,
+        BELL_KEY, DOT, ELLIPSIS, FIELD_RADIUS, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, LINE,
         NOTICE_FIELD_MIN, PROCESS_ICON_GAP, SESSION_NAME_MAX, TAB_NAME_MAX, px,
     },
 };
@@ -62,15 +62,10 @@ pub(crate) fn bar(
         tint(input.theme, BAR_TINT),
     ));
     let size = px(BUTTON_SIZE, scale);
-    let button =
-        (!input.zen).then(|| bar_item(width - px(BAR_PAD, scale) - size, size, BUTTON_SIZE, scale));
-    let right = button.map_or(width - px(BAR_PAD, scale), |button| {
-        button.x - px(BUTTON_GAP, scale)
-    });
-    let attention = agents_attention(input);
-    let indicator = button
-        .zip(attention)
-        .map(|(_, color)| (bar_item(right - size, size, BUTTON_SIZE, scale), color));
+    let right = width - px(BAR_PAD, scale);
+    let indicator = agents_attention(input)
+        .filter(|_| !input.zen)
+        .map(|color| (bar_item(right - size, size, BUTTON_SIZE, scale), color));
     let right = indicator.map_or(right, |(rect, _)| rect.x - px(ITEM_GAP, scale));
     let end = badges(input, right, scene, measure).map_or(right, |left| left - px(ITEM_GAP, scale));
     let start = session(input, end, scene, measure) + px(CRUMB_SPACE, scale);
@@ -83,19 +78,6 @@ pub(crate) fn bar(
         }
         (None, None) if input.frame.bar_tabs => tabs(input, start, end, scene, measure),
         (None, None) => {}
-    }
-    if let Some(button) = button {
-        let color = match input.panels.is_some_and(|panels| panels.open) {
-            true => input.theme.foreground,
-            false => input.theme.surfaces().muted,
-        };
-        icon_button(
-            input,
-            button,
-            (FILES_KEY, color),
-            HitTarget::ExplorerButton,
-            scene,
-        );
     }
     if let Some((rect, color)) = indicator {
         icon_button(

@@ -263,16 +263,6 @@ fn a_click_moves_the_cursor_and_jumps() {
 }
 
 #[test]
-fn the_files_button_switches_from_agents_to_files_without_closing() {
-    let mut panels = opened();
-    assert!(panels.toggle_explorer().is_empty());
-    assert!(panels.open && panels.focused);
-    assert_eq!(panels.shown, PanelView::Explorer);
-    assert!(panels.toggle_explorer().is_empty());
-    assert!(!panels.open && !panels.focused);
-}
-
-#[test]
 fn a_switcher_click_to_agents_starts_the_cursor_like_the_command() {
     let mut panels = Panels::default();
     panels.explorer_command();

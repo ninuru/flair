@@ -186,6 +186,7 @@ fn input(
         },
         theme,
         hover: None,
+        icons: true,
     }
 }
 
