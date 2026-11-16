@@ -689,7 +689,7 @@ fn the_session_tree_digit_switches_and_q_closes() {
     let mut overlays = Overlays::default();
     open(&mut overlays, sessions());
     assert_eq!(
-        overlays.key(&press(Key::Char('3')), || None),
+        overlays.key(&press(Key::Char('2')), || None),
         Some(OverlayEvent::Send(vec![
             ClientMsg::Preview(None),
             ClientMsg::Command(Command::Switch(Target::Name("work".into())))
