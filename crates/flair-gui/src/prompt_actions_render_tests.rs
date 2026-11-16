@@ -10,7 +10,7 @@ use crate::{
     status::status_parts,
 };
 use flair_core::{
-    config::Config,
+    config::{Config, PanesConfig},
     geom::{CellPoint, CellRect},
     ids::WindowId,
     proto::{
@@ -191,7 +191,14 @@ fn gpu_prompt_menu_is_anchored_bounded_and_does_not_dim_the_terminal() {
         renderer.resize((width, height));
         renderer
             .draw_frame(
-                &compose_frame(&mirror, &layout, size, &theme, false),
+                &compose_frame(
+                    &mirror,
+                    &layout,
+                    size,
+                    &theme,
+                    PanesConfig::default(),
+                    false,
+                ),
                 &chrome.chrome,
                 &mut fonts,
                 theme.background,

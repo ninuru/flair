@@ -23,6 +23,7 @@ const SELECTION_ALPHA: u8 = 0x40;
 
 pub const TABS_WIDTH: (u16, u16) = (120, 480);
 pub const EXPLORER_WIDTH: (u16, u16) = (160, 640);
+pub const PANES_DIM: (u16, u16) = (0, 80);
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -34,6 +35,7 @@ pub struct Config {
     pub env: BTreeMap<String, String>,
     pub font: FontConfig,
     pub window: WindowConfig,
+    pub panes: PanesConfig,
     pub tabs: TabsConfig,
     pub explorer: ExplorerConfig,
     pub scrollback: ScrollbackConfig,
@@ -67,6 +69,13 @@ pub struct FontConfig {
 pub struct WindowConfig {
     pub padding_x: u16,
     pub padding_y: u16,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PanesConfig {
+    pub dim_inactive: bool,
+    pub dim_amount: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -290,6 +299,7 @@ impl Config {
         positive("font.size", config.font.size)?;
         positive("font.line_height", config.font.line_height)?;
         positive("font.ui_size", config.font.ui_size)?;
+        within("panes.dim_amount", config.panes.dim_amount, PANES_DIM)?;
         within("tabs.width", config.tabs.width, TABS_WIDTH)?;
         within("explorer.width", config.explorer.width, EXPLORER_WIDTH)?;
         Ok(config)
@@ -440,6 +450,7 @@ impl Default for Config {
             env: default_env(),
             font: FontConfig::default(),
             window: WindowConfig::default(),
+            panes: PanesConfig::default(),
             tabs: TabsConfig::default(),
             explorer: ExplorerConfig::default(),
             scrollback: ScrollbackConfig::default(),
@@ -479,6 +490,15 @@ impl Default for WindowConfig {
         WindowConfig {
             padding_x: 8,
             padding_y: 0,
+        }
+    }
+}
+
+impl Default for PanesConfig {
+    fn default() -> PanesConfig {
+        PanesConfig {
+            dim_inactive: true,
+            dim_amount: 30,
         }
     }
 }

@@ -2,8 +2,9 @@ use toml_edit::Array;
 
 use crate::{
     config::{
-        Config, EXPLORER_WIDTH, IconSide, PromptAppearance, PromptDateFormat, PromptOrder,
-        PromptPath, PromptSeparator, PromptStyle, PromptTimeFormat, Side, TABS_WIDTH, TabsPosition,
+        Config, EXPLORER_WIDTH, IconSide, PANES_DIM, PromptAppearance, PromptDateFormat,
+        PromptOrder, PromptPath, PromptSeparator, PromptStyle, PromptTimeFormat, Side, TABS_WIDTH,
+        TabsPosition,
     },
     config_edit::{contains, document},
     theme::{Rgb, Rgba, Theme},
@@ -344,6 +345,26 @@ pub const SETTINGS: &[Setting] = &[
         },
         description: "Space above and below the terminal grid.",
         read: |config, _| Value::Integer(i64::from(config.window.padding_y)),
+    },
+    Setting {
+        key: "panes.dim_inactive",
+        title: "Dim inactive panes",
+        section: Section::Window,
+        kind: Kind::Toggle,
+        description: "Fades the text of panes that do not have focus.",
+        read: |config, _| Value::Bool(config.panes.dim_inactive),
+    },
+    Setting {
+        key: "panes.dim_amount",
+        title: "Dim strength",
+        section: Section::Window,
+        kind: Kind::Integer {
+            step: 5,
+            min: PANES_DIM.0 as i64,
+            max: PANES_DIM.1 as i64,
+        },
+        description: "How far inactive pane text fades toward the background, in percent.",
+        read: |config, _| Value::Integer(i64::from(config.panes.dim_amount)),
     },
     Setting {
         key: "tabs.position",

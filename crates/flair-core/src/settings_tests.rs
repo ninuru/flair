@@ -56,6 +56,8 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "font.ligatures",
             "window.padding_x",
             "window.padding_y",
+            "panes.dim_inactive",
+            "panes.dim_amount",
             "tabs.position",
             "tabs.width",
             "tabs.icons",
@@ -616,6 +618,55 @@ fn the_panels_section_sets_the_tab_bar_position_and_width() {
     config.tabs.width = 320;
     assert_eq!(position.value(&config, &config.theme()), text("right"));
     assert_eq!(width.value(&config, &config.theme()), Value::Integer(320));
+}
+
+#[test]
+fn the_window_section_sets_inactive_pane_dimming() {
+    let dim = setting("panes.dim_inactive");
+    assert_eq!(dim.section, Section::Window);
+    assert_eq!(dim.title, "Dim inactive panes");
+    assert_eq!(dim.kind, Kind::Toggle);
+    assert_eq!(default_value(dim), Value::Bool(true));
+    assert_eq!(
+        dim.step(&Value::Bool(true), 1, &[]),
+        Some(Value::Bool(false))
+    );
+    let amount = setting("panes.dim_amount");
+    assert_eq!(amount.section, Section::Window);
+    assert_eq!(amount.title, "Dim strength");
+    assert_eq!(
+        amount.kind,
+        Kind::Integer {
+            step: 5,
+            min: 0,
+            max: 80
+        }
+    );
+    assert_eq!(default_value(amount), Value::Integer(30));
+    assert_eq!(
+        amount.parse("90"),
+        Err("enter a whole number from 0 to 80".to_owned())
+    );
+    assert_eq!(amount.parse("50"), Ok(Some(Value::Integer(50))));
+    assert_eq!(
+        amount.step(&Value::Integer(78), 1, &[]),
+        Some(Value::Integer(80))
+    );
+    assert_eq!(
+        amount.step(&Value::Integer(30), -1, &[]),
+        Some(Value::Integer(25))
+    );
+    let mut config = Config::default();
+    config.panes.dim_inactive = false;
+    config.panes.dim_amount = 45;
+    assert_eq!(dim.value(&config, &config.theme()), Value::Bool(false));
+    assert_eq!(amount.value(&config, &config.theme()), Value::Integer(45));
+}
+
+#[test]
+fn an_out_of_range_dim_amount_in_the_file_is_an_edit_error() {
+    assert!(apply("", "panes.dim_amount", Some(&Value::Integer(85))).is_err());
+    assert!(apply("", "panes.dim_amount", Some(&Value::Integer(80))).is_ok());
 }
 
 #[test]

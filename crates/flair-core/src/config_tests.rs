@@ -684,6 +684,45 @@ fn prompt_editor_rejects_invalid_orders_and_segment_options() {
 }
 
 #[test]
+fn panes_dim_inactive_by_thirty_percent_by_default() {
+    let panes = Config::default().panes;
+    assert!(panes.dim_inactive);
+    assert_eq!(panes.dim_amount, 30);
+    assert_eq!(PANES_DIM, (0, 80));
+}
+
+#[test]
+fn panes_table_reads_dimming() {
+    let config = Config::from_toml("[panes]\ndim_inactive = false\ndim_amount = 55\n").unwrap();
+    assert!(!config.panes.dim_inactive);
+    assert_eq!(config.panes.dim_amount, 55);
+    let config = Config::from_toml("[panes]\ndim_amount = 0\n").unwrap();
+    assert!(config.panes.dim_inactive);
+    assert_eq!(config.panes.dim_amount, 0);
+    assert!(Config::from_toml("[panes]\nfade = 3\n").is_err());
+}
+
+#[test]
+fn panes_dim_amount_outside_the_bounds_is_rejected_with_the_range() {
+    for amount in [81, 100, 500] {
+        let error = Config::from_toml(&format!("[panes]\ndim_amount = {amount}\n")).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                ConfigError::Range {
+                    key: "panes.dim_amount",
+                    value,
+                    min: 0,
+                    max: 80,
+                } if value == amount
+            ),
+            "{error}"
+        );
+    }
+    assert!(Config::from_toml("[panes]\ndim_amount = 80\n").is_ok());
+}
+
+#[test]
 fn tabs_default_to_the_top_bar_two_hundred_wide() {
     let tabs = Config::default().tabs;
     assert_eq!(tabs.position, TabsPosition::Top);

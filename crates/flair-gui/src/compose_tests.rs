@@ -10,7 +10,7 @@ use crate::{
     t3_style::{DIM, PALETTE, PALETTE_HIGHLIGHT, PANEL_BORDER},
 };
 use flair_core::{
-    config::{Config, PromptConfig},
+    config::{Config, PanesConfig, PromptConfig},
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::{SessionId, WindowId},
     isles::{AheadBehind, Changes, GitInfo, Head, LastCommand, PromptInfo, ShellFacts},
@@ -169,9 +169,7 @@ fn selection_overlay_blends_the_theme_color_and_clears_on_next_update() {
     assert!(grid.cells.iter().all(|cell| cell.bg == theme.background));
 }
 
-#[test]
-fn frame_places_panes_from_row_zero_and_only_shows_active_cursor() {
-    let theme = Config::default().theme();
+fn two_panes() -> (Mirror, WindowLayout) {
     let make_pane = |id, text: &str| PaneUpdate {
         pane: PaneId(id),
         size: GridSize { cols: 2, rows: 1 },
@@ -221,19 +219,139 @@ fn frame_places_panes_from_row_zero_and_only_shows_active_cursor() {
         active: PaneId(2),
         zoomed: false,
     };
+    (mirror, layout)
+}
+
+#[test]
+fn frame_places_panes_from_row_zero_and_only_shows_active_cursor() {
+    let theme = Config::default().theme();
+    let (mirror, layout) = two_panes();
     let size = GridSize { cols: 5, rows: 1 };
-    let mut grid = compose_frame(&mirror, &layout, size, &theme, true);
+    let mut grid = compose_frame(&mirror, &layout, size, &theme, PanesConfig::default(), true);
     assert_eq!(grid.to_lines(), ["ab cd"]);
     assert_eq!(grid.cells[2].bg, theme.background);
     assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 4, row: 0 });
     assert!(
-        compose_frame(&mirror, &layout, size, &theme, false)
-            .cursor
-            .is_none()
+        compose_frame(
+            &mirror,
+            &layout,
+            size,
+            &theme,
+            PanesConfig::default(),
+            false
+        )
+        .cursor
+        .is_none()
     );
     separator_glyphs(&mut grid, &layout);
     assert_eq!(grid.to_lines(), ["ab│cd"]);
     assert_eq!(mirror.pane(PaneId(2)).unwrap().cursor.point.row, 0);
+}
+
+#[test]
+fn frame_dims_the_text_of_inactive_panes_only() {
+    let theme = Config::default().theme();
+    let (mirror, layout) = two_panes();
+    let size = GridSize { cols: 5, rows: 1 };
+    let panes = PanesConfig {
+        dim_inactive: true,
+        dim_amount: 40,
+    };
+    let plain = compose_frame(
+        &mirror,
+        &layout,
+        size,
+        &theme,
+        PanesConfig {
+            dim_inactive: false,
+            ..panes
+        },
+        true,
+    );
+    let grid = compose_frame(&mirror, &layout, size, &theme, panes, true);
+    let faded = blend(theme.foreground, theme.background, 40);
+    assert_ne!(faded, theme.foreground);
+    assert_eq!(grid.cells[0].fg, faded);
+    assert_eq!(grid.cells[1].fg, faded);
+    assert_eq!(grid.cells[3].fg, plain.cells[3].fg);
+    assert_eq!(grid.cells[4].fg, plain.cells[4].fg);
+    assert_eq!(grid.cells[2].fg, plain.cells[2].fg);
+    for (dimmed, plain) in grid.cells.iter().zip(&plain.cells) {
+        assert_eq!(dimmed.bg, plain.bg);
+    }
+    assert_eq!(grid.cursor, plain.cursor);
+}
+
+#[test]
+fn frame_does_not_dim_when_disabled_at_zero_or_with_one_pane() {
+    let theme = Config::default().theme();
+    let (mirror, layout) = two_panes();
+    let size = GridSize { cols: 5, rows: 1 };
+    let off = PanesConfig {
+        dim_inactive: false,
+        dim_amount: 30,
+    };
+    let zero = PanesConfig {
+        dim_inactive: true,
+        dim_amount: 0,
+    };
+    for panes in [off, zero] {
+        let grid = compose_frame(&mirror, &layout, size, &theme, panes, true);
+        assert!(grid.cells.iter().all(|cell| cell.fg == theme.foreground));
+    }
+    let single = WindowLayout {
+        panes: layout.panes[..1].to_vec(),
+        active: PaneId(3),
+        ..layout
+    };
+    let grid = compose_frame(&mirror, &single, size, &theme, PanesConfig::default(), true);
+    assert!(grid.cells.iter().all(|cell| cell.fg == theme.foreground));
+}
+
+#[test]
+fn frame_dims_selected_cells_after_tinting_their_background() {
+    let theme = Config::default().theme();
+    let (mut mirror, layout) = two_panes();
+    let size = GridSize { cols: 5, rows: 1 };
+    mirror.apply(&[PaneUpdate {
+        pane: PaneId(1),
+        size: GridSize { cols: 2, rows: 1 },
+        full: false,
+        rows: vec![],
+        cursor: Cursor {
+            point: CellPoint { col: 1, row: 0 },
+            shape: CursorShape::Block,
+            visible: true,
+        },
+        flags: PaneFlags::default(),
+        selection: vec![SelectionSpan {
+            row: 0,
+            start: 0,
+            end: 0,
+        }],
+    }]);
+    let off = PanesConfig {
+        dim_inactive: false,
+        dim_amount: 50,
+    };
+    let plain = compose_frame(&mirror, &layout, size, &theme, off, true);
+    let grid = compose_frame(
+        &mirror,
+        &layout,
+        size,
+        &theme,
+        PanesConfig {
+            dim_inactive: true,
+            ..off
+        },
+        true,
+    );
+    assert_ne!(plain.cells[0].bg, theme.background);
+    assert_eq!(grid.cells[0].bg, plain.cells[0].bg);
+    assert_eq!(
+        grid.cells[0].fg,
+        blend(plain.cells[0].fg, theme.background, 50)
+    );
 }
 
 #[test]
@@ -297,7 +415,14 @@ fn frame_clips_stale_rectangles_and_wide_glyphs_at_the_edge() {
         },
     ] {
         for size in sizes {
-            let grid = compose_frame(&mirror, &layout(origin), size, &theme, true);
+            let grid = compose_frame(
+                &mirror,
+                &layout(origin),
+                size,
+                &theme,
+                PanesConfig::default(),
+                true,
+            );
             assert_eq!(
                 grid.cells.len(),
                 usize::from(size.cols) * usize::from(size.rows)
@@ -310,13 +435,27 @@ fn frame_clips_stale_rectangles_and_wide_glyphs_at_the_edge() {
         }
     }
     let top = layout(CellPoint { col: 0, row: 0 });
-    let grid = compose_frame(&mirror, &top, sizes[1], &theme, true);
+    let grid = compose_frame(
+        &mirror,
+        &top,
+        sizes[1],
+        &theme,
+        PanesConfig::default(),
+        true,
+    );
     assert_eq!(grid.to_lines(), ["界"]);
     assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 0, row: 0 });
     assert!(
-        compose_frame(&mirror, &top, sizes[0], &theme, true)
-            .cells
-            .is_empty()
+        compose_frame(
+            &mirror,
+            &top,
+            sizes[0],
+            &theme,
+            PanesConfig::default(),
+            true
+        )
+        .cells
+        .is_empty()
     );
 }
 
@@ -486,7 +625,7 @@ fn draw_chrome_frame(
         metrics,
     );
     let (mirror, layout) = split_frame(size);
-    let mut grid = compose_frame(&mirror, &layout, size, &theme, true);
+    let mut grid = compose_frame(&mirror, &layout, size, &theme, PanesConfig::default(), true);
     if let Some((first, rest)) = paint {
         for (index, cell) in grid.cells.iter_mut().enumerate() {
             cell.bg = if index < usize::from(size.cols) {
@@ -795,6 +934,7 @@ fn stacked_frame_moves_selection_with_cells_and_draws_horizontal_separator() {
         &layout,
         GridSize { cols: 3, rows: 3 },
         &theme,
+        PanesConfig::default(),
         true,
     );
     assert_eq!(grid.to_lines(), ["ab", "", "cd"]);
@@ -841,7 +981,7 @@ fn the_band_row_above_a_pane_stays_blank_in_the_cell_grid() {
     let size = GridSize { cols: 20, rows: 4 };
     let (mirror, layout) = split_frame(size);
     let layout = banded(layout);
-    let grid = compose_frame(&mirror, &layout, size, &theme, true);
+    let grid = compose_frame(&mirror, &layout, size, &theme, PanesConfig::default(), true);
     assert!(
         grid.cells[..20]
             .iter()
@@ -950,7 +1090,7 @@ fn gpu_frame_draws_chips_on_each_panes_shell_prompt_row() {
         })
         .collect();
     mirror.apply(&updates);
-    let grid = compose_frame(&mirror, &layout, size, &theme, true);
+    let grid = compose_frame(&mirror, &layout, size, &theme, PanesConfig::default(), true);
     let prompts = band_prompts();
     let prompt = PromptConfig {
         time: true,
