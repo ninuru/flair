@@ -819,8 +819,8 @@ fn search_finds_prompt_entries_under_a_prompt_heading() {
     type_text(&mut page, "icons");
     let sheet = page.sheet();
     let headings: Vec<_> = sheet.groups.iter().map(|group| group.heading).collect();
-    assert_eq!(headings, [Some("Prompt")]);
-    assert_eq!(titles(&sheet), ["Icons"]);
+    assert_eq!(headings, [Some("Panels"), Some("Prompt")]);
+    assert_eq!(titles(&sheet), ["Tab icons", "Icons"]);
     page.key(&ctrl('u'));
     type_text(&mut page, "kube");
     let sheet = page.sheet();

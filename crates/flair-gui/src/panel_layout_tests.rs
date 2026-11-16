@@ -7,6 +7,7 @@ use crate::{
     status::{ChipParts, StatusParts},
     ui::ELLIPSIS,
 };
+use flair_core::config::IconSide;
 use flair_core::{
     config::Config,
     ids::WindowId,
@@ -67,6 +68,7 @@ fn tab(index: u16, name: &str) -> TabParts {
 
 fn status(tabs: Vec<TabParts>) -> StatusParts {
     StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: "main".into(),
             hidden: 0,
@@ -165,7 +167,7 @@ fn a_left_panel_has_a_ground_a_hairline_and_rows_inside_its_inset() {
     assert_eq!(quads[1].rect, rect(199.0, 35.0, 1.0, 565.0));
     assert_eq!(quads[1].color, opaque(theme.surfaces().outline));
     let shell = run_text(&layout, "shell").unwrap();
-    assert_eq!(shell.x, 55.0);
+    assert_eq!(shell.x, 38.0);
     assert_eq!(shell.face, TextFace::Ui);
     let index = run_text(&layout, "1").unwrap();
     assert_eq!(index.x, 18.0);
@@ -186,7 +188,7 @@ fn a_right_panel_puts_the_hairline_on_its_left_edge() {
     let quads = panel_quads(&layout);
     assert_eq!(quads[0].rect, rect(600.0, 35.0, 200.0, 565.0));
     assert_eq!(quads[1].rect, rect(600.0, 35.0, 1.0, 565.0));
-    assert_eq!(run_text(&layout, "shell").unwrap().x, 656.0);
+    assert_eq!(run_text(&layout, "shell").unwrap().x, 639.0);
     assert_eq!(
         hit_test(&layout.hits, (610.0, 50.0)),
         Some(HitTarget::Tab(WindowId(1)))
@@ -474,4 +476,38 @@ fn a_dragged_tab_keeps_a_raised_fill_and_shows_the_drop_line() {
     assert!(quads.iter().any(
         |quad| quad.rect == rect(8.0, 136.0, 183.0, 2.0) && quad.color == opaque(theme.accent)
     ));
+}
+
+#[test]
+fn tab_icons_follow_the_side_setting_or_disappear() {
+    let mut parts = three();
+    for tab in &mut parts.tabs {
+        tab.icon = Some('\u{f120}');
+    }
+    let icons = |layout: &ChromeLayout| -> Vec<f32> {
+        layout
+            .chrome
+            .text
+            .iter()
+            .filter(|run| run.text == "\u{f120}")
+            .map(|run| run.x)
+            .collect()
+    };
+    let after = Case::new(&parts).run();
+    assert_eq!(run_text(&after, "shell").unwrap().x, 38.0);
+    assert_eq!(icons(&after)[0], 38.0 + 35.0 + 6.0);
+    let before_parts = StatusParts {
+        tab_icon: Some(IconSide::Before),
+        ..parts.clone()
+    };
+    let before = Case::new(&before_parts).run();
+    assert_eq!(icons(&before)[0], 38.0);
+    assert_eq!(run_text(&before, "shell").unwrap().x, 55.0);
+    let off_parts = StatusParts {
+        tab_icon: None,
+        ..parts
+    };
+    let off = Case::new(&off_parts).run();
+    assert!(icons(&off).is_empty());
+    assert_eq!(run_text(&off, "shell").unwrap().x, 38.0);
 }

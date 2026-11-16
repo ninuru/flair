@@ -1,5 +1,6 @@
 use flair_core::{
     agent::AgentState,
+    config::{IconSide, TabsConfig},
     ids::{PaneId, WindowId},
     status::StatusLine,
 };
@@ -13,6 +14,7 @@ pub struct StatusParts {
     pub tabs: Vec<TabParts>,
     pub badges: Vec<BadgeParts>,
     pub agents: Vec<AgentParts>,
+    pub tab_icon: Option<IconSide>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -114,6 +116,14 @@ pub fn status_parts(status: &StatusLine) -> StatusParts {
                     .is_some_and(|pane| pane.pane == row.pane),
             })
             .collect(),
+        tab_icon: Some(IconSide::After),
+    }
+}
+
+pub fn with_tab_icons(parts: StatusParts, tabs: &TabsConfig) -> StatusParts {
+    StatusParts {
+        tab_icon: tabs.icons.then_some(tabs.icon_side),
+        ..parts
     }
 }
 

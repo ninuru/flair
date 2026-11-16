@@ -14,11 +14,6 @@ impl App {
         self.explorer_toggled(dirs);
     }
 
-    pub(super) fn toggle_explorer(&mut self) {
-        let dirs = self.panels.toggle_explorer();
-        self.explorer_toggled(dirs);
-    }
-
     pub(super) fn explorer_toggled(&mut self, dirs: Vec<PathBuf>) {
         self.load(dirs);
         self.send(ClientMsg::Resize(self.size()));

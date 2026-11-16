@@ -4,7 +4,7 @@ use super::*;
 use crate::{
     chrome_bar::small_text,
     overlay_layout::visible,
-    settings_style::{
+    t3_style::{
         APPEARANCE_ICON, FONT_ICON, ICON, ICON_BOX, ICON_GAP, KBD, KBD_HEIGHT, KBD_PAD, KBD_RADIUS,
         KEYS_ICON, NAV_CURRENT, NAV_GROUP_GAP, NAV_HEADING, NAV_HEADING_GAP, NAV_HOVER, NAV_ITEM,
         NAV_ITEM_GAP, NAV_ITEM_PAD, NAV_ITEM_RADIUS, PANELS_ICON, PRIMARY, PROMPT_ICON, QUIET,

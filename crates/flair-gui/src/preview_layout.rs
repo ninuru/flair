@@ -11,6 +11,7 @@ use crate::{
     overlay_layout::{OverlayInput, OverlayScene},
     process_icon::process_icon,
     renderer::{Border, PxRect, Quad},
+    t3_style::PRIMARY,
     ui::{LABEL_HEIGHT, LINE, STRIP_HEIGHT, THUMB_GAP, THUMB_MAX, THUMB_PAD, THUMB_RADIUS, px},
 };
 
@@ -88,7 +89,7 @@ fn aspect(layout: &WindowLayout, metrics: CellMetrics) -> f32 {
 fn frame(thumb: PxRect, current: bool, input: &OverlayInput, scene: &mut OverlayScene) {
     let theme = input.theme;
     let color = match current {
-        true => theme.accent,
+        true => PRIMARY,
         false => theme.surfaces().outline,
     };
     scene.quads.push(Quad {
@@ -211,7 +212,7 @@ fn caption(
     scene
         .text
         .push(small_text(rect.x, rect, number, surfaces.faint, input.ui));
-    let icon = process_icon(&window.program);
+    let icon = process_icon(&window.program).filter(|_| input.icons);
     let lead = icon_lead(icon, input.metrics, input.scale);
     let room = (rect.w - number_width - gap - lead).max(0.0);
     let name = ellipsize(&window.name, room / small, false, measure);

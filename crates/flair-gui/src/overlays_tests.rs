@@ -6,7 +6,10 @@ use flair_core::{
 use std::fs;
 
 use super::*;
-use crate::settings_layout::{Entry, SettingsHit, SettingsSheet};
+use crate::{
+    CellMetrics, UiMetrics,
+    settings_layout::{Entry, SettingsHit, SettingsSheet},
+};
 
 fn press(key: Key) -> KeyInput {
     KeyInput {
@@ -175,7 +178,7 @@ fn sessions() -> ServerMsg {
 }
 
 fn tree_rows(overlays: &Overlays) -> (Vec<String>, usize) {
-    let sheet = overlays.sheet().unwrap();
+    let sheet = overlays.sheet(true).unwrap();
     (
         sheet.rows.into_iter().map(|row| row.name).collect(),
         sheet.selected,
@@ -448,6 +451,25 @@ fn the_settings_message_opens_the_page() {
     assert!(overlays.is_open());
     assert!(overlays.panel_open());
     assert_eq!(settings_page(&mut overlays).crumb, "Appearance");
+}
+
+#[test]
+fn settings_reopen_on_the_page_they_were_closed_on() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, ServerMsg::Settings);
+    overlays
+        .settings_mut()
+        .unwrap()
+        .click(SettingsHit::Section(2));
+    let crumb = settings_page(&mut overlays).crumb;
+    assert_ne!(crumb, "Appearance");
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::Escape)), || None),
+        Some(OverlayEvent::Settings(SettingsOutcome::Close))
+    );
+    assert!(!overlays.is_open());
+    open(&mut overlays, ServerMsg::Settings);
+    assert_eq!(settings_page(&mut overlays).crumb, crumb);
 }
 
 #[test]
@@ -729,7 +751,7 @@ fn previews_reach_the_tree_only_for_the_session_under_the_cursor() {
         Some(watch(2))
     );
     assert!(open_preview(&mut overlays, 2));
-    let strip = overlays.sheet().unwrap().strip.unwrap();
+    let strip = overlays.sheet(true).unwrap().strip.unwrap();
     assert_eq!(strip.preview, Some(preview(2)));
     assert_eq!(strip.windows[0].name, "notes-shell");
 }
@@ -761,4 +783,95 @@ fn open_preview(overlays: &mut Overlays, session: u32) -> bool {
         &Config::default(),
         Path::new("/nonexistent/flair.toml"),
     )
+}
+
+#[test]
+fn rename_is_a_palette_off_the_bar_and_the_backdrop_cancels_it() {
+    let mut overlays = Overlays::default();
+    open(
+        &mut overlays,
+        ServerMsg::PromptRename {
+            current: "zsh".to_owned(),
+        },
+    );
+    assert!(overlays.bar_field().is_none());
+    let theme = Config::default().theme();
+    let input = OverlayInput {
+        metrics: CellMetrics {
+            width: 8.0,
+            height: 16.0,
+            baseline: 12.0,
+        },
+        px: (800, 600),
+        scale: 1.0,
+        ui: UiMetrics {
+            height: 14.0,
+            ascent: 11.0,
+            small: 0.5,
+            cap: 8.0,
+            icon: CellMetrics {
+                width: 7.0,
+                height: 12.0,
+                baseline: 9.0,
+            },
+        },
+        theme: &theme,
+        hover: None,
+        icons: true,
+    };
+    let scene = overlays
+        .layout(&input, &mut |text, _| text.chars().count() as f32 * 7.0)
+        .unwrap();
+    assert!(scene.text.iter().any(|run| run.text == "zsh"));
+    overlays.place(Some(scene.hits));
+    assert_eq!(overlays.hit_test((5.0, 500.0)), Some(OverlayHit::Outside));
+    overlays.click(OverlayHit::Outside);
+    assert!(!overlays.is_open());
+}
+
+#[test]
+fn session_tree_window_rows_drop_program_icons_when_tab_icons_are_off() {
+    let mut overlays = Overlays::default();
+    let ServerMsg::ChooseSession {
+        sessions,
+        current,
+        preview,
+    } = sessions()
+    else {
+        unreachable!()
+    };
+    let sessions = sessions
+        .into_iter()
+        .map(|session| flair_core::proto::SessionNode {
+            windows: session
+                .windows
+                .into_iter()
+                .map(|window| flair_core::status::StatusWindow {
+                    program: "zsh".into(),
+                    ..window
+                })
+                .collect(),
+            ..session
+        })
+        .collect();
+    open(
+        &mut overlays,
+        ServerMsg::ChooseSession {
+            sessions,
+            current,
+            preview,
+        },
+    );
+    overlays.key(&press(Key::Char('l')), || None);
+    let icons = |shown| -> Vec<Option<char>> {
+        overlays
+            .sheet(shown)
+            .unwrap()
+            .rows
+            .into_iter()
+            .map(|row| row.icon)
+            .collect()
+    };
+    assert!(icons(true).iter().any(Option::is_some));
+    assert!(icons(false).iter().all(Option::is_none));
 }

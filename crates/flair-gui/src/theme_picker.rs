@@ -2,6 +2,7 @@ use flair_core::key::{Key, KeyAction, KeyInput, NamedKey};
 
 use crate::{
     overlay_layout::{Field, Placement, Row, Sheet},
+    t3_style::{APPEARANCE_ICON, SEARCH_ICON},
     ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
 
@@ -98,6 +99,8 @@ impl ThemePicker {
                 name: name.to_owned(),
                 name_matches: substring(name, &self.query),
                 label: (name == self.current).then_some("saved"),
+                current: name == self.current,
+                icon: Some(APPEARANCE_ICON),
                 ..Row::default()
             })
             .collect();
@@ -114,10 +117,12 @@ impl ThemePicker {
             rows,
             selected: self.selected,
             keys: vec![
-                (ENTER_KEY, "save".to_owned()),
-                (MOVE_KEY, "move".to_owned()),
-                (ESCAPE_KEY, "revert".to_owned()),
+                (MOVE_KEY, "Navigate".to_owned()),
+                (ENTER_KEY, "Save".to_owned()),
+                (ESCAPE_KEY, "Revert".to_owned()),
             ],
+            empty: Some("No matching themes."),
+            glyph: SEARCH_ICON,
         }
     }
 

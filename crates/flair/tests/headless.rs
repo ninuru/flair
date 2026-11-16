@@ -417,10 +417,9 @@ action = "wait"
 text = "ready> "
 [[steps]]
 action = "key"
-key = "S"
+key = "s"
 ctrl = true
 alt = true
-shift = true
 [[steps]]
 action = "capture"
 name = "settings"
@@ -518,15 +517,17 @@ fn a_reopened_settings_page_shows_the_saves_kept_in_memory() {
     fs::write(&config, original).unwrap();
     let scenario = output.0.join("reopen.toml");
     let key = |key: &str| format!("[[steps]]\naction = \"key\"\nkey = \"{key}\"\n");
+    let show = "[[steps]]\naction = \"key\"\nkey = \"s\"\nctrl = true\nalt = true\n[[steps]]\naction = \"sleep\"\nms = 300\n";
     let open = format!(
-        "[[steps]]\naction = \"key\"\nkey = \"S\"\nctrl = true\nalt = true\nshift = true\n[[steps]]\naction = \"sleep\"\nms = 300\n{}{}{}{}",
+        "{show}{}{}{}{}",
         key("Tab"),
         key("Down"),
         key("Down"),
         key("Tab")
     );
+    let reopen = format!("{show}{}{}", key("Tab"), key("Tab"));
     let steps = format!(
-        "program = \"/bin/sh\"\nargs = [\"-c\", \"printf 'ready> '; read x\"]\n[[steps]]\naction = \"wait\"\ntext = \"ready> \"\n{open}{}{}{}[[steps]]\naction = \"capture\"\nname = \"saved\"\n{}{open}[[steps]]\naction = \"capture\"\nname = \"reopened\"\n",
+        "program = \"/bin/sh\"\nargs = [\"-c\", \"printf 'ready> '; read x\"]\n[[steps]]\naction = \"wait\"\ntext = \"ready> \"\n{open}{}{}{}[[steps]]\naction = \"capture\"\nname = \"saved\"\n{}{reopen}[[steps]]\naction = \"capture\"\nname = \"reopened\"\n",
         key("Right"),
         key("Enter"),
         key("Up"),

@@ -288,20 +288,27 @@ fn named_space_preserves_control_aware_text_and_missing_release_text() {
 }
 
 #[test]
-fn ctrl_alt_shift_s_from_winit_resolves_to_settings() {
+fn ctrl_alt_s_from_winit_resolves_to_settings_and_ctrl_alt_shift_s_does_not() {
     let keys = KeysConfig::default();
-    for value in ["S", "s"] {
-        let key = translate(
+    let chord = |value: &str, mods: ModifiersState| {
+        translate(
             &WinitKey::Character(value.into()),
             KeyLocation::Standard,
             None,
-            ModifiersState::CONTROL | ModifiersState::ALT | ModifiersState::SHIFT,
+            mods,
             false,
         )
-        .unwrap();
+        .unwrap()
+    };
+    let ctrl_alt = ModifiersState::CONTROL | ModifiersState::ALT;
+    assert_eq!(
+        keys.binding(&chord("s", ctrl_alt), false),
+        Some(Command::Settings)
+    );
+    for value in ["S", "s"] {
         assert_eq!(
-            keys.binding(&key, false),
-            Some(Command::Settings),
+            keys.binding(&chord(value, ctrl_alt | ModifiersState::SHIFT), false),
+            None,
             "{value}"
         );
     }

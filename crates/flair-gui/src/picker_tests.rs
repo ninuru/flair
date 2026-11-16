@@ -84,15 +84,15 @@ fn sessionizer_sheet_names_the_last_session_and_marks_open_sessions() {
     assert_eq!(
         verbs(&sheet),
         [
-            (ENTER_KEY, "switch"),
-            (MOVE_KEY, "move"),
-            (ESCAPE_KEY, "close")
+            (MOVE_KEY, "Navigate"),
+            (ENTER_KEY, "Switch"),
+            (ESCAPE_KEY, "Close")
         ]
     );
     let mut last = self::picker();
-    assert_eq!(verbs(&last.sheet(None))[0], (ENTER_KEY, "last: previous"));
+    assert_eq!(verbs(&last.sheet(None))[1], (ENTER_KEY, "Last: previous"));
     last.insert("f");
-    assert_eq!(verbs(&last.sheet(None))[0], (ENTER_KEY, "switch"));
+    assert_eq!(verbs(&last.sheet(None))[1], (ENTER_KEY, "Switch"));
     picker.insert("zzqqx");
     assert!(picker.sheet(None).rows.is_empty());
 }
@@ -160,13 +160,13 @@ fn enter_verb_opens_a_directory_and_switches_to_an_open_session() {
     picker.insert("rust");
     let sheet = picker.sheet(None);
     assert_eq!(sheet.rows[sheet.selected].name, "rust-catchers");
-    assert_eq!(verbs(&sheet)[0], (ENTER_KEY, "open"));
+    assert_eq!(verbs(&sheet)[1], (ENTER_KEY, "Open"));
     assert_eq!(sheet.count, (2, 3));
     picker.clear();
     picker.insert("work");
-    assert_eq!(verbs(&picker.sheet(None))[0], (ENTER_KEY, "switch"));
+    assert_eq!(verbs(&picker.sheet(None))[1], (ENTER_KEY, "Switch"));
     picker.insert("zzqqx");
-    assert_eq!(verbs(&picker.sheet(None))[0], (ENTER_KEY, "switch"));
+    assert_eq!(verbs(&picker.sheet(None))[1], (ENTER_KEY, "Switch"));
 }
 
 #[test]

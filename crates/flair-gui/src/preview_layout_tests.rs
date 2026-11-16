@@ -3,6 +3,7 @@ use crate::{
     UiMetrics,
     overlay_layout::{Placement, Row, Sheet, layout},
     renderer::TextFace,
+    t3_style::{PRIMARY, SEARCH_ICON},
 };
 use flair_core::{
     config::Config,
@@ -38,6 +39,7 @@ fn input(theme: &Theme, px: (u32, u32)) -> OverlayInput<'_> {
         },
         theme,
         hover: None,
+        icons: true,
     }
 }
 
@@ -140,7 +142,7 @@ fn one_thumbnail_per_window_up_to_nine_with_capped_width() {
 }
 
 #[test]
-fn the_current_window_gets_the_accent_border() {
+fn the_current_window_gets_the_primary_border() {
     let theme = Config::default().theme();
     let strip = Strip {
         windows: vec![window(1, "a", false), window(2, "b", true)],
@@ -159,7 +161,7 @@ fn the_current_window_gets_the_accent_border() {
                 opaque(theme.background),
                 6.0
             ),
-            (opaque(theme.accent), opaque(theme.background), 6.0),
+            (opaque(PRIMARY), opaque(theme.background), 6.0),
         ]
     );
 }
@@ -214,6 +216,36 @@ fn labels_put_a_faint_process_icon_between_the_index_and_the_name() {
     assert_eq!(labels[3].0, "4");
     assert_eq!(labels[4].0, "less");
     assert_eq!(labels[4].2 - labels[3].2, 7.0);
+}
+
+#[test]
+fn labels_leave_out_the_process_icon_when_tab_icons_are_off() {
+    let theme = Config::default().theme();
+    let strip = Strip {
+        windows: vec![StatusWindow {
+            program: "zsh".into(),
+            ..window(1, "zsh", true)
+        }],
+        preview: None,
+    };
+    let mut scene = OverlayScene::default();
+    let input = OverlayInput {
+        icons: false,
+        ..input(&theme, (1000, 500))
+    };
+    self::strip(
+        &strip,
+        rect(0.0, 0.0, 300.0, 120.0),
+        &input,
+        &mut scene,
+        &mut measure,
+    );
+    let labels: Vec<_> = scene
+        .text
+        .iter()
+        .map(|run| (run.text.as_str(), run.x))
+        .collect();
+    assert_eq!(labels, vec![("1", 0.0), ("zsh", 7.0)]);
 }
 
 #[test]
@@ -325,6 +357,8 @@ fn tree_sheet(rows: usize) -> Sheet {
             windows: vec![window(1, "zsh", true), window(2, "nvim", false)],
             preview: None,
         }),
+        empty: Some("No sessions."),
+        glyph: SEARCH_ICON,
     }
 }
 
@@ -337,9 +371,9 @@ fn the_sheet_reserves_the_strip_between_rows_and_footer() {
     let last_row = scene.hits.rows.last().unwrap().1;
     let thumb = scene.hits.windows[0].1;
     assert_eq!(scene.hits.rows.len(), 4);
-    assert!(thumb.y >= last_row.y + last_row.h + 25.0);
+    assert!(thumb.y >= last_row.y + last_row.h + 20.0);
     let panel = scene.hits.panel;
-    assert!(thumb.y + thumb.h <= panel.y + panel.h - 20.0 - 20.0 - 25.0);
+    assert!(thumb.y + thumb.h <= panel.y + panel.h - 40.0 - 12.0);
     let without = layout(
         &Sheet {
             strip: None,

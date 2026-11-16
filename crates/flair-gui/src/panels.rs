@@ -224,23 +224,6 @@ impl Panels {
         }
     }
 
-    pub fn toggle_explorer(&mut self) -> Vec<PathBuf> {
-        match (self.open, self.shown) {
-            (true, PanelView::Agents) => {
-                self.focused = true;
-                self.shown = PanelView::Explorer;
-                Vec::new()
-            }
-            (true, PanelView::Explorer | PanelView::Tabs) => {
-                self.close();
-                Vec::new()
-            }
-            (false, PanelView::Agents | PanelView::Explorer | PanelView::Tabs) => {
-                self.open_explorer()
-            }
-        }
-    }
-
     pub fn follow(&mut self, pane: Option<ActivePane>) -> Vec<PathBuf> {
         let cwd = pane.as_ref().and_then(|pane| pane.cwd.clone());
         self.pane = pane;

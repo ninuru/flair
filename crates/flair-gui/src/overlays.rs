@@ -35,6 +35,7 @@ pub struct Overlays {
     prompt: Option<Prompt>,
     theme_picker: Option<ThemePicker>,
     settings: Option<SettingsPage>,
+    settings_section: usize,
     home: Option<PathBuf>,
     hits: Option<OverlayHits>,
     notice: Option<Notice>,
@@ -139,12 +140,10 @@ impl Overlays {
                     }
                 };
                 let dir = Config::themes_dir(config_path);
-                self.settings = Some(SettingsPage::new(
-                    config,
-                    config.load_theme(&dir).0,
-                    text,
-                    theme_names(&dir),
-                ));
+                self.settings = Some(
+                    SettingsPage::new(config, config.load_theme(&dir).0, text, theme_names(&dir))
+                        .on_section(self.settings_section),
+                );
             }
             ServerMsg::Welcome { .. }
             | ServerMsg::Frame { .. }
@@ -371,7 +370,7 @@ impl Overlays {
                 settings_layout::layout(&page.sheet(), input, measure)
             });
         }
-        let sheet = self.sheet()?;
+        let sheet = self.sheet(input.icons)?;
         Some(overlay_layout::layout(&sheet, input, measure))
     }
 
@@ -465,7 +464,10 @@ impl Overlays {
     }
 
     pub fn bar_field(&self) -> Option<BarField<'_>> {
-        let prompt = self.prompt.as_ref()?;
+        let prompt = self.prompt.as_ref().filter(|prompt| match prompt {
+            Prompt::Search { .. } => true,
+            Prompt::Choose { .. } | Prompt::Rename { .. } => false,
+        })?;
         Some(BarField {
             label: prompt.field_prefix()?,
             text: prompt.field_text()?,
@@ -473,7 +475,7 @@ impl Overlays {
         })
     }
 
-    fn sheet(&self) -> Option<Sheet> {
+    fn sheet(&self, icons: bool) -> Option<Sheet> {
         if let Some(picker) = &self.theme_picker {
             return Some(picker.sheet());
         }
@@ -481,7 +483,10 @@ impl Overlays {
             return Some(picker.sheet(self.home.as_deref()));
         }
         if let Some(tree) = &self.tree {
-            return Some(tree.sheet());
+            return Some(match icons {
+                true => tree.sheet(),
+                false => tree.sheet().without_icons(),
+            });
         }
         self.prompt.as_ref().and_then(Prompt::sheet)
     }
@@ -492,7 +497,10 @@ impl Overlays {
             || self.theme_picker.is_some()
             || self.picker.is_some()
             || self.tree.is_some()
-            || matches!(self.prompt, Some(Prompt::Choose { .. }))
+            || matches!(
+                self.prompt,
+                Some(Prompt::Choose { .. } | Prompt::Rename { .. })
+            )
     }
 
     fn dismiss(&mut self) -> OverlayEvent {
@@ -574,7 +582,11 @@ impl Overlays {
 
     fn settings(&mut self, outcome: SettingsOutcome) -> OverlayEvent {
         match outcome {
-            SettingsOutcome::Close => self.settings = None,
+            SettingsOutcome::Close => {
+                if let Some(page) = self.settings.take() {
+                    self.settings_section = page.section();
+                }
+            }
             SettingsOutcome::Pending
             | SettingsOutcome::Preview(_)
             | SettingsOutcome::Revert

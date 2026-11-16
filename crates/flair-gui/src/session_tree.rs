@@ -13,6 +13,7 @@ use crate::{
     overlay_layout::{Field, Placement, Row, Sheet},
     preview_layout::Strip,
     process_icon::process_icon,
+    t3_style::SEARCH_ICON,
     ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY, SEARCH_KEY},
 };
 
@@ -199,11 +200,13 @@ impl SessionTree {
                     rows,
                     selected: search.selected,
                     keys: vec![
-                        (ENTER_KEY, "switch".to_owned()),
-                        (MOVE_KEY, "move".to_owned()),
-                        (ESCAPE_KEY, "back".to_owned()),
+                        (MOVE_KEY, "Navigate".to_owned()),
+                        (ENTER_KEY, "Switch".to_owned()),
+                        (ESCAPE_KEY, "Back".to_owned()),
                     ],
                     strip: Some(self.strip()),
+                    empty: Some("No matching sessions."),
+                    glyph: SEARCH_ICON,
                 }
             }
             None => {
@@ -219,14 +222,16 @@ impl SessionTree {
                         .position(|spot| *spot == self.cursor)
                         .unwrap_or(0),
                     keys: vec![
-                        (ENTER_KEY, "switch".to_owned()),
-                        ("j k", "move".to_owned()),
-                        ("h l", "fold".to_owned()),
-                        ("1-9", "jump".to_owned()),
-                        (SEARCH_KEY, "search".to_owned()),
-                        (ESCAPE_KEY, "close".to_owned()),
+                        ("j k", "Navigate".to_owned()),
+                        (ENTER_KEY, "Switch".to_owned()),
+                        ("h l", "Fold".to_owned()),
+                        ("0-9", "Jump".to_owned()),
+                        (SEARCH_KEY, "Search".to_owned()),
+                        (ESCAPE_KEY, "Close".to_owned()),
                     ],
                     strip: Some(self.strip()),
+                    empty: Some("No sessions."),
+                    glyph: SEARCH_ICON,
                 }
             }
         }
@@ -421,7 +426,8 @@ impl SessionTree {
             number: Some(u16::try_from(index).unwrap_or(u16::MAX)),
             name: session.name.clone(),
             detail: Some(windows),
-            label: (session.id == self.current).then_some("current"),
+            current: session.id == self.current,
+            monogram: true,
             ..Row::default()
         }
     }

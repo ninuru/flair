@@ -3,9 +3,10 @@ use crate::{
     CellMetrics, UiMetrics,
     overlay_layout::OverlayHit,
     renderer::{TextFace, TextRun},
-    settings_style::{
+    t3_style::{
         APPEARANCE_ICON, CHEVRON, CHEVRON_ICON, CHORD, ERROR, INPUT, INPUT_BORDER, KEYS_ICON,
-        NAV_CURRENT, PRIMARY, QUIET, ROW_FOCUS, ROW_HOVER, SIDEBAR, SWITCH_OFF, SWITCH_THUMB_ON,
+        NAV_CURRENT, PRIMARY, QUIET, ROW_FOCUS, ROW_HOVER, SHADOW, SIDEBAR, SWITCH_OFF,
+        SWITCH_THUMB_ON,
     },
 };
 use flair_core::{config::Config, theme::Rgb};
@@ -56,6 +57,7 @@ pub(super) fn input(
         },
         theme,
         hover,
+        icons: true,
     }
 }
 

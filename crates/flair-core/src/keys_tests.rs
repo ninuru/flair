@@ -454,7 +454,7 @@ fn default_bindings_list_every_table_in_order() {
     assert_eq!(bindings.last().unwrap().table, KeyTable::CopyMode);
     assert_eq!(bindings.last().unwrap().chord, "Enter");
     assert!(bindings.iter().any(|b| b.table == KeyTable::Root
-        && b.chord == "C-A-S-s"
+        && b.chord == "C-A-s"
         && b.command.as_deref() == Some("settings")));
     assert_eq!(KeyTable::Prefix.name(), "prefix");
     assert_eq!(KeyTable::Root.name(), "root");
@@ -577,33 +577,32 @@ fn prefix_a_opens_the_agents_overview() {
 }
 
 #[test]
-fn ctrl_alt_shift_s_opens_settings_from_the_root_table_without_the_prefix() {
+fn ctrl_alt_s_opens_settings_from_the_root_table_and_shift_does_not() {
     let config = KeysConfig::default();
-    let mods = Mods {
-        ctrl: true,
-        alt: true,
-        shift: true,
-        super_: false,
+    let chord = |c: char, shift: bool| KeyInput {
+        key: Key::Char(c),
+        mods: Mods {
+            ctrl: true,
+            alt: true,
+            shift,
+            super_: false,
+        },
+        text: None,
+        repeat: false,
+        keypad: false,
+        action: KeyAction::Press,
+        unshifted: Some('s'),
+        shifted: None,
+        base: Some('s'),
+        locks: Locks::default(),
     };
+    assert_eq!(
+        config.binding(&chord('s', false), false),
+        Some(Command::Settings)
+    );
+    assert_eq!(config.binding(&chord('s', false), true), None);
     for c in ['S', 's'] {
-        let input = KeyInput {
-            key: Key::Char(c),
-            mods,
-            text: None,
-            repeat: false,
-            keypad: false,
-            action: KeyAction::Press,
-            unshifted: Some('s'),
-            shifted: Some('S'),
-            base: Some('s'),
-            locks: Locks::default(),
-        };
-        assert_eq!(
-            config.binding(&input, false),
-            Some(Command::Settings),
-            "{c}"
-        );
-        assert_eq!(config.binding(&input, true), None, "{c}");
+        assert_eq!(config.binding(&chord(c, true), false), None, "{c}");
     }
     let plain = KeyInput {
         key: Key::Char('S'),

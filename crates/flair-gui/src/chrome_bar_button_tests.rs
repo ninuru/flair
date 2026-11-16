@@ -2,62 +2,20 @@ use super::*;
 use crate::{chrome_layout::PanelView, status::AgentParts, ui::BELL_KEY};
 use flair_core::agent::AgentState;
 
-fn glyph(layout: &ChromeLayout) -> Option<&TextRun> {
-    text(layout, &FILES_KEY.to_string())
-}
-
 #[test]
-fn the_explorer_button_sits_at_the_far_right_of_the_bar() {
-    let surfaces = Config::default().theme().surfaces();
-    let status = parts();
-    let layout = Case::new(&status).run();
-    let button = rect(768.0, 0.0, 24.0, 34.0);
-    assert_eq!(
-        hit_test(&layout.hits, (780.0, 3.0)),
-        Some(HitTarget::ExplorerButton)
-    );
-    assert!(layout.hits.iter().any(|hit| hit.rect == button));
-    let run = glyph(&layout).unwrap();
-    assert_eq!(run.face, TextFace::PromptIcon);
-    assert_eq!(run.color, surfaces.muted);
-    assert!(run.x >= 768.0 && run.x < 780.0, "{}", run.x);
-    assert!(quad_at(&layout, rect(768.0, 5.0, 24.0, 24.0)).is_none());
-}
-
-#[test]
-fn hovering_the_button_fills_it_and_an_open_explorer_brightens_it() {
-    let theme = Config::default().theme();
-    let status = parts();
-    let hovered = Case {
-        hover: Some((780.0, 10.0)),
-        ..Case::new(&status)
-    }
-    .run();
-    assert_eq!(
-        quad_at(&hovered, rect(768.0, 5.0, 24.0, 24.0)),
-        Some(&rounded(
-            rect(768.0, 5.0, 24.0, 24.0),
-            theme.surfaces().surface2,
-            ROW_RADIUS,
-            1.0
-        ))
-    );
-    let mut open = Panels::default();
-    open.open = true;
-    let layout = Case {
-        panels: Some(&open),
-        ..Case::new(&status)
-    }
-    .run();
-    assert_eq!(glyph(&layout).unwrap().color, theme.foreground);
-}
-
-#[test]
-fn the_badges_move_one_item_left_of_the_button() {
+fn the_bar_has_no_explorer_button_and_the_badges_end_at_the_padding() {
     let status = copy_and_prefix();
     let layout = Case::new(&status).run();
-    let copy = quad_at(&layout, rect(736.0, 7.0, 26.0, 20.0)).unwrap();
-    assert_eq!(copy.rect.x + copy.rect.w + 6.0, 768.0);
+    let copy = quad_at(&layout, rect(766.0, 9.0, 22.0, 16.0)).unwrap();
+    assert_eq!(copy.rect.x + copy.rect.w, 788.0);
+    assert_eq!(hit_test(&layout.hits, (780.0, 3.0)), None);
+    assert!(
+        layout
+            .chrome
+            .text
+            .iter()
+            .all(|run| run.face != TextFace::PromptIcon)
+    );
 }
 
 fn with_agents(states: &[(AgentState, bool)]) -> StatusParts {
@@ -95,41 +53,41 @@ fn the_agents_indicator_shows_only_for_unseen_rows() {
     let status = with_agents(&[(AgentState::Done, false), (AgentState::Working, false)]);
     let layout = Case::new(&status).run();
     assert!(bells(&layout).is_empty());
-    assert_eq!(hit_test(&layout.hits, (750.0, 3.0)), None);
-    assert!(quad_at(&layout, rect(736.0, 7.0, 26.0, 20.0)).is_some());
+    assert_eq!(hit_test(&layout.hits, (780.0, 3.0)), None);
+    assert!(quad_at(&layout, rect(766.0, 9.0, 22.0, 16.0)).is_some());
 }
 
 #[test]
-fn an_unseen_row_puts_the_indicator_left_of_the_button_and_shifts_the_badges() {
+fn an_unseen_row_puts_the_indicator_at_the_right_and_shifts_the_badges() {
     let theme = Config::default().theme();
     let status = with_agents(&[(AgentState::Working, false), (AgentState::Done, true)]);
     let layout = Case::new(&status).run();
     let bell = bells(&layout);
     assert_eq!(bell.len(), 1);
     assert_eq!(bell[0].color, theme.foreground);
-    assert!(bell[0].x >= 738.0 && bell[0].x < 750.0, "{}", bell[0].x);
+    assert!(bell[0].x >= 760.0 && bell[0].x < 774.0, "{}", bell[0].x);
     assert_eq!(
-        hit_test(&layout.hits, (750.0, 3.0)),
+        hit_test(&layout.hits, (772.0, 3.0)),
         Some(HitTarget::AgentsButton)
     );
     assert!(
         layout
             .hits
             .iter()
-            .any(|hit| hit.rect == rect(738.0, 0.0, 24.0, 34.0))
+            .any(|hit| hit.rect == rect(760.0, 0.0, 28.0, 34.0))
     );
-    assert!(quad_at(&layout, rect(706.0, 7.0, 26.0, 20.0)).is_some());
+    assert!(quad_at(&layout, rect(732.0, 9.0, 22.0, 16.0)).is_some());
     let hovered = Case {
-        hover: Some((750.0, 10.0)),
+        hover: Some((772.0, 10.0)),
         ..Case::new(&status)
     }
     .run();
     assert_eq!(
-        quad_at(&hovered, rect(738.0, 5.0, 24.0, 24.0)),
+        quad_at(&hovered, rect(760.0, 3.0, 28.0, 28.0)),
         Some(&rounded(
-            rect(738.0, 5.0, 24.0, 24.0),
-            theme.surfaces().surface2,
-            ROW_RADIUS,
+            rect(760.0, 3.0, 28.0, 28.0),
+            tint(&theme, 6),
+            BUTTON_RADIUS,
             1.0
         ))
     );

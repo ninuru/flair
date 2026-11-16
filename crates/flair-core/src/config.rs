@@ -74,6 +74,8 @@ pub struct WindowConfig {
 pub struct TabsConfig {
     pub position: TabsPosition,
     pub width: u16,
+    pub icons: bool,
+    pub icon_side: IconSide,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -101,6 +103,24 @@ impl TabsPosition {
             TabsPosition::Top => Self::NAMES[0],
             TabsPosition::Left => Self::NAMES[1],
             TabsPosition::Right => Self::NAMES[2],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum IconSide {
+    Before,
+    After,
+}
+
+impl IconSide {
+    pub const NAMES: [&'static str; 2] = ["before", "after"];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            IconSide::Before => Self::NAMES[0],
+            IconSide::After => Self::NAMES[1],
         }
     }
 }
@@ -468,6 +488,8 @@ impl Default for TabsConfig {
         TabsConfig {
             position: TabsPosition::Top,
             width: 200,
+            icons: true,
+            icon_side: IconSide::After,
         }
     }
 }

@@ -63,7 +63,6 @@ pub(crate) fn bar_command(target: HitTarget) -> Option<Command> {
         | HitTarget::PanelBody
         | HitTarget::Row(_)
         | HitTarget::Agent(_)
-        | HitTarget::ExplorerButton
         | HitTarget::AgentsButton => None,
     }
 }

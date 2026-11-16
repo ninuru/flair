@@ -1,4 +1,5 @@
 use super::*;
+use crate::t3_style::{FOREGROUND, POPUP_SELECTED};
 use flair_core::key::{Locks, Mods};
 
 fn menu(chip: Chip) -> PromptMenu {
@@ -185,6 +186,7 @@ fn input(
         },
         theme,
         hover: None,
+        icons: true,
     }
 }
 
@@ -259,7 +261,7 @@ fn later_blank_process_output_cannot_receive_inserted_commands() {
 }
 
 #[test]
-fn docker_context_rows_use_brand_icons_and_a_neutral_inverted_selection() {
+fn docker_context_rows_use_brand_icons_and_a_tinted_selection() {
     let mut menu = menu(Chip::Docker);
     menu.contexts(Ok(vec!["prod".into()]));
     let theme = flair_core::config::Config::default().theme();
@@ -267,20 +269,16 @@ fn docker_context_rows_use_brand_icons_and_a_neutral_inverted_selection() {
         text.len() as f32 * 8.0
     });
     let row = scene.hits.rows[0].1;
-    assert!(
-        scene
-            .quads
-            .iter()
-            .any(|quad| quad.rect == row
-                && quad.color == crate::chrome_bar::opaque(theme.foreground))
-    );
+    assert!(scene.quads.iter().any(|quad| quad.rect.y == row.y
+        && quad.rect.x == row.x + 4.0
+        && quad.color == crate::chrome_bar::opaque(POPUP_SELECTED)));
     assert!(scene.text.iter().any(|run| run.text == "\u{f308}"
         && run.face == crate::renderer::TextFace::PromptIcon
-        && run.color == theme.background));
+        && run.color == FOREGROUND));
     assert!(
         scene
             .text
             .iter()
-            .any(|run| run.text == "prod" && run.color == theme.background)
+            .any(|run| run.text == "prod" && run.color == FOREGROUND)
     );
 }

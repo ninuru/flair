@@ -111,6 +111,17 @@ impl SettingsPage {
         }
     }
 
+    pub fn on_section(self, index: usize) -> SettingsPage {
+        SettingsPage {
+            section: index.min(Section::ALL.len() - 1),
+            ..self
+        }
+    }
+
+    pub fn section(&self) -> usize {
+        self.section
+    }
+
     pub fn key(&mut self, key: &KeyInput) -> SettingsOutcome {
         if key.action == KeyAction::Release {
             return SettingsOutcome::Pending;

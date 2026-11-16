@@ -1,6 +1,7 @@
 use flair_core::{
     agent::AgentState,
-    theme::{Rgb, Rgba},
+    config::IconSide,
+    theme::{Rgb, Rgba, Theme, blend},
 };
 
 use crate::{
@@ -10,11 +11,14 @@ use crate::{
     notice::Notice,
     renderer::{Border, PxRect, Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, TabParts},
+    t3_style::{
+        BADGE_HEIGHT, BADGE_NEUTRAL_TINT, BADGE_PAD, BADGE_RADIUS, BADGE_TINT, BAR_PAD, BAR_TINT,
+        BUTTON_HOVER_TINT, BUTTON_RADIUS, BUTTON_SIZE, CRUMB_SLASH, CRUMB_SPACE, TAB_ACTIVE_TINT,
+        TAB_GAP, TAB_HEIGHT, TAB_HOVER_TINT, TAB_PAD, TAB_RADIUS,
+    },
     ui::{
-        BELL_KEY, CAP_HEIGHT, CAP_PAD, CAP_RADIUS, CRUMB_GAP, DOT, ELLIPSIS, FIELD_RADIUS,
-        FILES_KEY, INSET, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, LINE, NOTICE_FIELD_MIN,
-        PROCESS_ICON_GAP, ROW_RADIUS, SESSION_NAME_MAX, TAB_NAME_MAX, UNDERLINE, UNDERLINE_INSET,
-        px,
+        BELL_KEY, DOT, ELLIPSIS, FIELD_RADIUS, ITEM_GAP, ITEM_HEIGHT, ITEM_PAD, LINE,
+        NOTICE_FIELD_MIN, PROCESS_ICON_GAP, SESSION_NAME_MAX, TAB_NAME_MAX, px,
     },
 };
 
@@ -37,7 +41,6 @@ pub(crate) fn bar(
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
     let scale = input.scale;
-    let surfaces = input.theme.surfaces();
     let width = input.px.0 as f32;
     let bar = bar_height(scale);
     scene.quads.push(fill(
@@ -47,7 +50,7 @@ pub(crate) fn bar(
             w: width,
             h: bar,
         },
-        surfaces.surface1,
+        input.theme.background,
     ));
     scene.quads.push(fill(
         PxRect {
@@ -56,21 +59,16 @@ pub(crate) fn bar(
             w: width,
             h: px(LINE, scale),
         },
-        surfaces.outline,
+        tint(input.theme, BAR_TINT),
     ));
-    let size = px(ITEM_HEIGHT, scale);
-    let button =
-        (!input.zen).then(|| bar_item(width - px(INSET, scale) - size, size, ITEM_HEIGHT, scale));
-    let right = button.map_or(width - px(INSET, scale), |button| {
-        button.x - px(ITEM_GAP, scale)
-    });
-    let attention = agents_attention(input);
-    let indicator = button
-        .zip(attention)
-        .map(|(_, color)| (bar_item(right - size, size, ITEM_HEIGHT, scale), color));
+    let size = px(BUTTON_SIZE, scale);
+    let right = width - px(BAR_PAD, scale);
+    let indicator = agents_attention(input)
+        .filter(|_| !input.zen)
+        .map(|color| (bar_item(right - size, size, BUTTON_SIZE, scale), color));
     let right = indicator.map_or(right, |(rect, _)| rect.x - px(ITEM_GAP, scale));
     let end = badges(input, right, scene, measure).map_or(right, |left| left - px(ITEM_GAP, scale));
-    let start = session(input, end, scene, measure) + px(ITEM_GAP, scale);
+    let start = session(input, end, scene, measure) + px(CRUMB_SPACE, scale);
     match (input.prompt, input.notice) {
         (Some(prompt), Some(notice)) => split(input, prompt, notice, (start, end), scene, measure),
         (Some(prompt), None) => field(input, prompt, start, end, scene, measure),
@@ -80,19 +78,6 @@ pub(crate) fn bar(
         }
         (None, None) if input.frame.bar_tabs => tabs(input, start, end, scene, measure),
         (None, None) => {}
-    }
-    if let Some(button) = button {
-        let color = match input.panels.is_some_and(|panels| panels.open) {
-            true => input.theme.foreground,
-            false => input.theme.surfaces().muted,
-        };
-        icon_button(
-            input,
-            button,
-            (FILES_KEY, color),
-            HitTarget::ExplorerButton,
-            scene,
-        );
     }
     if let Some((rect, color)) = indicator {
         icon_button(
@@ -186,34 +171,36 @@ fn session(
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> f32 {
     let scale = input.scale;
-    let left = px(INSET, scale);
-    let name_x = left + px(ITEM_PAD, scale);
-    let crumb_width = measure(CRUMB_GAP, false);
-    let room = (limit - name_x - crumb_width).min(px(SESSION_NAME_MAX, scale));
-    let name = ellipsize(&input.status.chip.session, room, true, measure);
-    let right = name_x + measure(&name, true);
-    let rect = bar_item(
-        left,
-        (right + px(ITEM_PAD, scale) - left).round(),
-        ITEM_HEIGHT,
-        scale,
-    );
+    let name_x = px(BAR_PAD, scale);
+    let space = px(CRUMB_SPACE, scale);
+    let slash_width = measure(CRUMB_SLASH, false);
+    let room = (limit - name_x - space - slash_width).min(px(SESSION_NAME_MAX, scale));
+    let name = ellipsize(&input.status.chip.session, room, false, measure);
+    let right = (name_x + measure(&name, false)).round();
+    let rect = bar_item(name_x, (right - name_x).max(0.0), TAB_HEIGHT, scale);
     let base = baseline(rect, input.ui);
     scene
         .text
-        .push(ui_text(name_x, base, name, input.theme.foreground, true));
+        .push(ui_text(name_x, base, name, input.theme.foreground, false));
+    let slash_x = right + space;
     scene.text.push(ui_text(
-        right.round(),
+        slash_x,
         base,
-        CRUMB_GAP.to_owned(),
-        input.theme.surfaces().faint,
+        CRUMB_SLASH.to_owned(),
+        input.theme.surfaces().muted,
         false,
     ));
     scene.hits.push(Hit {
-        rect: full_height(rect, scale),
+        rect: full_height(
+            PxRect {
+                w: slash_x + slash_width - name_x,
+                ..rect
+            },
+            scale,
+        ),
         target: HitTarget::Session,
     });
-    right.round() + crumb_width
+    slash_x + slash_width
 }
 
 fn icon_button(
@@ -228,8 +215,8 @@ fn icon_button(
     if hovered(input, hit) {
         scene.quads.push(rounded(
             rect,
-            input.theme.surfaces().surface2,
-            ROW_RADIUS,
+            tint(input.theme, BUTTON_HOVER_TINT),
+            BUTTON_RADIUS,
             scale,
         ));
     }
@@ -252,24 +239,24 @@ fn badges(
 ) -> Option<f32> {
     let scale = input.scale;
     let theme = input.theme;
-    let surfaces = theme.surfaces();
-    let pad = px(CAP_PAD, scale);
+    let pad = px(BADGE_PAD, scale);
     let mut right = start;
     let mut left = None;
     for badge in right_items(input) {
-        let (fill_color, border_color, text_color) = match badge.kind {
-            BadgeKind::Copy | BadgeKind::Zoom => (surfaces.accent_soft, theme.accent, theme.accent),
-            BadgeKind::Prefix => (surfaces.surface3, surfaces.outline_strong, theme.foreground),
+        let (fill_color, text_color) = match badge.kind {
+            BadgeKind::Copy | BadgeKind::Zoom => (
+                blend(theme.background, theme.accent, BADGE_TINT),
+                theme.accent,
+            ),
+            BadgeKind::Prefix => (tint(theme, BADGE_NEUTRAL_TINT), theme.foreground),
         };
-        let width = (measure(&badge.text, false) * input.ui.small + pad * 2.0).round();
-        let rect = bar_item(right - width, width, CAP_HEIGHT, scale);
-        scene.quads.push(Quad {
-            border: Some(Border {
-                color: opaque(border_color),
-                width: px(LINE, scale),
-            }),
-            ..rounded(rect, fill_color, CAP_RADIUS, scale)
-        });
+        let width = (measure(&badge.text, false) * input.ui.small + pad * 2.0)
+            .max(px(BADGE_HEIGHT, scale))
+            .round();
+        let rect = bar_item(right - width, width, BADGE_HEIGHT, scale);
+        scene
+            .quads
+            .push(rounded(rect, fill_color, BADGE_RADIUS, scale));
         scene.text.push(small_text(
             rect.x + pad,
             rect,
@@ -310,8 +297,8 @@ fn tabs(
 ) {
     let scale = input.scale;
     let tabs = &input.status.tabs;
-    let pad = px(ITEM_PAD, scale);
-    let gap = px(ITEM_GAP, scale);
+    let pad = px(TAB_PAD, scale);
+    let gap = px(TAB_GAP, scale);
     let labels: Vec<String> = tabs
         .iter()
         .map(|tab| {
@@ -321,7 +308,7 @@ fn tabs(
         .collect();
     let extras: Vec<f32> = tabs
         .iter()
-        .map(|tab| icon_lead(tab.icon, input.metrics, scale))
+        .map(|tab| icon_lead(input.status.tab_icon.and(tab.icon), input.metrics, scale))
         .collect();
     let widths: Vec<f32> = labels
         .iter()
@@ -362,7 +349,7 @@ fn tabs(
         x += overflow(input, before, x, scene, measure) + gap;
     }
     for item in &placed {
-        let rect = bar_item(x, item.width, ITEM_HEIGHT, scale);
+        let rect = bar_item(x, item.width, TAB_HEIGHT, scale);
         draw_tab(input, &tabs[item.index], rect, &item.label, scene, measure);
         x += item.width + gap;
     }
@@ -389,10 +376,10 @@ fn overflow(
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> f32 {
     let scale = input.scale;
-    let pad = px(ITEM_PAD, scale);
+    let pad = px(TAB_PAD, scale);
     let text = format!("+{count}");
     let width = (measure(&text, false) + pad * 2.0).round();
-    let rect = bar_item(x, width, ITEM_HEIGHT, scale);
+    let rect = bar_item(x, width, TAB_HEIGHT, scale);
     scene.text.push(ui_text(
         rect.x + pad,
         baseline(rect, input.ui),
@@ -463,7 +450,18 @@ fn draw_tab(
         .find(|((_, ours), theirs)| ours != theirs)
         .map_or_else(|| label.len().min(prefix.len()), |((index, _), _)| index);
     let (index, name) = label.split_at(split);
-    let x = rect.x + px(ITEM_PAD, scale);
+    let hover = hovered(input, hit);
+    let pill = match (tab.active, hover) {
+        (true, _) => Some(TAB_ACTIVE_TINT),
+        (false, true) => Some(TAB_HOVER_TINT),
+        (false, false) => None,
+    };
+    if let Some(percent) = pill {
+        scene
+            .quads
+            .push(rounded(rect, tint(theme, percent), TAB_RADIUS, scale));
+    }
+    let x = rect.x + px(TAB_PAD, scale);
     let base = baseline(rect, input.ui);
     let index_text = index.trim_end();
     if !index_text.is_empty() {
@@ -476,43 +474,38 @@ fn draw_tab(
         ));
     }
     if !name.is_empty() {
-        let color = if tab.active {
-            theme.foreground
-        } else if hovered(input, hit) {
-            surfaces.bright
-        } else {
-            surfaces.muted
+        let color = match tab.active || hover {
+            true => theme.foreground,
+            false => surfaces.muted,
         };
-        let name_x = (x + measure(index, false)).round();
+        let start = (x + measure(index, false)).round();
+        let icon = input.status.tab_icon.zip(tab.icon);
+        let name_x = match icon {
+            Some((IconSide::Before, glyph)) => {
+                (start + icon_lead(Some(glyph), input.metrics, scale)).round()
+            }
+            Some((IconSide::After, _)) | None => start,
+        };
         scene
             .text
             .push(ui_text(name_x, base, name.to_owned(), color, false));
-        if let Some(icon) = tab.icon {
+        if let Some((side, glyph)) = icon {
             let quiet = match tab.active {
                 true => surfaces.bright,
                 false => surfaces.muted,
             };
+            let icon_x = match side {
+                IconSide::Before => start,
+                IconSide::After => name_x + measure(name, false) + px(PROCESS_ICON_GAP, scale),
+            };
             scene.text.push(icon_text(
-                name_x + measure(name, false) + px(PROCESS_ICON_GAP, scale),
+                icon_x,
                 cap_centre(rect, input.ui),
-                icon,
+                glyph,
                 quiet,
                 input.metrics,
             ));
         }
-    }
-    if tab.active {
-        let inset = px(UNDERLINE_INSET, scale);
-        let height = px(UNDERLINE, scale);
-        scene.quads.push(fill(
-            PxRect {
-                x: rect.x + inset,
-                y: bar_height(scale) - height,
-                w: (rect.w - inset * 2.0).max(0.0),
-                h: height,
-            },
-            theme.accent,
-        ));
     }
     scene.hits.push(Hit {
         rect: hit,
@@ -542,7 +535,7 @@ fn field(
             color: opaque(surfaces.outline),
             width: line,
         }),
-        ..rounded(rect, input.theme.background, FIELD_RADIUS, scale)
+        ..rounded(rect, tint(input.theme, TAB_HOVER_TINT), FIELD_RADIUS, scale)
     });
     let max = width - pad * 2.0 - line;
     let label = ellipsize(prompt.label, max, false, measure);
@@ -739,6 +732,10 @@ pub(crate) fn rounded(rect: PxRect, color: Rgb, radius: f32, scale: f32) -> Quad
         radius: px(radius, scale),
         border: None,
     }
+}
+
+pub(crate) fn tint(theme: &Theme, percent: u8) -> Rgb {
+    blend(theme.background, theme.foreground, percent)
 }
 
 pub(crate) fn opaque(color: Rgb) -> Rgba {

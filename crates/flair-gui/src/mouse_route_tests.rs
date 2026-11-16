@@ -326,7 +326,6 @@ fn panel_targets_map_to_window_commands() {
         HitTarget::Switch(PanelView::Tabs),
         HitTarget::PanelBody,
         HitTarget::Row(3),
-        HitTarget::ExplorerButton,
     ] {
         assert_eq!(bar_command(target), None);
     }

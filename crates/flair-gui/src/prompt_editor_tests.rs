@@ -112,6 +112,7 @@ fn compact_editor_keeps_save_visible_and_scrolls_to_every_option() {
         },
         theme: &theme,
         hover: None,
+        icons: true,
     };
     let mut actions = Vec::new();
     for _ in 0..128 {
@@ -250,6 +251,7 @@ fn polished_scene(editor: &PromptEditor, hover: Option<(f32, f32)>) -> OverlaySc
         },
         theme: &theme,
         hover,
+        icons: true,
     };
     editor.layout(&page.sheet(), &input, metrics, &mut |text, _| {
         text.chars().count() as f32 * 7.0
@@ -347,6 +349,7 @@ fn every_option_remains_reachable_in_narrow_and_short_windows() {
             },
             theme: &theme,
             hover: None,
+            icons: true,
         };
         let mut seen = Vec::new();
         for _ in 0..128 {
@@ -419,6 +422,7 @@ fn rendered_scroll_bounds_reach_the_end_and_reverse_without_a_dead_zone() {
         },
         theme: &theme,
         hover: None,
+        icons: true,
     };
     let render = |overlays: &Overlays| {
         overlays

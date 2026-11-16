@@ -12,6 +12,7 @@ use flair_core::{
 use crate::{
     cursor::{Edit, TextCursor},
     overlay_layout::{Field, Placement, Row, Sheet},
+    t3_style::SEARCH_ICON,
     ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
 
@@ -89,11 +90,11 @@ impl Picker {
     pub fn sheet(&self, home: Option<&Path>) -> Sheet {
         let ranked = sessionizer::rank(&self.entries, self.query.text());
         let enter = match (&self.last, self.query.is_empty()) {
-            (Some(Target::Name(name)), true) => format!("last: {name}"),
-            (Some(_), true) => "last".to_owned(),
+            (Some(Target::Name(name)), true) => format!("Last: {name}"),
+            (Some(_), true) => "Last".to_owned(),
             (Some(_) | None, false) | (None, true) => match ranked.get(self.selected) {
-                Some(ranked) if !ranked.entry.open => "open".to_owned(),
-                Some(_) | None => "switch".to_owned(),
+                Some(ranked) if !ranked.entry.open => "Open".to_owned(),
+                Some(_) | None => "Switch".to_owned(),
             },
         };
         let rows: Vec<Row> = ranked
@@ -107,6 +108,7 @@ impl Picker {
                     detail: Some(detail),
                     detail_matches,
                     label: ranked.entry.open.then_some("open"),
+                    monogram: true,
                     ..Row::default()
                 }
             })
@@ -124,10 +126,12 @@ impl Picker {
             rows,
             selected: self.selected,
             keys: vec![
+                (MOVE_KEY, "Navigate".to_owned()),
                 (ENTER_KEY, enter),
-                (MOVE_KEY, "move".to_owned()),
-                (ESCAPE_KEY, "close".to_owned()),
+                (ESCAPE_KEY, "Close".to_owned()),
             ],
+            empty: Some("No matching projects."),
+            glyph: SEARCH_ICON,
         }
     }
 }

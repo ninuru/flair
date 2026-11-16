@@ -5,14 +5,16 @@ use std::{
 
 use super::*;
 use crate::{
+    chrome_bar::tint,
     notice::Notice,
     overlay_layout::OverlayHit,
     renderer::{Quad, TextFace, TextRun},
     status::{BadgeKind, BadgeParts, ChipParts, TabParts, status_parts},
+    t3_style::PALETTE_HIGHLIGHT,
     ui::ELLIPSIS,
 };
 use flair_core::{
-    config::{Config, PromptConfig, PromptStyle},
+    config::{Config, IconSide, PromptConfig, PromptStyle},
     geom::{Axis, CellPoint},
     ids::{PaneId, SessionId, WindowId},
     isles::{GitInfo, Head, LastCommand, PromptInfo},
@@ -63,6 +65,7 @@ fn ui(scale: f32) -> UiMetrics {
 
 fn parts() -> StatusParts {
     StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: "main".into(),
             hidden: 0,
@@ -415,11 +418,18 @@ fn hit_test_finds_tabs_and_the_session_but_not_gaps_or_the_grid() {
         Some(HitTarget::Window(WindowId(2)))
     );
     assert_eq!(
-        hit_test(&layout.hits, (10.0, 10.0)),
+        hit_test(&layout.hits, (15.0, 10.0)),
         Some(HitTarget::Session)
     );
-    assert_eq!(hit_test(&layout.hits, (145.0, 10.0)), None);
-    assert_eq!(hit_test(&layout.hits, (70.0, 10.0)), None);
+    let first = layout.hits[1].rect;
+    assert_eq!(
+        hit_test(&layout.hits, (f64::from(first.x + first.w + 2.0), 10.0)),
+        None
+    );
+    assert_eq!(
+        hit_test(&layout.hits, (f64::from(first.x - 2.0), 10.0)),
+        None
+    );
     assert_eq!(hit_test(&layout.hits, (90.0, 100.0)), None);
 }
 
@@ -724,8 +734,6 @@ fn tab_and_row_hit_targets_match_their_drawn_rects_at_scale_1_5() {
     let scale = 1.5;
     let status = scaled_status();
     let theme = Config::default().theme();
-    let surfaces = theme.surfaces();
-    let accent = opaque(theme.accent);
     let layout = scaled_layout(scale, &status, &Overlays::default(), None);
     let windows: Vec<&Hit> = layout
         .hits
@@ -745,16 +753,13 @@ fn tab_and_row_hit_targets_match_their_drawn_rects_at_scale_1_5() {
         .iter()
         .find(|hit| hit.target == HitTarget::Window(WindowId(2)))
         .unwrap();
-    let underline = layout
+    let pill = layout
         .chrome
         .quads
         .iter()
-        .find(|quad| quad.color == accent && quad.rect.y < bar_height(scale))
+        .find(|quad| quad.color == opaque(tint(&theme, 8)) && quad.rect.y < bar_height(scale))
         .unwrap();
-    assert_eq!(
-        (underline.rect.x, underline.rect.w),
-        (active.rect.x + 12.0, active.rect.w - 24.0)
-    );
+    assert_eq!((pill.rect.x, pill.rect.w), (active.rect.x, active.rect.w));
 
     for message in overlay_messages() {
         let mut overlays = Overlays::default();
@@ -778,7 +783,7 @@ fn tab_and_row_hit_targets_match_their_drawn_rects_at_scale_1_5() {
             .chrome
             .modal
             .iter()
-            .find(|quad| quad.color == opaque(surfaces.accent_soft) && quad.border.is_none())
+            .find(|quad| quad.color == opaque(PALETTE_HIGHLIGHT) && quad.border.is_none())
             .unwrap();
         assert!(hits.rows.iter().any(|(_, rect)| *rect == selected.rect));
     }
@@ -820,6 +825,7 @@ fn text<'a>(layout: &'a ChromeLayout, text: &str) -> Option<&'a TextRun> {
 
 fn narrow(session: &str, names: &[&str], active: usize) -> StatusParts {
     StatusParts {
+        tab_icon: Some(IconSide::After),
         chip: ChipParts {
             session: session.into(),
             ..parts().chip
@@ -893,7 +899,7 @@ fn badges_win_over_a_long_session_name_in_a_narrow_bar() {
         .chrome
         .text
         .iter()
-        .find(|run| run.bold && run.text.starts_with("a-really"))
+        .find(|run| run.text.starts_with("a-really"))
         .unwrap();
     assert!(name.text.ends_with(ELLIPSIS));
 }

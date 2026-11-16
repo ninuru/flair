@@ -1,5 +1,5 @@
 use super::*;
-use crate::{settings_style::POPUP_SELECTED, ui::ELLIPSIS};
+use crate::{t3_style::POPUP_SELECTED, ui::ELLIPSIS};
 use flair_core::settings::{Kind, SETTINGS};
 
 fn assert_inside(scene: &OverlayScene, window: (u32, u32)) {

@@ -78,7 +78,6 @@ impl App {
             HitTarget::Window(_)
             | HitTarget::Session
             | HitTarget::Prompt { .. }
-            | HitTarget::ExplorerButton
             | HitTarget::AgentsButton => None,
         }
     }
@@ -173,7 +172,6 @@ impl App {
             | HitTarget::PanelBody
             | HitTarget::Row(_)
             | HitTarget::Agent(_)
-            | HitTarget::ExplorerButton
             | HitTarget::AgentsButton
             | HitTarget::Window(_)
             | HitTarget::Session
