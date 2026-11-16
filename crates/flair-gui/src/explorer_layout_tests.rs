@@ -507,10 +507,7 @@ fn a_shared_slot_shows_the_tree_below_the_switcher() {
         ..Case::new(panels(false))
     }
     .run();
-    assert_eq!(
-        run_text(&layout, "Files").unwrap().color,
-        theme().foreground
-    );
+    assert_eq!(run_text(&layout, "Files").unwrap().color, theme().accent);
     assert_eq!(run_text(&layout, "proj").unwrap().baseline, 96.0);
     assert!(run_text(&layout, "shell").is_none());
     assert_eq!(

@@ -5,12 +5,13 @@ use std::{
 
 use flair_core::{
     agent::AgentState,
-    command::Command,
+    command::{Command, PaneRef},
     config::{Config, EXPLORER_WIDTH, Side, TABS_WIDTH, TabsPosition},
+    geom::Direction,
     ids::{PaneId, WindowId},
     key::{InputEvent, Key, KeyAction, KeyInput, NamedKey},
     keys::{KeyChord, KeysConfig},
-    proto::ClientMsg,
+    proto::{ClientMsg, WindowLayout},
     status::ActivePane,
 };
 
@@ -272,6 +273,51 @@ impl Panels {
             self.explorer
                 .key(key, self.at_prompt(), self.pages.explorer),
         )
+    }
+
+    pub fn has_focus(&self) -> bool {
+        self.files_focused() || self.agents_focused()
+    }
+
+    pub fn nav(
+        &mut self,
+        key: &KeyInput,
+        keys: &KeysConfig,
+        pending: bool,
+        now: Instant,
+        frame: &Frame,
+        layout: &WindowLayout,
+    ) -> bool {
+        if pending
+            || !keys.enabled
+            || key.action == KeyAction::Release
+            || self.armed.is_some_and(|until| now < until)
+        {
+            return false;
+        }
+        let Some(slot) = frame.slots().find(|slot| match slot.view {
+            PanelView::Explorer | PanelView::Agents => true,
+            PanelView::Tabs => false,
+        }) else {
+            return false;
+        };
+        let Some(Command::SelectPane(PaneRef::Direction(direction))) = keys.binding(key, false)
+        else {
+            return false;
+        };
+        let (toward, away) = match slot.side {
+            Side::Left => (Direction::Left, Direction::Right),
+            Side::Right => (Direction::Right, Direction::Left),
+        };
+        if self.focused && direction == away {
+            self.focused = false;
+            true
+        } else if !self.focused && direction == toward && at_edge(layout, slot.side) {
+            self.focused = true;
+            true
+        } else {
+            false
+        }
     }
 
     fn files_focused(&self) -> bool {
@@ -555,6 +601,21 @@ fn start(agents: &[AgentParts]) -> Option<&AgentParts> {
         .find(|agent| agent.state == AgentState::Blocked)
         .or_else(|| agents.iter().find(|agent| agent.unseen))
         .or_else(|| agents.first())
+}
+
+fn at_edge(layout: &WindowLayout, side: Side) -> bool {
+    let area = layout.area;
+    layout
+        .panes
+        .iter()
+        .find(|placement| placement.pane == layout.active)
+        .is_some_and(|placement| {
+            let rect = placement.rect;
+            match side {
+                Side::Left => rect.origin.col <= area.origin.col,
+                Side::Right => rect.origin.col + rect.size.cols >= area.origin.col + area.size.cols,
+            }
+        })
 }
 
 fn plain(path: &Path) -> Result<&str, Notice> {

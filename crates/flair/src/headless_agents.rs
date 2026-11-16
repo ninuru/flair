@@ -42,6 +42,20 @@ impl Capture {
         })
     }
 
+    pub(super) fn panel_nav(&mut self, key: &KeyInput) -> bool {
+        let (Some(pixels), Some(layout)) = (&self.pixels, &self.layout) else {
+            return false;
+        };
+        let config = self
+            .preview
+            .as_ref()
+            .map_or(&self.config, |preview| &preview.config);
+        let frame = pixels.frame(config, self.zen, &self.panels);
+        let pending = self.status.pending.is_some();
+        self.panels
+            .nav(key, &config.keys, pending, Instant::now(), &frame, layout)
+    }
+
     pub(super) fn agents_text(&self) -> bool {
         self.agents_visible() && self.panels.agents_text()
     }

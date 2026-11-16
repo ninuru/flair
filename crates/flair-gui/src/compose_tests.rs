@@ -227,7 +227,15 @@ fn frame_places_panes_from_row_zero_and_only_shows_active_cursor() {
     let theme = Config::default().theme();
     let (mirror, layout) = two_panes();
     let size = GridSize { cols: 5, rows: 1 };
-    let mut grid = compose_frame(&mirror, &layout, size, &theme, PanesConfig::default(), true);
+    let mut grid = compose_frame(
+        &mirror,
+        &layout,
+        size,
+        &theme,
+        PanesConfig::default(),
+        true,
+        true,
+    );
     assert_eq!(grid.to_lines(), ["ab cd"]);
     assert_eq!(grid.cells[2].bg, theme.background);
     assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 4, row: 0 });
@@ -238,6 +246,7 @@ fn frame_places_panes_from_row_zero_and_only_shows_active_cursor() {
             size,
             &theme,
             PanesConfig::default(),
+            true,
             false
         )
         .cursor
@@ -267,8 +276,9 @@ fn frame_dims_the_text_of_inactive_panes_only() {
             ..panes
         },
         true,
+        true,
     );
-    let grid = compose_frame(&mirror, &layout, size, &theme, panes, true);
+    let grid = compose_frame(&mirror, &layout, size, &theme, panes, true, true);
     let faded = blend(theme.foreground, theme.background, 40);
     assert_ne!(faded, theme.foreground);
     assert_eq!(grid.cells[0].fg, faded);
@@ -296,7 +306,7 @@ fn frame_does_not_dim_when_disabled_at_zero_or_with_one_pane() {
         dim_amount: 0,
     };
     for panes in [off, zero] {
-        let grid = compose_frame(&mirror, &layout, size, &theme, panes, true);
+        let grid = compose_frame(&mirror, &layout, size, &theme, panes, true, true);
         assert!(grid.cells.iter().all(|cell| cell.fg == theme.foreground));
     }
     let single = WindowLayout {
@@ -304,8 +314,51 @@ fn frame_does_not_dim_when_disabled_at_zero_or_with_one_pane() {
         active: PaneId(3),
         ..layout
     };
-    let grid = compose_frame(&mirror, &single, size, &theme, PanesConfig::default(), true);
+    let grid = compose_frame(
+        &mirror,
+        &single,
+        size,
+        &theme,
+        PanesConfig::default(),
+        true,
+        true,
+    );
     assert!(grid.cells.iter().all(|cell| cell.fg == theme.foreground));
+}
+
+#[test]
+fn frame_dims_every_pane_and_hollows_the_cursor_while_a_panel_has_focus() {
+    let theme = Config::default().theme();
+    let (mirror, layout) = two_panes();
+    let size = GridSize { cols: 5, rows: 1 };
+    let off = PanesConfig {
+        dim_inactive: false,
+        dim_amount: 40,
+    };
+    let plain = compose_frame(&mirror, &layout, size, &theme, off, true, true);
+    assert_eq!(plain.cursor.unwrap().shape, CursorShape::Block);
+    for (panes, amount) in [
+        (off, 30),
+        (
+            PanesConfig {
+                dim_inactive: true,
+                ..off
+            },
+            40,
+        ),
+    ] {
+        let grid = compose_frame(&mirror, &layout, size, &theme, panes, false, true);
+        let faded = blend(theme.foreground, theme.background, amount);
+        for col in [0, 1, 3, 4] {
+            assert_eq!(grid.cells[col].fg, faded, "{amount} {col}");
+            assert_eq!(grid.cells[col].bg, plain.cells[col].bg);
+        }
+        let cursor = grid.cursor.unwrap();
+        assert_eq!(cursor.point, plain.cursor.unwrap().point);
+        assert_eq!(cursor.shape, CursorShape::HollowBlock);
+    }
+    let hidden = compose_frame(&mirror, &layout, size, &theme, off, false, false);
+    assert!(hidden.cursor.is_none());
 }
 
 #[test]
@@ -334,7 +387,7 @@ fn frame_dims_selected_cells_after_tinting_their_background() {
         dim_inactive: false,
         dim_amount: 50,
     };
-    let plain = compose_frame(&mirror, &layout, size, &theme, off, true);
+    let plain = compose_frame(&mirror, &layout, size, &theme, off, true, true);
     let grid = compose_frame(
         &mirror,
         &layout,
@@ -344,6 +397,7 @@ fn frame_dims_selected_cells_after_tinting_their_background() {
             dim_inactive: true,
             ..off
         },
+        true,
         true,
     );
     assert_ne!(plain.cells[0].bg, theme.background);
@@ -422,6 +476,7 @@ fn frame_clips_stale_rectangles_and_wide_glyphs_at_the_edge() {
                 &theme,
                 PanesConfig::default(),
                 true,
+                true,
             );
             assert_eq!(
                 grid.cells.len(),
@@ -442,6 +497,7 @@ fn frame_clips_stale_rectangles_and_wide_glyphs_at_the_edge() {
         &theme,
         PanesConfig::default(),
         true,
+        true,
     );
     assert_eq!(grid.to_lines(), ["界"]);
     assert_eq!(grid.cursor.unwrap().point, CellPoint { col: 0, row: 0 });
@@ -452,6 +508,7 @@ fn frame_clips_stale_rectangles_and_wide_glyphs_at_the_edge() {
             sizes[0],
             &theme,
             PanesConfig::default(),
+            true,
             true
         )
         .cells
@@ -625,7 +682,15 @@ fn draw_chrome_frame(
         metrics,
     );
     let (mirror, layout) = split_frame(size);
-    let mut grid = compose_frame(&mirror, &layout, size, &theme, PanesConfig::default(), true);
+    let mut grid = compose_frame(
+        &mirror,
+        &layout,
+        size,
+        &theme,
+        PanesConfig::default(),
+        true,
+        true,
+    );
     if let Some((first, rest)) = paint {
         for (index, cell) in grid.cells.iter_mut().enumerate() {
             cell.bg = if index < usize::from(size.cols) {
@@ -936,6 +1001,7 @@ fn stacked_frame_moves_selection_with_cells_and_draws_horizontal_separator() {
         &theme,
         PanesConfig::default(),
         true,
+        true,
     );
     assert_eq!(grid.to_lines(), ["ab", "", "cd"]);
     separator_glyphs(&mut grid, &layout);
@@ -981,7 +1047,15 @@ fn the_band_row_above_a_pane_stays_blank_in_the_cell_grid() {
     let size = GridSize { cols: 20, rows: 4 };
     let (mirror, layout) = split_frame(size);
     let layout = banded(layout);
-    let grid = compose_frame(&mirror, &layout, size, &theme, PanesConfig::default(), true);
+    let grid = compose_frame(
+        &mirror,
+        &layout,
+        size,
+        &theme,
+        PanesConfig::default(),
+        true,
+        true,
+    );
     assert!(
         grid.cells[..20]
             .iter()
@@ -1090,7 +1164,15 @@ fn gpu_frame_draws_chips_on_each_panes_shell_prompt_row() {
         })
         .collect();
     mirror.apply(&updates);
-    let grid = compose_frame(&mirror, &layout, size, &theme, PanesConfig::default(), true);
+    let grid = compose_frame(
+        &mirror,
+        &layout,
+        size,
+        &theme,
+        PanesConfig::default(),
+        true,
+        true,
+    );
     let prompts = band_prompts();
     let prompt = PromptConfig {
         time: true,

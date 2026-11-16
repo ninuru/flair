@@ -186,6 +186,7 @@ impl App {
                 self.size(),
                 &theme,
                 self.effective().panes,
+                !self.panels.has_focus(),
                 true,
             ),
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
@@ -302,6 +303,7 @@ impl App {
             .key(&key, || surface.as_ref().and_then(|s| s.clipboard.load()))
         {
             Some(event) => self.overlay_event(event),
+            None if self.panel_nav(&key) => {}
             None if self.agents_key(&key) => {}
             None if self.explorer_key(&key) => {}
             None => self.send(ClientMsg::Input(InputEvent::Key(key))),

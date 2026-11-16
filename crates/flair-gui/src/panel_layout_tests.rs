@@ -358,7 +358,7 @@ fn a_shared_slot_shows_the_switcher_with_the_shown_view_underlined() {
         quads
             .iter()
             .any(|quad| quad.rect == rect(16.0, 69.0, 53.0, 2.0)
-                && quad.color == opaque(theme.accent))
+                && quad.color == opaque(theme.surfaces().faint))
     );
     assert!(
         quads

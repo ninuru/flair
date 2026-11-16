@@ -28,6 +28,24 @@ impl App {
         ))
     }
 
+    pub(super) fn panel_nav(&mut self, key: &KeyInput) -> bool {
+        let (Some(frame), Some(layout)) = (self.frame(), self.layout.as_ref()) else {
+            return false;
+        };
+        let config = self
+            .preview
+            .as_ref()
+            .map_or(&self.config, |preview| &preview.config);
+        let pending = self.status.pending.is_some();
+        let moved = self
+            .panels
+            .nav(key, &config.keys, pending, Instant::now(), &frame, layout);
+        if moved {
+            self.request_redraw();
+        }
+        moved
+    }
+
     pub(super) fn size(&self) -> GridSize {
         match (&self.surface, self.frame()) {
             (Some(surface), Some(frame)) => chrome_layout::grid_size(

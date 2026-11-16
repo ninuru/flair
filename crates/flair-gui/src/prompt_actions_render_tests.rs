@@ -197,6 +197,7 @@ fn gpu_prompt_menu_is_anchored_bounded_and_does_not_dim_the_terminal() {
                     size,
                     &theme,
                     PanesConfig::default(),
+                    true,
                     false,
                 ),
                 &chrome.chrome,
