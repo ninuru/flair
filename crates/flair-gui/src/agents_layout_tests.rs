@@ -99,6 +99,7 @@ fn status(agents: Vec<AgentParts>) -> StatusParts {
             last: false,
             activity: false,
             bell: false,
+            agent: None,
         }],
         badges: Vec::new(),
         agents,
@@ -177,8 +178,10 @@ fn quads_at(layout: &ChromeLayout, area: PxRect) -> Vec<&Quad> {
         .collect()
 }
 
+const BAND: f32 = 36.0 + 1.0;
+
 fn row(line: usize) -> PxRect {
-    rect(8.0, 43.0 + line as f32 * 32.0, 263.0, 28.0)
+    rect(8.0, 43.0 + BAND + line as f32 * 32.0, 263.0, 28.0)
 }
 
 fn title_x() -> f32 {
@@ -204,19 +207,19 @@ fn session_headers_are_small_faint_text_without_a_hit() {
     let layout = Case::new(&parts).run();
     let faint = theme().surfaces().faint;
     let main = run_text(&layout, "alpha").unwrap();
-    assert_eq!((main.x, main.baseline), (18.0, 59.0));
+    assert_eq!((main.x, main.baseline), (18.0, 59.0 + BAND));
     assert_eq!(main.face, TextFace::Small);
     assert_eq!(main.color, faint);
     let work = run_text(&layout, "work").unwrap();
-    assert_eq!((work.x, work.baseline), (18.0, 155.0));
+    assert_eq!((work.x, work.baseline), (18.0, 155.0 + BAND));
     assert_eq!(
-        hit_test(&layout.hits, (40.0, 50.0)),
+        hit_test(&layout.hits, (40.0, 50.0 + f64::from(BAND))),
         Some(HitTarget::PanelBody)
     );
     let fix = run_text(&layout, "Fix login bug").unwrap();
-    assert_eq!((fix.x, fix.baseline), (title_x(), 93.0));
+    assert_eq!((fix.x, fix.baseline), (title_x(), 93.0 + BAND));
     assert_eq!(fix.face, TextFace::Ui);
-    assert_eq!(run_text(&layout, "Deploy").unwrap().baseline, 189.0);
+    assert_eq!(run_text(&layout, "Deploy").unwrap().baseline, 189.0 + BAND);
 }
 
 #[test]
@@ -293,7 +296,7 @@ fn unseen_and_active_titles_are_foreground_and_hover_brightens() {
         theme.foreground
     );
     let hovered = Case {
-        hover: Some((40.0, 80.0)),
+        hover: Some((40.0, 80.0 + BAND)),
         ..Case::new(&parts)
     }
     .run();
@@ -315,7 +318,7 @@ fn the_active_pane_has_the_soft_accent_fill_and_bar() {
     agents[0].active = true;
     let parts = status(agents);
     let layout = Case {
-        hover: Some((40.0, 80.0)),
+        hover: Some((40.0, 80.0 + BAND)),
         ..Case::new(&parts)
     }
     .run();
@@ -323,7 +326,7 @@ fn the_active_pane_has_the_soft_accent_fill_and_bar() {
         quads_at(&layout, row(1)),
         [&rounded(row(1), surfaces.accent_soft, ROW_RADIUS, 1.0)]
     );
-    let bar = rect(8.0, 75.0 + 7.0, 2.0, 14.0);
+    let bar = rect(8.0, 75.0 + BAND + 7.0, 2.0, 14.0);
     assert!(
         layout
             .chrome
@@ -339,7 +342,11 @@ fn the_active_pane_has_the_soft_accent_fill_and_bar() {
         .chrome
         .text
         .iter()
-        .find(|run| run.face == TextFace::PromptIcon && run.baseline > 35.0 && run.baseline < 107.0)
+        .find(|run| {
+            run.face == TextFace::PromptIcon
+                && run.baseline > 35.0 + BAND
+                && run.baseline < 107.0 + BAND
+        })
         .unwrap();
     assert_eq!(icon.color, surfaces.bright);
     assert_eq!(icon.x, 18.0);
@@ -391,7 +398,7 @@ fn a_long_title_ends_in_an_ellipsis_before_the_label() {
 fn rows_that_do_not_fit_are_dropped_whole_and_scroll() {
     let parts = status(three());
     let layout = Case {
-        height: 35 + 8 + 32 * 2 + 28 + 8 + 10,
+        height: 35 + 37 + 8 + 32 * 2 + 28 + 8 + 10,
         ..Case::new(&parts)
     }
     .run();
@@ -402,13 +409,16 @@ fn rows_that_do_not_fit_are_dropped_whole_and_scroll() {
     let mut panels = shown();
     panels.agents_scroll = 2;
     let scrolled = Case {
-        height: 35 + 8 + 32 * 2 + 28 + 8 + 10,
+        height: 35 + 37 + 8 + 32 * 2 + 28 + 8 + 10,
         panels,
         ..Case::new(&parts)
     }
     .run();
     assert!(run_text(&scrolled, "alpha").is_none());
-    assert_eq!(run_text(&scrolled, "Write docs").unwrap().baseline, 61.0);
+    assert_eq!(
+        run_text(&scrolled, "Write docs").unwrap().baseline,
+        61.0 + BAND
+    );
     assert!(run_text(&scrolled, "Deploy").is_some());
 }
 
@@ -417,7 +427,7 @@ fn no_agents_shows_one_faint_line() {
     let parts = status(Vec::new());
     let layout = Case::new(&parts).run();
     let empty = run_text(&layout, "no agents").unwrap();
-    assert_eq!((empty.x, empty.baseline), (18.0, 61.0));
+    assert_eq!((empty.x, empty.baseline), (18.0, 61.0 + BAND));
     assert_eq!(empty.color, theme().surfaces().faint);
     assert_eq!(empty.face, TextFace::Ui);
 }
@@ -454,5 +464,72 @@ fn a_shared_slot_lists_agents_as_the_third_switcher_item() {
     assert_eq!(
         hit_test(&narrow.hits, (160.0, 50.0)),
         Some(HitTarget::PanelBody)
+    );
+}
+
+#[test]
+fn an_unshared_agents_slot_has_a_single_item_header_band() {
+    let theme = theme();
+    let parts = status(three());
+    let layout = Case::new(&parts).run();
+    let label = run_text(&layout, "Agents").unwrap();
+    assert_eq!((label.x, label.baseline), (18.0, 57.0));
+    assert_eq!(label.color, theme.foreground);
+    assert_eq!(label.face, TextFace::Ui);
+    assert!(run_text(&layout, "Files").is_none());
+    assert!(run_text(&layout, "Windows").is_none());
+    assert_eq!(
+        quads_at(&layout, rect(16.0, 69.0, 46.0, 2.0)),
+        [&fill(rect(16.0, 69.0, 46.0, 2.0), theme.accent)]
+    );
+    assert_eq!(
+        quads_at(&layout, rect(0.0, 71.0, 279.0, 1.0)),
+        [&fill(rect(0.0, 71.0, 279.0, 1.0), theme.surfaces().outline)]
+    );
+    assert_eq!(
+        hit_test(&layout.hits, (30.0, 50.0)),
+        Some(HitTarget::PanelBody)
+    );
+    assert_eq!(
+        run_text(&layout, "alpha").unwrap().baseline,
+        row(0).y + 16.0
+    );
+}
+
+#[test]
+fn the_explorer_slot_has_no_agents_header() {
+    let parts = status(three());
+    let mut panels = shown();
+    panels.shown = PanelView::Explorer;
+    let layout = Case {
+        panels,
+        ..Case::new(&parts)
+    }
+    .run();
+    assert!(run_text(&layout, "Agents").is_none());
+    assert!(quads_at(&layout, rect(16.0, 69.0, 46.0, 2.0)).is_empty());
+    assert!(quads_at(&layout, rect(0.0, 71.0, 279.0, 1.0)).is_empty());
+}
+
+#[test]
+fn a_shared_slot_keeps_its_switcher_and_the_same_row_offset() {
+    let parts = status(three());
+    let shared = Case {
+        tabs: Some(Side::Left),
+        ..Case::new(&parts)
+    }
+    .run();
+    let unshared = Case::new(&parts).run();
+    assert_eq!(
+        run_text(&shared, "Windows").unwrap().color,
+        theme().surfaces().muted
+    );
+    assert_eq!(
+        hit_test(&shared.hits, (30.0, 50.0)),
+        Some(HitTarget::Switch(PanelView::Tabs))
+    );
+    assert_eq!(
+        run_text(&shared, "alpha").unwrap().baseline,
+        run_text(&unshared, "alpha").unwrap().baseline
     );
 }

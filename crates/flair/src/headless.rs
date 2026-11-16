@@ -284,7 +284,14 @@ impl Capture {
     fn frame(&self) -> String {
         match &self.layout {
             Some(layout) => {
-                let mut grid = compose_frame(&self.mirror, layout, self.size, &self.theme, true);
+                let mut grid = compose_frame(
+                    &self.mirror,
+                    layout,
+                    self.size,
+                    &self.theme,
+                    self.effective().panes,
+                    true,
+                );
                 separator_glyphs(&mut grid, layout);
                 self.band_text(&mut grid, layout);
                 let status = status_text(&status_parts(&self.status), self.size.cols);
@@ -598,7 +605,9 @@ impl Capture {
         let theme = self.shown_theme().clone();
         let config = self.effective().clone();
         let mut grid = match (&self.layout, self.pane) {
-            (Some(layout), _) => compose_frame(&self.mirror, layout, self.size, &theme, true),
+            (Some(layout), _) => {
+                compose_frame(&self.mirror, layout, self.size, &theme, config.panes, true)
+            }
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
             (None, None) => return Err("capture before the first frame".into()),
         };

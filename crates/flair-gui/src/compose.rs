@@ -3,6 +3,7 @@ use crate::{
     mirror::Mirror,
 };
 use flair_core::{
+    config::PanesConfig,
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::PaneId,
     proto::{Cell, CellFlags, PromptSnapshot, WindowLayout},
@@ -123,6 +124,7 @@ pub fn compose_frame(
     layout: &WindowLayout,
     size: GridSize,
     theme: &Theme,
+    panes: PanesConfig,
     cursor_visible: bool,
 ) -> CellGrid {
     let mut grid = CellGrid {
@@ -142,13 +144,23 @@ pub fn compose_frame(
     if size.rows == 0 || size.cols == 0 {
         return grid;
     }
+    let dim = (panes.dim_inactive && layout.panes.len() > 1)
+        .then(|| u8::try_from(panes.dim_amount).unwrap_or(u8::MAX))
+        .filter(|amount| *amount > 0);
     for placement in &layout.panes {
-        let pane = compose(
+        let mut pane = compose(
             mirror,
             placement.pane,
             theme,
             cursor_visible && placement.pane == layout.active,
         );
+        if let Some(amount) = dim
+            && placement.pane != layout.active
+        {
+            for cell in &mut pane.cells {
+                cell.fg = blend(cell.fg, theme.background, amount);
+            }
+        }
         place_pane(&mut grid, &pane, placement.rect);
     }
     grid

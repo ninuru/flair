@@ -192,6 +192,7 @@ fn status_parts_split_chip_tabs_and_badges() {
                 last: false,
                 activity: false,
                 bell: false,
+                agent: None,
             },
             TabParts {
                 window: WindowId(2),
@@ -202,6 +203,7 @@ fn status_parts_split_chip_tabs_and_badges() {
                 last: true,
                 activity: false,
                 bell: false,
+                agent: None,
             },
         ]
     );
@@ -364,4 +366,62 @@ fn agent_rows_become_parts_with_icon_label_and_the_active_pane() {
         ]
     );
     assert!(process_icon("claude").is_some());
+}
+
+#[test]
+fn each_tab_carries_its_most_urgent_agent() {
+    let row = |window: u32, pane: u32, state, unseen| AgentRow {
+        session: "main".into(),
+        window: WindowId(window),
+        pane: PaneId(pane),
+        app: "claude".into(),
+        state,
+        kind: None,
+        title: String::new(),
+        unseen,
+    };
+    let urgent = |agents: Vec<AgentRow>| {
+        let status = StatusLine {
+            agents,
+            ..fixture()
+        };
+        status_parts(&status)
+            .tabs
+            .iter()
+            .map(|tab| tab.agent)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(urgent(Vec::new()), [None, None]);
+    assert_eq!(
+        urgent(vec![
+            row(1, 1, AgentState::Working, false),
+            row(1, 2, AgentState::Error, false),
+            row(1, 3, AgentState::Blocked, true),
+            row(2, 4, AgentState::Idle, false),
+        ]),
+        [
+            Some((AgentState::Error, false)),
+            Some((AgentState::Idle, false))
+        ]
+    );
+    assert_eq!(
+        urgent(vec![
+            row(1, 1, AgentState::Done, true),
+            row(1, 2, AgentState::Blocked, false),
+            row(2, 3, AgentState::Working, false),
+            row(2, 4, AgentState::Done, true),
+        ]),
+        [
+            Some((AgentState::Blocked, false)),
+            Some((AgentState::Done, true))
+        ]
+    );
+    assert_eq!(
+        urgent(vec![
+            row(1, 1, AgentState::Done, false),
+            row(1, 2, AgentState::Working, false),
+            row(1, 3, AgentState::Idle, false),
+        ]),
+        [Some((AgentState::Working, false)), None]
+    );
 }

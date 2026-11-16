@@ -82,6 +82,7 @@ fn status() -> StatusParts {
             last: false,
             activity: false,
             bell: false,
+            agent: None,
         }],
         badges: Vec::new(),
         agents: Vec::new(),

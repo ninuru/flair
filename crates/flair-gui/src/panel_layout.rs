@@ -7,7 +7,7 @@ use crate::{
     agents_layout,
     chrome_bar::{
         Scene, baseline, cap_centre, ellipsize, fill, icon_lead, icon_text, rounded, small_text,
-        ui_text,
+        tab_icon_color, ui_text,
     },
     chrome_layout::{ChromeInput, Hit, HitTarget, PanelView, Slot},
     explorer_layout,
@@ -47,7 +47,7 @@ pub(crate) fn content(slot: Slot, scale: f32) -> PxRect {
 }
 
 pub(crate) fn body_top(slot: Slot, scale: f32) -> f32 {
-    let band = match slot.shared {
+    let band = match slot.shared || slot.view == PanelView::Agents {
         true => px(SWITCHER, scale) + px(LINE, scale),
         false => 0.0,
     };
@@ -105,7 +105,20 @@ pub(crate) fn draw(
         target: HitTarget::Edge(slot.side),
     });
     if slot.shared {
-        switcher(input, slot, scene, measure);
+        let views = [
+            (PanelView::Tabs, "Windows"),
+            (PanelView::Explorer, "Files"),
+            (PanelView::Agents, "Agents"),
+        ];
+        switcher(input, slot, &views, scene, measure);
+    } else if slot.view == PanelView::Agents {
+        switcher(
+            input,
+            slot,
+            &[(PanelView::Agents, "Agents")],
+            scene,
+            measure,
+        );
     }
     let rows = match slot.view {
         PanelView::Tabs => tabs(input, slot, scene, measure),
@@ -122,6 +135,7 @@ pub(crate) fn draw(
 fn switcher(
     input: &ChromeInput,
     slot: Slot,
+    views: &[(PanelView, &str)],
     scene: &mut Scene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
@@ -137,11 +151,7 @@ fn switcher(
     let height = px(ITEM_HEIGHT, scale);
     let mut x = area.x + px(INSET, scale);
     let end = area.x + area.w - px(INSET, scale);
-    for (view, label) in [
-        (PanelView::Tabs, "Windows"),
-        (PanelView::Explorer, "Files"),
-        (PanelView::Agents, "Agents"),
-    ] {
+    for &(view, label) in views {
         let width = (measure(label, false) + pad * 2.0).round();
         if x.round() + width > end {
             break;
@@ -184,10 +194,12 @@ fn switcher(
                 theme.accent,
             ));
         }
-        scene.hits.push(Hit {
-            rect: hit,
-            target: HitTarget::Switch(view),
-        });
+        if slot.shared {
+            scene.hits.push(Hit {
+                rect: hit,
+                target: HitTarget::Switch(view),
+            });
+        }
         x += width + px(ITEM_GAP, scale);
     }
     scene.quads.push(fill(
@@ -322,10 +334,7 @@ fn tab_row(
         input.ui,
     ));
     x += px(NUMBER_COLUMN, scale);
-    let icon_color = match tab.active {
-        true => surfaces.bright,
-        false => surfaces.muted,
-    };
+    let icon_color = tab_icon_color(input, tab);
     let centre = cap_centre(rect, input.ui);
     let trailing_icon = match input.status.tab_icon.zip(tab.icon) {
         Some((IconSide::After, glyph)) => Some(glyph),

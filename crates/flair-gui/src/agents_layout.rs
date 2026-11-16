@@ -1,4 +1,7 @@
-use flair_core::agent::AgentState;
+use flair_core::{
+    agent::AgentState,
+    theme::{Rgb, Theme},
+};
 
 use crate::{
     chrome_bar::{
@@ -143,13 +146,12 @@ fn agent_row(
     x += icon_column(input);
     let label_width = measure(agent.label, false) * input.ui.small;
     let label_x = (rect.x + rect.w - px(ROW_PAD, scale) - label_width).round();
-    let label_color = match agent.state {
-        AgentState::Blocked => surfaces.attention,
-        AgentState::Error => theme.normal[1],
-        AgentState::Done if agent.unseen => theme.foreground,
-        AgentState::Done | AgentState::Working => surfaces.muted,
+    let label_color = alert(theme, agent.state, agent.unseen).unwrap_or(match agent.state {
         AgentState::Idle => surfaces.faint,
-    };
+        AgentState::Blocked | AgentState::Error | AgentState::Done | AgentState::Working => {
+            surfaces.muted
+        }
+    });
     scene.text.push(small_text(
         label_x,
         rect,
@@ -183,6 +185,15 @@ fn agent_row(
         rect,
         target: HitTarget::Agent(agent.pane),
     });
+}
+
+pub(crate) fn alert(theme: &Theme, state: AgentState, unseen: bool) -> Option<Rgb> {
+    match state {
+        AgentState::Blocked => Some(theme.surfaces().attention),
+        AgentState::Error => Some(theme.normal[1]),
+        AgentState::Done if unseen => Some(theme.foreground),
+        AgentState::Done | AgentState::Working | AgentState::Idle => None,
+    }
 }
 
 #[cfg(test)]

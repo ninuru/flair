@@ -7,7 +7,7 @@ use crate::{
     status::{ChipParts, StatusParts},
     ui::ELLIPSIS,
 };
-use flair_core::config::IconSide;
+use flair_core::{agent::AgentState, config::IconSide};
 use flair_core::{
     config::Config,
     ids::WindowId,
@@ -63,6 +63,7 @@ fn tab(index: u16, name: &str) -> TabParts {
         last: false,
         activity: false,
         bell: false,
+        agent: None,
     }
 }
 
@@ -510,4 +511,25 @@ fn tab_icons_follow_the_side_setting_or_disappear() {
     let off = Case::new(&off_parts).run();
     assert!(icons(&off).is_empty());
     assert_eq!(run_text(&off, "shell").unwrap().x, 38.0);
+}
+
+#[test]
+fn window_rows_tint_their_icon_by_agent_state() {
+    let theme = theme();
+    let surfaces = theme.surfaces();
+    let mut parts = three();
+    for tab in &mut parts.tabs {
+        tab.icon = Some('\u{f120}');
+    }
+    parts.tabs[1].agent = Some((AgentState::Blocked, false));
+    parts.tabs[2].agent = Some((AgentState::Working, false));
+    let layout = Case::new(&parts).run();
+    let colors: Vec<Rgb> = layout
+        .chrome
+        .text
+        .iter()
+        .filter(|run| run.text == "\u{f120}")
+        .map(|run| run.color)
+        .collect();
+    assert_eq!(colors, [surfaces.bright, surfaces.attention, theme.accent]);
 }

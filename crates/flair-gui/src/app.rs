@@ -180,7 +180,14 @@ impl App {
             .map_or(&self.theme, |preview| &preview.theme)
             .clone();
         let mut grid = match (&self.layout, self.pane) {
-            (Some(layout), _) => compose_frame(&self.mirror, layout, self.size(), &theme, true),
+            (Some(layout), _) => compose_frame(
+                &self.mirror,
+                layout,
+                self.size(),
+                &theme,
+                self.effective().panes,
+                true,
+            ),
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
             (None, None) => return,
         };
