@@ -290,6 +290,7 @@ impl Capture {
                     self.size,
                     &self.theme,
                     self.effective().panes,
+                    !self.panels.has_focus(),
                     true,
                 );
                 separator_glyphs(&mut grid, layout);
@@ -373,6 +374,9 @@ impl Capture {
     fn key(&mut self, key: KeyInput) -> Result<Vec<ClientMsg>, String> {
         self.place();
         let event = self.overlays.key(&key, || None);
+        if event.is_none() && self.panel_nav(&key) {
+            return Ok(Vec::new());
+        }
         if event.is_none()
             && let Some(messages) = self.agents_key(&key)
         {
@@ -605,9 +609,15 @@ impl Capture {
         let theme = self.shown_theme().clone();
         let config = self.effective().clone();
         let mut grid = match (&self.layout, self.pane) {
-            (Some(layout), _) => {
-                compose_frame(&self.mirror, layout, self.size, &theme, config.panes, true)
-            }
+            (Some(layout), _) => compose_frame(
+                &self.mirror,
+                layout,
+                self.size,
+                &theme,
+                config.panes,
+                !self.panels.has_focus(),
+                true,
+            ),
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
             (None, None) => return Err("capture before the first frame".into()),
         };

@@ -397,8 +397,11 @@ fn a_long_title_ends_in_an_ellipsis_before_the_label() {
 #[test]
 fn rows_that_do_not_fit_are_dropped_whole_and_scroll() {
     let parts = status(three());
+    let mut blurred = shown();
+    blurred.focused = false;
     let layout = Case {
         height: 35 + 37 + 8 + 32 * 2 + 28 + 8 + 10,
+        panels: blurred.clone(),
         ..Case::new(&parts)
     }
     .run();
@@ -406,7 +409,7 @@ fn rows_that_do_not_fit_are_dropped_whole_and_scroll() {
     assert!(run_text(&layout, "Write docs").is_some());
     assert!(run_text(&layout, "work").is_none());
     assert!(run_text(&layout, "Deploy").is_none());
-    let mut panels = shown();
+    let mut panels = blurred;
     panels.agents_scroll = 2;
     let scrolled = Case {
         height: 35 + 37 + 8 + 32 * 2 + 28 + 8 + 10,
@@ -443,7 +446,7 @@ fn a_shared_slot_lists_agents_as_the_third_switcher_item() {
     .run();
     let item = run_text(&layout, "Agents").unwrap();
     assert_eq!(item.x, 154.0);
-    assert_eq!(item.color, theme.foreground);
+    assert_eq!(item.color, theme.accent);
     assert_eq!(
         run_text(&layout, "Files").unwrap().color,
         theme.surfaces().muted
@@ -474,7 +477,7 @@ fn an_unshared_agents_slot_has_a_single_item_header_band() {
     let layout = Case::new(&parts).run();
     let label = run_text(&layout, "Agents").unwrap();
     assert_eq!((label.x, label.baseline), (18.0, 57.0));
-    assert_eq!(label.color, theme.foreground);
+    assert_eq!(label.color, theme.accent);
     assert_eq!(label.face, TextFace::Ui);
     assert!(run_text(&layout, "Files").is_none());
     assert!(run_text(&layout, "Windows").is_none());
@@ -532,4 +535,88 @@ fn a_shared_slot_keeps_its_switcher_and_the_same_row_offset() {
         run_text(&shared, "alpha").unwrap().baseline,
         run_text(&unshared, "alpha").unwrap().baseline
     );
+}
+
+#[test]
+fn the_header_is_accented_while_focused_and_muted_otherwise() {
+    let theme = theme();
+    let parts = status(three());
+    let underline = rect(16.0, 69.0, 46.0, 2.0);
+    let focused = Case::new(&parts).run();
+    assert_eq!(run_text(&focused, "Agents").unwrap().color, theme.accent);
+    assert_eq!(
+        quads_at(&focused, underline),
+        [&fill(underline, theme.accent)]
+    );
+    let mut panels = shown();
+    panels.focused = false;
+    let blurred = Case {
+        panels,
+        ..Case::new(&parts)
+    }
+    .run();
+    assert_eq!(
+        run_text(&blurred, "Agents").unwrap().color,
+        theme.foreground
+    );
+    assert_eq!(
+        quads_at(&blurred, underline),
+        [&fill(underline, theme.surfaces().faint)]
+    );
+    assert_ne!(theme.surfaces().faint, theme.accent);
+}
+
+#[test]
+fn a_shared_switcher_accents_only_the_focused_view() {
+    let theme = theme();
+    let parts = status(three());
+    let focused = Case {
+        tabs: Some(Side::Left),
+        ..Case::new(&parts)
+    }
+    .run();
+    assert_eq!(run_text(&focused, "Agents").unwrap().color, theme.accent);
+    assert_eq!(
+        run_text(&focused, "Files").unwrap().color,
+        theme.surfaces().muted
+    );
+    let mut panels = shown();
+    panels.focused = false;
+    let blurred = Case {
+        tabs: Some(Side::Left),
+        panels,
+        ..Case::new(&parts)
+    }
+    .run();
+    assert_eq!(
+        run_text(&blurred, "Agents").unwrap().color,
+        theme.foreground
+    );
+}
+
+#[test]
+fn the_footer_shows_agent_keys_only_while_focused() {
+    let theme = theme();
+    let parts = status(three());
+    let focused = Case::new(&parts).run();
+    for text in [ENTER_KEY, "jump", "j/k", "move", ESCAPE_KEY, "back"] {
+        assert!(run_text(&focused, text).is_some(), "{text}");
+    }
+    assert_eq!(
+        quads_at(&focused, rect(0.0, 559.0, 279.0, 1.0)),
+        [&fill(
+            rect(0.0, 559.0, 279.0, 1.0),
+            theme.surfaces().outline
+        )]
+    );
+    let mut panels = shown();
+    panels.focused = false;
+    let blurred = Case {
+        panels,
+        ..Case::new(&parts)
+    }
+    .run();
+    assert!(run_text(&blurred, "jump").is_none());
+    assert!(quads_at(&blurred, rect(0.0, 559.0, 279.0, 1.0)).is_empty());
+    assert!(blurred.pages.agents > focused.pages.agents);
 }

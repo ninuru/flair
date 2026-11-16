@@ -41,7 +41,7 @@ pub(crate) fn draw(
     let mut top = body_top(slot, scale);
     let mut bottom = area.y + area.h - inset;
     if panels.focused {
-        bottom = keys(input, panels, (area, bottom), scene, measure);
+        bottom = keys(input, &verbs(panels), (area, bottom), scene, measure);
     }
     let explorer = &panels.explorer;
     if let Some(filter) = explorer.filter() {
@@ -254,9 +254,35 @@ fn filter_field(
     }
 }
 
-fn keys(
+fn verbs(panels: &Panels) -> Vec<(&'static str, String)> {
+    let explorer = &panels.explorer;
+    let folder = explorer
+        .selected()
+        .and_then(|index| explorer.rows().get(index))
+        .is_some_and(|row| matches!(row.kind, RowKind::Dir { .. }));
+    match explorer.editing() {
+        true => vec![
+            (ENTER_KEY, "keep".to_owned()),
+            (ESCAPE_KEY, "clear".to_owned()),
+        ],
+        false => [
+            Some((ENTER_KEY, "open")),
+            Some(("i", "insert")),
+            (folder && panels.at_prompt()).then_some(("c", "cd")),
+            Some(("y", "copy")),
+            Some((SEARCH_KEY, "filter")),
+            Some((ESCAPE_KEY, "back")),
+        ]
+        .into_iter()
+        .flatten()
+        .map(|(key, verb)| (key, verb.to_owned()))
+        .collect(),
+    }
+}
+
+pub(crate) fn keys(
     input: &ChromeInput,
-    panels: &Panels,
+    verbs: &[(&'static str, String)],
     room: (PxRect, f32),
     scene: &mut Scene,
     measure: &mut impl FnMut(&str, bool) -> f32,
@@ -275,29 +301,6 @@ fn keys(
         },
         input.theme.surfaces().outline,
     ));
-    let explorer = &panels.explorer;
-    let folder = explorer
-        .selected()
-        .and_then(|index| explorer.rows().get(index))
-        .is_some_and(|row| matches!(row.kind, RowKind::Dir { .. }));
-    let verbs: Vec<(&'static str, String)> = match explorer.editing() {
-        true => vec![
-            (ENTER_KEY, "keep".to_owned()),
-            (ESCAPE_KEY, "clear".to_owned()),
-        ],
-        false => [
-            Some((ENTER_KEY, "open")),
-            Some(("i", "insert")),
-            (folder && panels.at_prompt()).then_some(("c", "cd")),
-            Some(("y", "copy")),
-            Some((SEARCH_KEY, "filter")),
-            Some((ESCAPE_KEY, "back")),
-        ]
-        .into_iter()
-        .flatten()
-        .map(|(key, verb)| (key, verb.to_owned()))
-        .collect(),
-    };
     let overlay = OverlayInput {
         metrics: input.metrics,
         px: input.px,
@@ -310,7 +313,7 @@ fn keys(
     let inset = px(INSET, scale);
     let mut drawn = OverlayScene::default();
     footer(
-        &verbs,
+        verbs,
         0,
         &overlay,
         (area.x + inset, caps, (area.w - inset * 2.0).max(0.0)),

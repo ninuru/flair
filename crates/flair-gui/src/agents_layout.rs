@@ -8,11 +8,14 @@ use crate::{
         Scene, baseline, cap_centre, ellipsize, fill, icon_text, rounded, small_text, ui_text,
     },
     chrome_layout::{ChromeInput, Hit, HitTarget, Slot},
+    explorer_layout::keys,
     overlay_layout::inside,
     panel_layout::{content, icon_column, tab_rows},
     renderer::PxRect,
     status::AgentParts,
-    ui::{INSET, ITEM_GAP, ROW_PAD, ROW_RADIUS, SELECT_BAR, SELECT_INSET, px},
+    ui::{
+        ENTER_KEY, ESCAPE_KEY, INSET, ITEM_GAP, ROW_PAD, ROW_RADIUS, SELECT_BAR, SELECT_INSET, px,
+    },
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,8 +48,26 @@ pub(crate) fn draw(
     };
     let scale = input.scale;
     let area = content(slot, scale);
-    let rows = tab_rows(slot, scale);
+    let mut rows = tab_rows(slot, scale);
     let inset = px(INSET, scale);
+    if panels.focused {
+        let verbs = [
+            (ENTER_KEY, "jump".to_owned()),
+            ("j/k", "move".to_owned()),
+            (ESCAPE_KEY, "back".to_owned()),
+        ];
+        let bottom = keys(
+            input,
+            &verbs,
+            (area, area.y + area.h - inset),
+            scene,
+            measure,
+        );
+        rows.page = match bottom - rows.top >= rows.height {
+            true => ((bottom - rows.top - rows.height) / rows.pitch).floor() as usize + 1,
+            false => 0,
+        };
+    }
     let row_rect = |slot: usize| PxRect {
         x: area.x + inset,
         y: rows.top + slot as f32 * rows.pitch,

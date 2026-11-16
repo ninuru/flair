@@ -14,7 +14,7 @@ use crate::{
     font::PROMPT_ICON_SCALE,
     isles::icon_width,
     overlay_layout::inside,
-    panels::Drag,
+    panels::{Drag, Panels},
     renderer::{PxRect, TextRun},
     status::TabParts,
     ui::{
@@ -147,6 +147,7 @@ fn switcher(
         h: px(SWITCHER, scale),
         ..area
     };
+    let focused = input.panels.is_some_and(Panels::has_focus);
     let pad = px(ITEM_PAD, scale);
     let height = px(ITEM_HEIGHT, scale);
     let mut x = area.x + px(INSET, scale);
@@ -167,7 +168,9 @@ fn switcher(
             h: band.h,
             ..item
         };
-        let color = if slot.view == view {
+        let color = if slot.view == view && focused {
+            theme.accent
+        } else if slot.view == view {
             theme.foreground
         } else if input.hover.is_some_and(|point| inside(hit, point)) {
             surfaces.bright
@@ -191,7 +194,10 @@ fn switcher(
                     w: (item.w - inset * 2.0).max(0.0),
                     h: thick,
                 },
-                theme.accent,
+                match focused {
+                    true => theme.accent,
+                    false => surfaces.faint,
+                },
             ));
         }
         if slot.shared {

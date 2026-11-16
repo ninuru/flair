@@ -298,3 +298,6 @@ mod explorer_tests;
 
 #[path = "panels_agents_tests.rs"]
 mod agents_tests;
+
+#[path = "panels_nav_tests.rs"]
+mod nav_tests;

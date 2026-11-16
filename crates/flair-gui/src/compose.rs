@@ -6,7 +6,7 @@ use flair_core::{
     config::PanesConfig,
     geom::{Axis, CellPoint, CellRect, GridSize},
     ids::PaneId,
-    proto::{Cell, CellFlags, PromptSnapshot, WindowLayout},
+    proto::{Cell, CellFlags, CursorShape, PromptSnapshot, WindowLayout},
     theme::{Rgb, Theme, blend},
 };
 
@@ -125,6 +125,7 @@ pub fn compose_frame(
     size: GridSize,
     theme: &Theme,
     panes: PanesConfig,
+    focused: bool,
     cursor_visible: bool,
 ) -> CellGrid {
     let mut grid = CellGrid {
@@ -144,8 +145,12 @@ pub fn compose_frame(
     if size.rows == 0 || size.cols == 0 {
         return grid;
     }
-    let dim = (panes.dim_inactive && layout.panes.len() > 1)
-        .then(|| u8::try_from(panes.dim_amount).unwrap_or(u8::MAX))
+    let amount = match panes.dim_inactive {
+        true => panes.dim_amount,
+        false => PanesConfig::default().dim_amount,
+    };
+    let dim = (!focused || panes.dim_inactive && layout.panes.len() > 1)
+        .then(|| u8::try_from(amount).unwrap_or(u8::MAX))
         .filter(|amount| *amount > 0);
     for placement in &layout.panes {
         let mut pane = compose(
@@ -154,8 +159,11 @@ pub fn compose_frame(
             theme,
             cursor_visible && placement.pane == layout.active,
         );
+        if !focused && let Some(cursor) = &mut pane.cursor {
+            cursor.shape = CursorShape::HollowBlock;
+        }
         if let Some(amount) = dim
-            && placement.pane != layout.active
+            && (!focused || placement.pane != layout.active)
         {
             for cell in &mut pane.cells {
                 cell.fg = blend(cell.fg, theme.background, amount);
