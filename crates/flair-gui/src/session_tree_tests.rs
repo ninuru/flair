@@ -139,9 +139,9 @@ fn opens_on_the_current_session_with_every_session_collapsed() {
     assert_eq!(
         rows,
         [
-            (0, Some(1), "main", Some("2 windows"), None),
-            (0, Some(2), "notes", Some("1 window"), Some("current")),
-            (0, Some(3), "work", Some("3 windows"), None),
+            (0, Some(0), "main", Some("2 windows"), None),
+            (0, Some(1), "notes", Some("1 window"), Some("current")),
+            (0, Some(2), "work", Some("3 windows"), None),
         ]
     );
     assert_eq!(strip(&tree), (vec![WindowId(20)], Some(SessionId(2))));
@@ -213,9 +213,9 @@ fn h_and_left_move_a_window_to_its_parent_then_collapse_the_session() {
 #[test]
 fn digits_switch_to_the_numbered_session_at_once() {
     let mut tree = tree();
-    assert_eq!(tree.key(&char('1')), switch("main"));
-    assert_eq!(tree.key(&char('3')), switch("work"));
-    assert_eq!(tree.key(&char('2')), TreeOutcome::Close);
+    assert_eq!(tree.key(&char('0')), switch("main"));
+    assert_eq!(tree.key(&char('2')), switch("work"));
+    assert_eq!(tree.key(&char('1')), TreeOutcome::Close);
     assert_eq!(tree.key(&char('9')), TreeOutcome::Ignored);
 }
 
@@ -266,7 +266,7 @@ fn every_other_key_is_ignored_and_changes_nothing() {
         char('x'),
         char('a'),
         char('J'),
-        char('0'),
+        char('9'),
         named(NamedKey::Tab),
         named(NamedKey::Backspace),
         named(NamedKey::PageDown),
@@ -465,7 +465,7 @@ fn search_orders_matches_by_score_and_keeps_their_numbers() {
         .collect();
     assert_eq!(
         rows,
-        [(Some(4), "abc"), (Some(2), "a-b-c"), (Some(3), "x-a-b-c")]
+        [(Some(3), "abc"), (Some(1), "a-b-c"), (Some(2), "x-a-b-c")]
     );
     assert_eq!(tree.key(&named(NamedKey::Enter)), switch("abc"));
 }

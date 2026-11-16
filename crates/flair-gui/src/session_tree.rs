@@ -267,8 +267,8 @@ impl SessionTree {
                 });
                 TreeOutcome::Pending
             }
-            Key::Char(digit @ '1'..='9') => {
-                let index = digit.to_digit(10).map_or(0, |digit| digit as usize - 1);
+            Key::Char(digit @ '0'..='9') => {
+                let index = digit.to_digit(10).map_or(0, |digit| digit as usize);
                 match index < self.sessions.len() {
                     true => self.switch(index),
                     false => TreeOutcome::Ignored,
@@ -418,7 +418,7 @@ impl SessionTree {
             count => format!("{count} windows"),
         };
         Row {
-            number: Some(u16::try_from(index + 1).unwrap_or(u16::MAX)),
+            number: Some(u16::try_from(index).unwrap_or(u16::MAX)),
             name: session.name.clone(),
             detail: Some(windows),
             label: (session.id == self.current).then_some("current"),
