@@ -82,6 +82,7 @@ fn parts() -> StatusParts {
                 last: false,
                 activity: false,
                 bell: false,
+                agent: None,
             },
             TabParts {
                 window: WindowId(2),
@@ -92,6 +93,7 @@ fn parts() -> StatusParts {
                 last: false,
                 activity: false,
                 bell: false,
+                agent: None,
             },
         ],
         badges: Vec::new(),
@@ -842,6 +844,7 @@ fn narrow(session: &str, names: &[&str], active: usize) -> StatusParts {
                 last: false,
                 activity: false,
                 bell: false,
+                agent: None,
             })
             .collect(),
         badges: vec![

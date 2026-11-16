@@ -35,6 +35,7 @@ pub struct TabParts {
     pub last: bool,
     pub activity: bool,
     pub bell: bool,
+    pub agent: Option<(AgentState, bool)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +84,12 @@ pub fn status_parts(status: &StatusLine) -> StatusParts {
                 last: window.last,
                 activity: window.activity,
                 bell: window.bell,
+                agent: status
+                    .agents
+                    .iter()
+                    .filter(|row| row.window == window.id)
+                    .map(|row| (row.state, row.unseen))
+                    .max_by_key(|&(state, unseen)| urgency(state, unseen)),
             })
             .collect(),
         badges: [
@@ -117,6 +124,16 @@ pub fn status_parts(status: &StatusLine) -> StatusParts {
             })
             .collect(),
         tab_icon: Some(IconSide::After),
+    }
+}
+
+fn urgency(state: AgentState, unseen: bool) -> u8 {
+    match state {
+        AgentState::Error => 4,
+        AgentState::Blocked => 3,
+        AgentState::Done if unseen => 2,
+        AgentState::Working => 1,
+        AgentState::Done | AgentState::Idle => 0,
     }
 }
 

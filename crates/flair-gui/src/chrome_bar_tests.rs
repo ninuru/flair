@@ -40,6 +40,7 @@ fn parts() -> StatusParts {
                 last: false,
                 activity: false,
                 bell: false,
+                agent: None,
             },
             TabParts {
                 window: WindowId(2),
@@ -50,6 +51,7 @@ fn parts() -> StatusParts {
                 last: false,
                 activity: false,
                 bell: false,
+                agent: None,
             },
         ],
         badges: Vec::new(),
@@ -324,6 +326,7 @@ fn tab_index_is_faint_inactive_names_muted_and_the_active_name_fg() {
         last: true,
         activity: false,
         bell: false,
+        agent: None,
     });
     let layout = Case::new(&status).run();
     for (index, name, x, name_x, color) in [
@@ -434,6 +437,7 @@ fn many(count: u16, active: u16) -> StatusParts {
                 last: false,
                 activity: false,
                 bell: false,
+                agent: None,
             })
             .collect(),
         ..parts()
@@ -870,3 +874,6 @@ mod icons;
 
 #[path = "chrome_bar_button_tests.rs"]
 mod button;
+
+#[path = "chrome_bar_agent_tests.rs"]
+mod agents;

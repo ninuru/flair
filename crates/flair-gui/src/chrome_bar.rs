@@ -5,7 +5,7 @@ use flair_core::{
 };
 
 use crate::{
-    CellMetrics, UiMetrics,
+    CellMetrics, UiMetrics, agents_layout,
     chrome_layout::{BarField, ChromeInput, Hit, HitTarget, PanelView, bar_height},
     isles::{icon_baseline, icon_width},
     notice::Notice,
@@ -306,10 +306,14 @@ fn tabs(
             format!("{} {name}", tab.index)
         })
         .collect();
-    let extras: Vec<f32> = tabs
-        .iter()
-        .map(|tab| icon_lead(input.status.tab_icon.and(tab.icon), input.metrics, scale))
-        .collect();
+    let extras: Vec<f32> =
+        tabs.iter()
+            .map(|tab| match input.status.tab_icon.and(tab.icon) {
+                Some(icon) => icon_lead(Some(icon), input.metrics, scale),
+                None => tab_alert(input, tab)
+                    .map_or(0.0, |_| px(DOT, scale) + px(PROCESS_ICON_GAP, scale)),
+            })
+            .collect();
     let widths: Vec<f32> = labels
         .iter()
         .zip(&extras)
@@ -489,28 +493,59 @@ fn draw_tab(
         scene
             .text
             .push(ui_text(name_x, base, name.to_owned(), color, false));
-        if let Some((side, glyph)) = icon {
-            let quiet = match tab.active {
-                true => surfaces.bright,
-                false => surfaces.muted,
+        let alert = tab_alert(input, tab);
+        let centre = cap_centre(rect, input.ui);
+        let dot = px(DOT, scale);
+        let after = name_x + measure(name, false) + px(PROCESS_ICON_GAP, scale);
+        let spot = match icon {
+            Some((side, glyph)) => {
+                let icon_x = match side {
+                    IconSide::Before => start,
+                    IconSide::After => after.round(),
+                };
+                scene.text.push(icon_text(
+                    icon_x,
+                    centre,
+                    glyph,
+                    tab_icon_color(input, tab),
+                    input.metrics,
+                ));
+                let width = icon_width(glyph, input.metrics);
+                (icon_x + width - dot / 2.0, centre - width / 2.0 - dot / 2.0)
+            }
+            None => (after, centre - dot / 2.0),
+        };
+        if let Some(color) = alert {
+            let at = PxRect {
+                x: spot.0.round(),
+                y: spot.1.round(),
+                w: dot,
+                h: dot,
             };
-            let icon_x = match side {
-                IconSide::Before => start,
-                IconSide::After => name_x + measure(name, false) + px(PROCESS_ICON_GAP, scale),
-            };
-            scene.text.push(icon_text(
-                icon_x,
-                cap_centre(rect, input.ui),
-                glyph,
-                quiet,
-                input.metrics,
-            ));
+            scene.quads.push(rounded(at, color, DOT / 2.0, scale));
         }
     }
     scene.hits.push(Hit {
         rect: hit,
         target: HitTarget::Window(tab.window),
     });
+}
+
+fn tab_alert(input: &ChromeInput, tab: &TabParts) -> Option<Rgb> {
+    tab.agent
+        .and_then(|(state, unseen)| agents_layout::alert(input.theme, state, unseen))
+}
+
+pub(crate) fn tab_icon_color(input: &ChromeInput, tab: &TabParts) -> Rgb {
+    let theme = input.theme;
+    let surfaces = theme.surfaces();
+    let working = matches!(tab.agent, Some((AgentState::Working, _))).then_some(theme.accent);
+    tab_alert(input, tab)
+        .or(working)
+        .unwrap_or(match tab.active {
+            true => surfaces.bright,
+            false => surfaces.muted,
+        })
 }
 
 fn field(
