@@ -12,7 +12,7 @@ fn icons(layout: &ChromeLayout) -> Vec<&TextRun> {
         .chrome
         .text
         .iter()
-        .filter(|run| run.face == TextFace::PromptIcon && run.text != FILES_KEY.to_string())
+        .filter(|run| run.face == TextFace::PromptIcon)
         .collect()
 }
 
@@ -38,7 +38,6 @@ fn a_tab_icon_follows_the_name_and_widens_the_tab() {
     let order: Vec<&str> = layout.chrome.text[2..]
         .iter()
         .map(|run| run.text.as_str())
-        .filter(|text| *text != FILES_KEY.to_string())
         .collect();
     assert_eq!(order, ["1", "shell", "\u{f120}", "2", "editor", "\u{f308}"]);
     let shell = text(&layout, "shell").unwrap();

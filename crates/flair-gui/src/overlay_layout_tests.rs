@@ -40,6 +40,7 @@ fn input(theme: &Theme, px: (u32, u32), scale: f32, hover: Option<(f32, f32)>) -
         },
         theme,
         hover,
+        icons: true,
     }
 }
 
@@ -279,19 +280,21 @@ fn session_rows_lead_with_a_monogram() {
 }
 
 #[test]
-fn rows_draw_a_right_aligned_mono_path_and_the_label_left_of_it() {
+fn rows_draw_a_right_aligned_small_path_centred_with_the_label() {
     let scene = run(&three(), (1600, 1000), 1.0, None);
     let path: Vec<&TextRun> = scene
         .text
         .iter()
-        .filter(|run| run.face == TextFace::Icon && run.baseline < 186.0)
+        .filter(|run| run.text.starts_with("~/IdeaProjects/flair"))
         .collect();
-    let joined: String = path.iter().map(|run| run.text.as_str()).collect();
-    assert_eq!(joined, "~/IdeaProjects/flair");
+    assert_eq!(path.len(), 1);
+    assert_eq!((path[0].face, path[0].color), (TextFace::Small, QUIET));
     let start = path[0].x;
-    assert_eq!(start + 20.0 * 7.0, 1072.0);
+    assert_eq!(start + 20.0 * 7.0 * 0.5, 1072.0);
     let label = text(&scene, "current").unwrap();
     assert_eq!(label.x, (start - 8.0 - 3.5 * 7.0).round());
+    assert_eq!(label.baseline, path[0].baseline);
+    assert!(scene.text.iter().all(|run| run.face != TextFace::Icon));
 }
 
 #[test]
@@ -323,12 +326,9 @@ fn long_names_and_paths_ellipsize() {
         .unwrap();
     assert!(name.text.ends_with(ELLIPSIS));
     assert!(measure(&name.text, false) <= 220.0);
-    assert!(
-        scene
-            .text
-            .iter()
-            .any(|run| run.face == TextFace::Icon && run.text.starts_with(ELLIPSIS))
-    );
+    assert!(scene.text.iter().any(|run| run.face == TextFace::Small
+        && run.text.starts_with(ELLIPSIS)
+        && run.text.ends_with('p')));
 }
 
 #[test]

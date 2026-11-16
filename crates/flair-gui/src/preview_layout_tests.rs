@@ -39,6 +39,7 @@ fn input(theme: &Theme, px: (u32, u32)) -> OverlayInput<'_> {
         },
         theme,
         hover: None,
+        icons: true,
     }
 }
 
@@ -215,6 +216,36 @@ fn labels_put_a_faint_process_icon_between_the_index_and_the_name() {
     assert_eq!(labels[3].0, "4");
     assert_eq!(labels[4].0, "less");
     assert_eq!(labels[4].2 - labels[3].2, 7.0);
+}
+
+#[test]
+fn labels_leave_out_the_process_icon_when_tab_icons_are_off() {
+    let theme = Config::default().theme();
+    let strip = Strip {
+        windows: vec![StatusWindow {
+            program: "zsh".into(),
+            ..window(1, "zsh", true)
+        }],
+        preview: None,
+    };
+    let mut scene = OverlayScene::default();
+    let input = OverlayInput {
+        icons: false,
+        ..input(&theme, (1000, 500))
+    };
+    self::strip(
+        &strip,
+        rect(0.0, 0.0, 300.0, 120.0),
+        &input,
+        &mut scene,
+        &mut measure,
+    );
+    let labels: Vec<_> = scene
+        .text
+        .iter()
+        .map(|run| (run.text.as_str(), run.x))
+        .collect();
+    assert_eq!(labels, vec![("1", 0.0), ("zsh", 7.0)]);
 }
 
 #[test]

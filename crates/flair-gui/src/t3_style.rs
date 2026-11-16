@@ -183,7 +183,6 @@ pub(crate) const TAB_ACTIVE_TINT: u8 = 8;
 pub(crate) const TAB_HOVER_TINT: u8 = 4;
 pub(crate) const BUTTON_SIZE: f32 = 28.0;
 pub(crate) const BUTTON_RADIUS: f32 = 8.0;
-pub(crate) const BUTTON_GAP: f32 = 4.0;
 pub(crate) const BUTTON_HOVER_TINT: u8 = 6;
 pub(crate) const BADGE_HEIGHT: f32 = 16.0;
 pub(crate) const BADGE_RADIUS: f32 = 4.0;

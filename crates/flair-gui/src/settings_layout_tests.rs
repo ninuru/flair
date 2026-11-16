@@ -57,6 +57,7 @@ pub(super) fn input(
         },
         theme,
         hover,
+        icons: true,
     }
 }
 

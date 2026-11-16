@@ -212,7 +212,7 @@ fn caption(
     scene
         .text
         .push(small_text(rect.x, rect, number, surfaces.faint, input.ui));
-    let icon = process_icon(&window.program);
+    let icon = process_icon(&window.program).filter(|_| input.icons);
     let lead = icon_lead(icon, input.metrics, input.scale);
     let room = (rect.w - number_width - gap - lead).max(0.0);
     let name = ellipsize(&window.name, room / small, false, measure);

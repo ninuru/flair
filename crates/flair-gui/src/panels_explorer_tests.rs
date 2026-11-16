@@ -183,17 +183,6 @@ fn the_explorer_command_opens_focuses_and_closes() {
 }
 
 #[test]
-fn the_bar_button_toggles_open_and_closed() {
-    let mut panels = Panels::default();
-    panels.follow(pane(Some("/p"), false));
-    assert_eq!(panels.toggle_explorer(), paths(&["/p"]));
-    assert!(panels.open && panels.focused);
-    panels.focused = false;
-    assert!(panels.toggle_explorer().is_empty());
-    assert!(!panels.open && !panels.focused);
-}
-
-#[test]
 fn opening_without_a_cwd_shows_no_root() {
     let mut panels = Panels::default();
     assert!(panels.explorer_command().is_empty());

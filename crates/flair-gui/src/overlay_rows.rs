@@ -1,9 +1,7 @@
-use flair_core::theme::Rgb;
-
 use crate::{
     chrome_bar::{baseline, rounded, small_text, ui_text},
     overlay_layout::{OverlayInput, OverlayScene, Row, inside},
-    renderer::{PxRect, TextFace, TextRun},
+    renderer::PxRect,
     settings_rows::glyph,
     t3_style::{
         FOREGROUND, ICON_BOX, ITEM_GAP, ITEM_INDENT, ITEM_PAD_X, ITEM_RADIUS, MONOGRAM, MUTED,
@@ -55,7 +53,9 @@ pub(crate) fn entry(
         let text = number.to_string();
         let width = measure(&text, false) * input.ui.small;
         end -= width;
-        scene.text.push(small(end.round(), line, text, QUIET));
+        scene
+            .text
+            .push(small_text(end.round(), rect, text, QUIET, input.ui));
         end -= gap;
     }
     let label = row
@@ -79,9 +79,10 @@ pub(crate) fn entry(
     let start = match &row.detail {
         Some(detail) => detail_runs(
             &marked(detail, &row.detail_matches),
-            (end, detail_room, line),
+            (end, detail_room, rect),
             input,
             scene,
+            measure,
         ),
         None => end,
     };
@@ -90,9 +91,13 @@ pub(crate) fn entry(
             true => start - gap - width,
             false => end - width,
         };
-        scene
-            .text
-            .push(small(at.round(), line, label.to_owned(), QUIET));
+        scene.text.push(small_text(
+            at.round(),
+            rect,
+            label.to_owned(),
+            QUIET,
+            input.ui,
+        ));
     }
 }
 
@@ -118,17 +123,6 @@ fn monogram(
         FOREGROUND,
         input.ui,
     ));
-}
-
-fn small(x: f32, baseline: f32, text: String, color: Rgb) -> TextRun {
-    TextRun {
-        x,
-        baseline,
-        text,
-        color,
-        bold: false,
-        face: TextFace::Small,
-    }
 }
 
 pub(crate) fn marked(text: &str, matches: &[usize]) -> Vec<(char, bool)> {
@@ -186,41 +180,54 @@ fn group(chars: &[(char, bool)]) -> Vec<(String, bool)> {
 
 fn detail_runs(
     chars: &[(char, bool)],
-    area: (f32, f32, f32),
+    area: (f32, f32, PxRect),
     input: &OverlayInput,
     scene: &mut OverlayScene,
+    measure: &mut impl FnMut(&str, bool) -> f32,
 ) -> f32 {
-    let (end, room, line) = area;
-    let cell = input.ui.icon.width.max(1.0);
-    let fits = (room / cell).floor() as usize;
-    let kept: Vec<(char, bool)> = match chars.len() <= fits {
+    let (end, room, rect) = area;
+    let small = input.ui.small;
+    let mut width = |text: &str| measure(text, false) * small;
+    let widths: Vec<f32> = chars
+        .iter()
+        .map(|(c, _)| width(c.encode_utf8(&mut [0; 4])))
+        .collect();
+    let kept: Vec<(char, bool)> = match widths.iter().sum::<f32>() <= room {
         true => chars.to_vec(),
-        false if fits < 2 => return end,
-        false => ELLIPSIS
-            .chars()
-            .map(|c| (c, false))
-            .chain(chars[chars.len() - (fits - 1)..].iter().copied())
-            .collect(),
+        false => {
+            let mut used = width(ELLIPSIS);
+            if used > room {
+                return end;
+            }
+            let count = widths
+                .iter()
+                .rev()
+                .take_while(|advance| {
+                    used += *advance;
+                    used <= room
+                })
+                .count();
+            ELLIPSIS
+                .chars()
+                .map(|c| (c, false))
+                .chain(chars[chars.len() - count..].iter().copied())
+                .collect()
+        }
     };
-    if kept.is_empty() {
-        return end;
-    }
-    let start = (end - kept.len() as f32 * cell).round();
-    let mut offset = 0;
-    for (text, matched) in group(&kept) {
-        let count = text.chars().count();
-        scene.text.push(TextRun {
-            x: start + offset as f32 * cell,
-            baseline: line,
-            text,
-            color: match matched {
-                true => FOREGROUND,
-                false => QUIET,
-            },
-            bold: false,
-            face: TextFace::Icon,
-        });
-        offset += count;
+    let runs = group(&kept);
+    let total: f32 = runs.iter().map(|(text, _)| width(text)).sum();
+    let start = (end - total).round();
+    let mut x = start;
+    for (text, matched) in runs {
+        let advance = width(&text);
+        let color = match matched {
+            true => FOREGROUND,
+            false => QUIET,
+        };
+        scene
+            .text
+            .push(small_text(x.round(), rect, text, color, input.ui));
+        x += advance;
     }
     start
 }

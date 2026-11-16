@@ -55,7 +55,6 @@ pub const TREE_ROW: f32 = 24.0;
 pub const TREE_INDENT: f32 = 16.0;
 pub const CHEVRON_RIGHT: char = '\u{eab6}';
 pub const CHEVRON_DOWN: char = '\u{eab4}';
-pub const FILES_KEY: char = '\u{eaf0}';
 
 pub fn px(value: f32, scale: f32) -> f32 {
     (value * scale).round()
