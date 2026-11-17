@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    command::{CopyCommand, CopyMotion, SelectionKind},
+    command::{CopyCommand, CopyMotion, JumpKind, SelectionKind},
     key::{KeyAction, Locks},
 };
 
@@ -258,7 +258,7 @@ fn copy_mode_defaults_cover_motions_selection_and_search() {
             motion(CopyMotion::BackToIndentation),
         ),
         (Key::Char('$'), false, true, motion(CopyMotion::EndOfLine)),
-        (Key::Char('g'), false, false, motion(CopyMotion::HistoryTop)),
+        (Key::Char('g'), false, false, CopyCommand::GPrefix),
         (
             Key::Char('G'),
             false,
@@ -275,6 +275,40 @@ fn copy_mode_defaults_cover_motions_selection_and_search() {
         (Key::Char('H'), false, true, motion(CopyMotion::TopLine)),
         (Key::Char('M'), false, true, motion(CopyMotion::MiddleLine)),
         (Key::Char('L'), false, true, motion(CopyMotion::BottomLine)),
+        (Key::Char('{'), false, true, motion(CopyMotion::ParagraphUp)),
+        (
+            Key::Char('}'),
+            false,
+            true,
+            motion(CopyMotion::ParagraphDown),
+        ),
+        (Key::Char('%'), false, true, motion(CopyMotion::Bracket)),
+        (
+            Key::Char('f'),
+            false,
+            false,
+            CopyCommand::JumpPrompt(JumpKind::Forward),
+        ),
+        (
+            Key::Char('F'),
+            false,
+            true,
+            CopyCommand::JumpPrompt(JumpKind::Backward),
+        ),
+        (
+            Key::Char('t'),
+            false,
+            false,
+            CopyCommand::JumpPrompt(JumpKind::ToForward),
+        ),
+        (
+            Key::Char('T'),
+            false,
+            true,
+            CopyCommand::JumpPrompt(JumpKind::ToBackward),
+        ),
+        (Key::Char(';'), false, false, CopyCommand::JumpAgain),
+        (Key::Char(','), false, false, CopyCommand::JumpReverse),
         (
             Key::Char('v'),
             false,
@@ -328,6 +362,24 @@ fn copy_mode_defaults_cover_motions_selection_and_search() {
 }
 
 #[test]
+fn copy_g_table_maps_the_second_key_after_g() {
+    let config = KeysConfig::default();
+    for (key, shift, expected) in [
+        (Key::Char('g'), false, Some(CopyMotion::HistoryTop)),
+        (Key::Char('e'), false, Some(CopyMotion::PreviousWordEnd)),
+        (Key::Char('E'), true, Some(CopyMotion::PreviousSpaceEnd)),
+        (Key::Char('x'), false, None),
+        (Key::Named(NamedKey::Escape), false, None),
+    ] {
+        assert_eq!(
+            config.copy_g_binding(&with_mods(key, false, shift)),
+            expected.map(CopyCommand::Move),
+            "{key:?}"
+        );
+    }
+}
+
+#[test]
 fn copy_mode_command_names_follow_tmux() {
     for (name, expected) in [
         (
@@ -350,6 +402,40 @@ fn copy_mode_command_names_follow_tmux() {
         ),
         ("search-reverse", CopyCommand::SearchReverse),
         ("copy-selection-and-cancel", CopyCommand::Yank),
+        ("history-top", CopyCommand::Move(CopyMotion::HistoryTop)),
+        (
+            "previous-word-end",
+            CopyCommand::Move(CopyMotion::PreviousWordEnd),
+        ),
+        (
+            "previous-space-end",
+            CopyCommand::Move(CopyMotion::PreviousSpaceEnd),
+        ),
+        (
+            "previous-paragraph",
+            CopyCommand::Move(CopyMotion::ParagraphUp),
+        ),
+        (
+            "next-paragraph",
+            CopyCommand::Move(CopyMotion::ParagraphDown),
+        ),
+        (
+            "next-matching-bracket",
+            CopyCommand::Move(CopyMotion::Bracket),
+        ),
+        ("jump-forward", CopyCommand::JumpPrompt(JumpKind::Forward)),
+        ("jump-backward", CopyCommand::JumpPrompt(JumpKind::Backward)),
+        (
+            "jump-to-forward",
+            CopyCommand::JumpPrompt(JumpKind::ToForward),
+        ),
+        (
+            "jump-to-backward",
+            CopyCommand::JumpPrompt(JumpKind::ToBackward),
+        ),
+        ("jump-again", CopyCommand::JumpAgain),
+        ("jump-reverse", CopyCommand::JumpReverse),
+        ("g-prefix", CopyCommand::GPrefix),
     ] {
         assert_eq!(parse_copy_command(name), Some(expected));
     }

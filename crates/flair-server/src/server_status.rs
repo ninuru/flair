@@ -231,7 +231,7 @@ impl Server {
         match result {
             PrefixResult::Forward | PrefixResult::SendPrefix => {
                 if self.copy_pane(id).is_some() {
-                    self.copy_key(now, id, &key, out);
+                    self.copy_key(id, &key, out);
                 } else {
                     self.forward(id, InputEvent::Key(key), out);
                 }

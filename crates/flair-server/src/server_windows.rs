@@ -1,4 +1,5 @@
 use super::*;
+use crate::pane::CopyKeys;
 use flair_core::{
     command::{PaneRef, WindowRef},
     geom::{Axis, CellPoint, CellRect},
@@ -41,6 +42,7 @@ impl Server {
                 last: None,
                 shell: None,
                 wheel_copy: false,
+                copy_keys: CopyKeys::default(),
                 process: None,
                 probed: None,
                 probe_due: None,

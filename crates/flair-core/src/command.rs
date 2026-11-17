@@ -54,7 +54,20 @@ pub enum CopyCommand {
     Search { pattern: String, forward: bool },
     SearchAgain,
     SearchReverse,
+    JumpPrompt(JumpKind),
+    Jump { kind: JumpKind, ch: char },
+    JumpAgain,
+    JumpReverse,
+    GPrefix,
     Yank,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum JumpKind {
+    Forward,
+    Backward,
+    ToForward,
+    ToBackward,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -66,9 +79,11 @@ pub enum CopyMotion {
     NextWord,
     PreviousWord,
     NextWordEnd,
+    PreviousWordEnd,
     NextSpace,
     PreviousSpace,
     NextSpaceEnd,
+    PreviousSpaceEnd,
     StartOfLine,
     BackToIndentation,
     EndOfLine,
@@ -79,6 +94,9 @@ pub enum CopyMotion {
     TopLine,
     MiddleLine,
     BottomLine,
+    ParagraphUp,
+    ParagraphDown,
+    Bracket,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
