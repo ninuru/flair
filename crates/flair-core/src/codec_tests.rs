@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use super::*;
 use crate::{
     agent::{AgentKind, AgentState},
-    command::{Command, CopyCommand, CopyMotion, PaneRef, SelectionKind, WindowRef},
+    command::{Command, CopyCommand, CopyMotion, JumpKind, PaneRef, SelectionKind, WindowRef},
     config::Config,
     geom::{Axis, CellPoint, CellRect, Direction, GridSize},
     ids::{ClientId, PaneId, SessionId, WindowId},
@@ -163,6 +163,18 @@ fn client_messages() -> Vec<ClientMsg> {
         ClientMsg::Command(Command::Copy(CopyCommand::Yank)),
         ClientMsg::Command(Command::Copy(CopyCommand::Move(CopyMotion::HalfPageUp))),
         ClientMsg::Command(Command::Copy(CopyCommand::Select(SelectionKind::Block))),
+        ClientMsg::Command(Command::Copy(CopyCommand::Move(CopyMotion::Bracket))),
+        ClientMsg::Command(Command::Copy(CopyCommand::Move(
+            CopyMotion::PreviousSpaceEnd,
+        ))),
+        ClientMsg::Command(Command::Copy(CopyCommand::JumpPrompt(JumpKind::ToBackward))),
+        ClientMsg::Command(Command::Copy(CopyCommand::Jump {
+            kind: JumpKind::Forward,
+            ch: 'ü',
+        })),
+        ClientMsg::Command(Command::Copy(CopyCommand::JumpAgain)),
+        ClientMsg::Command(Command::Copy(CopyCommand::JumpReverse)),
+        ClientMsg::Command(Command::Copy(CopyCommand::GPrefix)),
         ClientMsg::Command(Command::Copy(CopyCommand::Search {
             pattern: "err(or)?".to_owned(),
             forward: false,

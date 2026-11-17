@@ -36,6 +36,10 @@ action = "key"
 key = "g"
 
 [[steps]]
+action = "key"
+key = "g"
+
+[[steps]]
 action = "wait"
 text = "top-marker"
 

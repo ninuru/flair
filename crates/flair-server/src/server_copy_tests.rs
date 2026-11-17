@@ -1,6 +1,6 @@
 use super::*;
 use flair_core::{
-    command::{Command, CopyCommand},
+    command::{Command, CopyCommand, JumpKind},
     config::PromptStyle,
     geom::{CellPoint, GridSize},
     key::{
@@ -378,6 +378,7 @@ fn motion_keys_including_shifted_ones_move_the_vi_cursor() {
     written.extend(shifted(&mut server, 'L'));
     assert_eq!(cursor(&server).row, 3);
     written.extend(press(&mut server, Key::Char('g')));
+    written.extend(press(&mut server, Key::Char('g')));
     assert!(offset(&server) > 0);
     assert_eq!(cursor(&server).row, 0);
     written.extend(shifted(&mut server, 'G'));
@@ -575,6 +576,7 @@ fn alt_screen_copy_mode_stays_on_the_visible_screen_and_yanks_it() {
     );
     enter(&mut server);
     press(&mut server, Key::Char('g'));
+    press(&mut server, Key::Char('g'));
     press(&mut server, Key::Char('k'));
     chord(&mut server, Key::Char('u'), ctrl());
     wheel(&mut server, MouseButton::WheelUp);
@@ -586,4 +588,236 @@ fn alt_screen_copy_mode_stays_on_the_visible_screen_and_yanks_it() {
     press(&mut server, Key::Char('$'));
     let out = press(&mut server, Key::Char('y'));
     assert_eq!(clipboard(&out), Some(("alt0\nalt1\nalt2\nalt3", false)));
+}
+
+fn typed(server: &mut Server, c: char) -> Vec<Effect> {
+    send(
+        server,
+        ClientMsg::Input(InputEvent::Key(KeyInput {
+            key: Key::Char(c),
+            mods: Mods {
+                shift: !c.is_ascii_lowercase() && !c.is_ascii_digit(),
+                ..Mods::default()
+            },
+            text: Some(c.to_string()),
+            repeat: false,
+            keypad: false,
+            action: KeyAction::Press,
+            unshifted: None,
+            shifted: None,
+            base: None,
+            locks: Locks::default(),
+        })),
+    )
+}
+
+fn col(server: &Server) -> u16 {
+    cursor(server).col
+}
+
+#[test]
+fn find_keys_jump_to_the_typed_char_and_repeat() {
+    let mut server = copy_setup();
+    let mut written = Vec::new();
+    written.extend(press(&mut server, Key::Char('0')));
+    written.extend(press(&mut server, Key::Char('f')));
+    written.extend(press(&mut server, Key::Char('o')));
+    assert_eq!(col(&server), 1);
+    written.extend(press(&mut server, Key::Char(';')));
+    assert_eq!(col(&server), 2);
+    written.extend(press(&mut server, Key::Char(',')));
+    assert_eq!(col(&server), 1);
+    written.extend(press(&mut server, Key::Char('t')));
+    written.extend(press(&mut server, Key::Char('r')));
+    assert_eq!(col(&server), 5);
+    written.extend(shifted(&mut server, 'F'));
+    written.extend(typed(&mut server, 'f'));
+    assert_eq!(col(&server), 0);
+    written.extend(shifted(&mut server, 'T'));
+    written.extend(typed(&mut server, 'f'));
+    assert_eq!(col(&server), 0);
+    written.extend(press(&mut server, Key::Char('f')));
+    written.extend(typed(&mut server, 'Z'));
+    assert_eq!(col(&server), 0);
+    written.extend(press(&mut server, Key::Char('l')));
+    assert_eq!(col(&server), 1);
+    assert!(writes(&written).is_empty());
+    assert!(copy_mode(&server));
+}
+
+#[test]
+fn jump_prompt_command_waits_for_the_next_typed_char() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('0'));
+    send(
+        &mut server,
+        ClientMsg::Command(Command::Copy(CopyCommand::JumpPrompt(JumpKind::Forward))),
+    );
+    assert_eq!(col(&server), 0);
+    press(&mut server, Key::Char('b'));
+    assert_eq!(col(&server), 4);
+}
+
+#[test]
+fn counts_repeat_motions_finds_and_searches() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('2'));
+    press(&mut server, Key::Char('f'));
+    press(&mut server, Key::Char('o'));
+    assert_eq!(col(&server), 2);
+    press(&mut server, Key::Char('0'));
+    assert_eq!(col(&server), 0);
+    press(&mut server, Key::Char('3'));
+    press(&mut server, Key::Char('l'));
+    assert_eq!(col(&server), 3);
+    press(&mut server, Key::Char('3'));
+    press(&mut server, Key::Char('k'));
+    assert_eq!(cursor(&server).row, 0);
+    assert_eq!(offset(&server), 0);
+    press(&mut server, Key::Char('1'));
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('k'));
+    assert_eq!(cursor(&server).row, 0);
+    assert_eq!(offset(&server), 7);
+    shifted(&mut server, 'G');
+    press(&mut server, Key::Char('0'));
+    send(
+        &mut server,
+        ClientMsg::Command(Command::Copy(CopyCommand::Search {
+            pattern: "o".into(),
+            forward: false,
+        })),
+    );
+    assert_eq!(cursor(&server), CellPoint { col: 4, row: 2 });
+    press(&mut server, Key::Char('2'));
+    shifted(&mut server, 'N');
+    assert_eq!(cursor(&server), CellPoint { col: 2, row: 3 });
+}
+
+#[test]
+fn count_before_g_or_gg_jumps_to_that_history_line() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('2'));
+    shifted(&mut server, 'G');
+    assert_eq!(offset(&server), 6);
+    assert_eq!(cursor(&server).row, 0);
+    press(&mut server, Key::Char('3'));
+    press(&mut server, Key::Char('g'));
+    press(&mut server, Key::Char('g'));
+    assert_eq!(offset(&server), 6);
+    assert_eq!(cursor(&server).row, 1);
+    press(&mut server, Key::Char('9'));
+    press(&mut server, Key::Char('9'));
+    press(&mut server, Key::Char('9'));
+    press(&mut server, Key::Char('9'));
+    press(&mut server, Key::Char('9'));
+    shifted(&mut server, 'G');
+    assert_eq!(offset(&server), 0);
+    assert_eq!(cursor(&server).row, 3);
+}
+
+#[test]
+fn g_prefixes_gg_ge_and_g_shift_e() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('g'));
+    assert_eq!(offset(&server), 0);
+    assert_eq!(cursor(&server).row, 3);
+    press(&mut server, Key::Char('g'));
+    assert_eq!(offset(&server), 7);
+    assert_eq!(cursor(&server).row, 0);
+    shifted(&mut server, 'G');
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('w'));
+    assert_eq!(col(&server), 4);
+    press(&mut server, Key::Char('g'));
+    press(&mut server, Key::Char('e'));
+    assert_eq!(col(&server), 2);
+    press(&mut server, Key::Char('w'));
+    press(&mut server, Key::Char('g'));
+    shifted(&mut server, 'E');
+    assert_eq!(col(&server), 2);
+    press(&mut server, Key::Char('g'));
+    press(&mut server, Key::Char('x'));
+    press(&mut server, Key::Char('e'));
+    assert_eq!(col(&server), 6);
+    assert!(copy_mode(&server));
+}
+
+#[test]
+fn q_with_a_pending_count_still_leaves_copy_mode() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('3'));
+    press(&mut server, Key::Char('q'));
+    assert!(!copy_mode(&server));
+}
+
+#[test]
+fn escape_clears_pending_keys_without_leaving_copy_mode() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('3'));
+    press(&mut server, Key::Named(NamedKey::Escape));
+    assert!(copy_mode(&server));
+    press(&mut server, Key::Char('l'));
+    assert_eq!(col(&server), 1);
+    press(&mut server, Key::Char('f'));
+    press(&mut server, Key::Named(NamedKey::Escape));
+    assert!(copy_mode(&server));
+    press(&mut server, Key::Char('l'));
+    assert_eq!(col(&server), 2);
+    press(&mut server, Key::Char('g'));
+    press(&mut server, Key::Named(NamedKey::Escape));
+    assert!(copy_mode(&server));
+    press(&mut server, Key::Char('g'));
+    assert_eq!(offset(&server), 0);
+    press(&mut server, Key::Char('g'));
+    assert_eq!(offset(&server), 7);
+    press(&mut server, Key::Named(NamedKey::Escape));
+    assert!(!copy_mode(&server));
+}
+
+#[test]
+fn modifier_presses_keep_the_pending_find() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('f'));
+    press(&mut server, Key::Named(NamedKey::ShiftLeft));
+    press(&mut server, Key::Char('b'));
+    assert_eq!(col(&server), 4);
+}
+
+#[test]
+fn commands_that_are_not_motions_consume_the_count() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('3'));
+    press(&mut server, Key::Char('v'));
+    press(&mut server, Key::Char('l'));
+    assert_eq!(selection(&server).as_deref(), Some("fo"));
+}
+
+#[test]
+fn visual_find_yanks_through_the_typed_char() {
+    let mut server = setup();
+    output(&mut server, b"\r\nsay(hi) end");
+    enter(&mut server);
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('v'));
+    press(&mut server, Key::Char('f'));
+    typed(&mut server, ')');
+    let out = press(&mut server, Key::Char('y'));
+    assert_eq!(clipboard(&out), Some(("say(hi)", false)));
+    assert!(!copy_mode(&server));
+}
+
+#[test]
+fn reentering_copy_mode_drops_pending_keys() {
+    let mut server = copy_setup();
+    press(&mut server, Key::Char('0'));
+    press(&mut server, Key::Char('f'));
+    chord(&mut server, Key::Char('a'), ctrl());
+    press(&mut server, Key::Char('['));
+    press(&mut server, Key::Char('q'));
+    assert!(!copy_mode(&server));
 }

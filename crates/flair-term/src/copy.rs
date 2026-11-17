@@ -6,7 +6,9 @@ use alacritty_terminal::{
     term::search::RegexSearch,
     vi_mode::ViMotion,
 };
-use flair_core::command::{CopyMotion, SelectionKind};
+use flair_core::command::{CopyMotion, JumpKind, SelectionKind};
+
+const BRACKETS: &str = "()[]{}";
 
 impl Terminal {
     pub fn copy_move(&mut self, motion: CopyMotion) {
@@ -27,21 +29,99 @@ impl Terminal {
             CopyMotion::NextWord => ViMotion::SemanticRight,
             CopyMotion::PreviousWord => ViMotion::SemanticLeft,
             CopyMotion::NextWordEnd => ViMotion::SemanticRightEnd,
+            CopyMotion::PreviousWordEnd => ViMotion::SemanticLeftEnd,
             CopyMotion::NextSpace => ViMotion::WordRight,
             CopyMotion::PreviousSpace => ViMotion::WordLeft,
             CopyMotion::NextSpaceEnd => ViMotion::WordRightEnd,
+            CopyMotion::PreviousSpaceEnd => ViMotion::WordLeftEnd,
             CopyMotion::StartOfLine => ViMotion::First,
             CopyMotion::BackToIndentation => ViMotion::FirstOccupied,
             CopyMotion::EndOfLine => ViMotion::Last,
             CopyMotion::TopLine => ViMotion::High,
             CopyMotion::MiddleLine => ViMotion::Middle,
             CopyMotion::BottomLine => ViMotion::Low,
+            CopyMotion::ParagraphUp => ViMotion::ParagraphUp,
+            CopyMotion::ParagraphDown => ViMotion::ParagraphDown,
+            CopyMotion::Bracket => return self.bracket(),
             CopyMotion::HistoryTop => return self.jump_to_line(self.term.topmost_line()),
             CopyMotion::HistoryBottom => return self.jump_to_line(self.term.bottommost_line()),
             CopyMotion::HalfPageUp => return self.half_page(1),
             CopyMotion::HalfPageDown => return self.half_page(-1),
         };
         self.term.vi_motion(vi);
+    }
+
+    pub fn copy_goto_line(&mut self, number: u16) {
+        if !self.copy_mode() {
+            return;
+        }
+        let from = self.term.vi_mode_cursor.point;
+        let line = Line(self.term.topmost_line().0 + i32::from(number.max(1)) - 1)
+            .min(self.term.bottommost_line());
+        self.jump_to_line(line);
+        self.settle_copy_cursor(from);
+    }
+
+    pub fn copy_jump(&mut self, kind: JumpKind, ch: char, count: u16) {
+        if !self.copy_mode() {
+            return;
+        }
+        self.jump = Some((kind, ch));
+        self.jump_from_cursor(kind, ch, count, false);
+    }
+
+    pub fn copy_jump_again(&mut self, reverse: bool, count: u16) {
+        if !self.copy_mode() {
+            return;
+        }
+        if let Some((kind, ch)) = self.jump {
+            let kind = match (kind, reverse) {
+                (kind, false) => kind,
+                (JumpKind::Forward, true) => JumpKind::Backward,
+                (JumpKind::Backward, true) => JumpKind::Forward,
+                (JumpKind::ToForward, true) => JumpKind::ToBackward,
+                (JumpKind::ToBackward, true) => JumpKind::ToForward,
+            };
+            self.jump_from_cursor(kind, ch, count, true);
+        }
+    }
+
+    fn jump_from_cursor(&mut self, kind: JumpKind, ch: char, count: u16, repeat: bool) {
+        let (forward, till) = match kind {
+            JumpKind::Forward => (true, false),
+            JumpKind::Backward => (false, false),
+            JumpKind::ToForward => (true, true),
+            JumpKind::ToBackward => (false, true),
+        };
+        let step = |point: Point, forward: bool| {
+            if forward {
+                point.add(&self.term, Boundary::None, 1)
+            } else {
+                point.sub(&self.term, Boundary::None, 1)
+            }
+        };
+        let from = self.term.vi_mode_cursor.point;
+        let adjacent = step(from, forward);
+        let needle = ch.to_string();
+        let mut point = from;
+        let mut remaining = count.max(1);
+        while remaining > 0 {
+            let found = if forward {
+                self.term.inline_search_right(point, &needle)
+            } else {
+                self.term.inline_search_left(point, &needle)
+            };
+            let Ok(found) = found else {
+                return;
+            };
+            point = found;
+            if !(till && repeat && count <= 1 && found == adjacent) {
+                remaining -= 1;
+            }
+        }
+        let target = if till { step(point, !forward) } else { point };
+        self.term.vi_goto_point(target);
+        self.settle_copy_cursor(from);
     }
 
     pub(crate) fn settle_copy_cursor(&mut self, from: Point) {
@@ -72,6 +152,23 @@ impl Terminal {
             (self.term.topmost_line().0..line.0).rev().find(target)
         }
         .map(Line)
+    }
+
+    fn bracket(&mut self) {
+        let from = self.term.vi_mode_cursor.point;
+        let start = if BRACKETS.contains(self.term.grid()[from].c) {
+            Ok(from)
+        } else {
+            self.term.inline_search_right(from, BRACKETS)
+        };
+        let Ok(start) = start else {
+            return;
+        };
+        self.term.vi_goto_point(start);
+        self.term.vi_motion(ViMotion::Bracket);
+        if self.term.vi_mode_cursor.point == start {
+            self.term.vi_goto_point(from);
+        }
     }
 
     fn jump_to_line(&mut self, line: Line) {

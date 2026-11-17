@@ -1,6 +1,6 @@
 use crate::Terminal;
 use flair_core::{
-    command::{CopyMotion, SelectionKind},
+    command::{CopyMotion, JumpKind, SelectionKind},
     geom::{CellPoint, GridSize},
     ids::PaneId,
     proto::SelectionSpan,
@@ -367,4 +367,163 @@ fn copy_cursor_and_selection_skip_old_prompts() {
         .map(|span| span.row)
         .collect();
     assert_eq!(rows, [2, 4, 5]);
+}
+
+fn jump(term: &mut Terminal, kind: JumpKind, ch: char, count: u16) -> CellPoint {
+    term.copy_jump(kind, ch, count);
+    cursor(term)
+}
+
+fn again(term: &mut Terminal, reverse: bool, count: u16) -> CellPoint {
+    term.copy_jump_again(reverse, count);
+    cursor(term)
+}
+
+#[test]
+fn find_jumps_onto_the_next_or_previous_char_on_the_line() {
+    let mut term = term(30, 3, "foo(bar) baz(qux)");
+    moves(&mut term, &[CopyMotion::StartOfLine]);
+    assert_eq!(jump(&mut term, JumpKind::Forward, ')', 1), at(7, 0));
+    assert_eq!(jump(&mut term, JumpKind::Forward, ')', 1), at(16, 0));
+    assert_eq!(jump(&mut term, JumpKind::Backward, '(', 1), at(12, 0));
+    assert_eq!(jump(&mut term, JumpKind::Backward, 'f', 1), at(0, 0));
+}
+
+#[test]
+fn till_stops_just_before_or_after_the_char() {
+    let mut term = term(30, 3, "foo(bar) baz(qux)");
+    moves(&mut term, &[CopyMotion::StartOfLine]);
+    assert_eq!(jump(&mut term, JumpKind::ToForward, ')', 1), at(6, 0));
+    assert_eq!(jump(&mut term, JumpKind::ToBackward, '(', 1), at(4, 0));
+}
+
+#[test]
+fn find_without_a_match_keeps_the_cursor() {
+    let mut term = term(
+        30,
+        3,
+        "foo bar
+zzz",
+    );
+    moves(&mut term, &[CopyMotion::Up, CopyMotion::StartOfLine]);
+    assert_eq!(jump(&mut term, JumpKind::Forward, 'z', 1), at(0, 0));
+    assert_eq!(jump(&mut term, JumpKind::Backward, 'o', 1), at(0, 0));
+    assert_eq!(jump(&mut term, JumpKind::Forward, 'b', 2), at(0, 0));
+}
+
+#[test]
+fn find_with_a_count_lands_on_the_nth_match() {
+    let mut term = term(30, 3, "a-b-c-d");
+    moves(&mut term, &[CopyMotion::StartOfLine]);
+    assert_eq!(jump(&mut term, JumpKind::Forward, '-', 3), at(5, 0));
+    assert_eq!(jump(&mut term, JumpKind::Backward, '-', 2), at(1, 0));
+    assert_eq!(jump(&mut term, JumpKind::ToForward, '-', 2), at(4, 0));
+}
+
+#[test]
+fn repeat_find_goes_forward_and_reverse() {
+    let mut term = term(30, 3, "a-b-c-d");
+    moves(&mut term, &[CopyMotion::StartOfLine]);
+    assert_eq!(again(&mut term, false, 1), at(0, 0));
+    assert_eq!(jump(&mut term, JumpKind::Forward, '-', 1), at(1, 0));
+    assert_eq!(again(&mut term, false, 1), at(3, 0));
+    assert_eq!(again(&mut term, false, 1), at(5, 0));
+    assert_eq!(again(&mut term, false, 1), at(5, 0));
+    assert_eq!(again(&mut term, true, 1), at(3, 0));
+    assert_eq!(again(&mut term, true, 2), at(3, 0));
+    assert_eq!(jump(&mut term, JumpKind::Backward, '-', 1), at(1, 0));
+    assert_eq!(again(&mut term, true, 1), at(3, 0));
+}
+
+#[test]
+fn repeated_till_skips_the_adjacent_match() {
+    let mut term = term(30, 3, "a-b-c-d");
+    moves(&mut term, &[CopyMotion::StartOfLine]);
+    assert_eq!(jump(&mut term, JumpKind::ToForward, '-', 1), at(0, 0));
+    assert_eq!(again(&mut term, false, 1), at(2, 0));
+    assert_eq!(again(&mut term, false, 1), at(4, 0));
+    assert_eq!(again(&mut term, true, 1), at(2, 0));
+    assert_eq!(again(&mut term, true, 1), at(2, 0));
+}
+
+#[test]
+fn find_extends_the_selection_through_the_char() {
+    let mut term = term(30, 3, "say(hi) end");
+    moves(&mut term, &[CopyMotion::StartOfLine]);
+    term.copy_select(SelectionKind::Simple);
+    jump(&mut term, JumpKind::Forward, ')', 1);
+    assert_eq!(term.selection_text().as_deref(), Some("say(hi)"));
+    again(&mut term, true, 1);
+    assert_eq!(term.selection_text().as_deref(), Some("say(hi)"));
+}
+
+#[test]
+fn find_does_nothing_outside_copy_mode() {
+    let mut term = term(30, 3, "foo bar");
+    term.exit_copy_mode();
+    term.copy_jump(JumpKind::Backward, 'f', 1);
+    term.copy_goto_line(1);
+    assert_eq!(cursor(&mut term), at(7, 0));
+}
+
+#[test]
+fn paragraph_motions_stop_at_blank_lines() {
+    let mut term = term(20, 8, "one\r\n\r\ntwo\r\nthree\r\n\r\nfour");
+    moves(&mut term, &[CopyMotion::TopLine]);
+    assert_eq!(moves(&mut term, &[CopyMotion::ParagraphDown]), at(0, 1));
+    assert_eq!(moves(&mut term, &[CopyMotion::ParagraphDown]), at(0, 4));
+    assert_eq!(moves(&mut term, &[CopyMotion::ParagraphUp]), at(0, 1));
+}
+
+#[test]
+fn counted_till_repeat_does_not_skip_the_adjacent_match() {
+    let mut term = term(30, 3, "a-b-c-d");
+    moves(&mut term, &[CopyMotion::StartOfLine]);
+    jump(&mut term, JumpKind::ToForward, '-', 1);
+    assert_eq!(again(&mut term, false, 2), at(2, 0));
+}
+
+#[test]
+fn bracket_motion_finds_the_next_bracket_on_the_line_first() {
+    let mut term = term(20, 3, "call(foo) x\r\nnone");
+    moves(&mut term, &[CopyMotion::Up, CopyMotion::StartOfLine]);
+    assert_eq!(moves(&mut term, &[CopyMotion::Bracket]), at(8, 0));
+    moves(&mut term, &[CopyMotion::EndOfLine]);
+    term.copy_select(SelectionKind::Simple);
+    assert_eq!(moves(&mut term, &[CopyMotion::Bracket]), at(10, 0));
+    moves(&mut term, &[CopyMotion::Down, CopyMotion::StartOfLine]);
+    assert_eq!(moves(&mut term, &[CopyMotion::Bracket]), at(0, 1));
+}
+
+#[test]
+fn bracket_motion_jumps_to_the_matching_bracket() {
+    let mut term = term(20, 3, "f(a[b]c)");
+    moves(&mut term, &[CopyMotion::StartOfLine, CopyMotion::Right]);
+    assert_eq!(moves(&mut term, &[CopyMotion::Bracket]), at(7, 0));
+    assert_eq!(moves(&mut term, &[CopyMotion::Bracket]), at(1, 0));
+}
+
+#[test]
+fn previous_word_end_motions_split_semantic_and_whitespace_words() {
+    let mut term = term(30, 3, "foo bar:baz qux");
+    moves(&mut term, &[CopyMotion::StartOfLine]);
+    jump(&mut term, JumpKind::Forward, 'x', 1);
+    assert_eq!(moves(&mut term, &[CopyMotion::PreviousWordEnd]), at(10, 0));
+    assert_eq!(moves(&mut term, &[CopyMotion::PreviousWordEnd]), at(7, 0));
+    assert_eq!(moves(&mut term, &[CopyMotion::PreviousSpaceEnd]), at(2, 0));
+}
+
+#[test]
+fn goto_line_counts_from_the_top_of_the_history() {
+    let mut term = term(10, 4, &numbered(10));
+    term.copy_goto_line(3);
+    assert_eq!(cursor(&mut term), at(0, 0));
+    assert_eq!(offset(&mut term), 4);
+    let frame = term.snapshot(PaneId(1), true).unwrap();
+    assert_eq!(frame.rows[0].1[4].c, '2');
+    term.copy_goto_line(1);
+    assert_eq!(offset(&mut term), 6);
+    term.copy_goto_line(9999);
+    assert_eq!(cursor(&mut term), at(0, 3));
+    assert_eq!(offset(&mut term), 0);
 }

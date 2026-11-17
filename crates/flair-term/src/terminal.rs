@@ -13,6 +13,7 @@ use alacritty_terminal::{
 };
 use flair_core::{
     agent::AgentReport,
+    command::JumpKind,
     geom::{CellPoint, GridSize},
     isles::{PromptInfo, ShellFacts},
     proto::{PaneUpdate, PromptSnapshot},
@@ -39,6 +40,7 @@ pub struct Terminal {
     prompt_info: BTreeMap<u64, (PromptInfo, u64)>,
     pub(crate) copy_anchor: Option<Point>,
     pub(crate) search: Option<(RegexSearch, bool)>,
+    pub(crate) jump: Option<(JumpKind, char)>,
     events: Rc<RefCell<Vec<TermEvent>>>,
     palette: Rc<RefCell<Theme>>,
     title: Option<String>,
@@ -117,6 +119,7 @@ impl Terminal {
             prompt_info: BTreeMap::new(),
             copy_anchor: None,
             search: None,
+            jump: None,
             events,
             palette,
             title: None,

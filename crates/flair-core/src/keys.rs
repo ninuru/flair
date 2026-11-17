@@ -6,7 +6,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    command::{Command, CopyCommand, CopyMotion, PaneRef, SelectionKind, WindowRef},
+    command::{Command, CopyCommand, CopyMotion, JumpKind, PaneRef, SelectionKind, WindowRef},
     geom::{Axis, Direction},
     key::{Key, KeyInput, Mods, NamedKey},
     settings::Source,
@@ -122,9 +122,11 @@ pub fn parse_copy_command(command: &str) -> Option<CopyCommand> {
         "next-word" => CopyCommand::Move(CopyMotion::NextWord),
         "previous-word" => CopyCommand::Move(CopyMotion::PreviousWord),
         "next-word-end" => CopyCommand::Move(CopyMotion::NextWordEnd),
+        "previous-word-end" => CopyCommand::Move(CopyMotion::PreviousWordEnd),
         "next-space" => CopyCommand::Move(CopyMotion::NextSpace),
         "previous-space" => CopyCommand::Move(CopyMotion::PreviousSpace),
         "next-space-end" => CopyCommand::Move(CopyMotion::NextSpaceEnd),
+        "previous-space-end" => CopyCommand::Move(CopyMotion::PreviousSpaceEnd),
         "start-of-line" => CopyCommand::Move(CopyMotion::StartOfLine),
         "back-to-indentation" => CopyCommand::Move(CopyMotion::BackToIndentation),
         "end-of-line" => CopyCommand::Move(CopyMotion::EndOfLine),
@@ -135,6 +137,9 @@ pub fn parse_copy_command(command: &str) -> Option<CopyCommand> {
         "top-line" => CopyCommand::Move(CopyMotion::TopLine),
         "middle-line" => CopyCommand::Move(CopyMotion::MiddleLine),
         "bottom-line" => CopyCommand::Move(CopyMotion::BottomLine),
+        "previous-paragraph" => CopyCommand::Move(CopyMotion::ParagraphUp),
+        "next-paragraph" => CopyCommand::Move(CopyMotion::ParagraphDown),
+        "next-matching-bracket" => CopyCommand::Move(CopyMotion::Bracket),
         "begin-selection" => CopyCommand::Select(SelectionKind::Simple),
         "select-line" => CopyCommand::Select(SelectionKind::Lines),
         "rectangle-toggle" => CopyCommand::Select(SelectionKind::Block),
@@ -143,6 +148,13 @@ pub fn parse_copy_command(command: &str) -> Option<CopyCommand> {
         "search-backward" => CopyCommand::SearchPrompt { forward: false },
         "search-again" => CopyCommand::SearchAgain,
         "search-reverse" => CopyCommand::SearchReverse,
+        "jump-forward" => CopyCommand::JumpPrompt(JumpKind::Forward),
+        "jump-backward" => CopyCommand::JumpPrompt(JumpKind::Backward),
+        "jump-to-forward" => CopyCommand::JumpPrompt(JumpKind::ToForward),
+        "jump-to-backward" => CopyCommand::JumpPrompt(JumpKind::ToBackward),
+        "jump-again" => CopyCommand::JumpAgain,
+        "jump-reverse" => CopyCommand::JumpReverse,
+        "g-prefix" => CopyCommand::GPrefix,
         "copy-selection-and-cancel" => CopyCommand::Yank,
         _ => return None,
     })
@@ -160,6 +172,10 @@ impl KeysConfig {
 
     pub fn copy_binding(&self, input: &KeyInput) -> Option<CopyCommand> {
         lookup(&self.copy_mode, COPY_DEFAULTS, input, parse_copy_command)
+    }
+
+    pub fn copy_g_binding(&self, input: &KeyInput) -> Option<CopyCommand> {
+        lookup(&BTreeMap::new(), COPY_G_DEFAULTS, input, parse_copy_command)
     }
 }
 
@@ -307,13 +323,22 @@ const COPY_DEFAULTS: &[(&str, &str)] = &[
     ("0", "start-of-line"),
     ("^", "back-to-indentation"),
     ("$", "end-of-line"),
-    ("g", "history-top"),
+    ("g", "g-prefix"),
     ("G", "history-bottom"),
     ("C-u", "halfpage-up"),
     ("C-d", "halfpage-down"),
     ("H", "top-line"),
     ("M", "middle-line"),
     ("L", "bottom-line"),
+    ("{", "previous-paragraph"),
+    ("}", "next-paragraph"),
+    ("%", "next-matching-bracket"),
+    ("f", "jump-forward"),
+    ("F", "jump-backward"),
+    ("t", "jump-to-forward"),
+    ("T", "jump-to-backward"),
+    (";", "jump-again"),
+    (",", "jump-reverse"),
     ("v", "begin-selection"),
     ("V", "select-line"),
     ("C-v", "rectangle-toggle"),
@@ -324,6 +349,12 @@ const COPY_DEFAULTS: &[(&str, &str)] = &[
     ("N", "search-reverse"),
     ("y", "copy-selection-and-cancel"),
     ("Enter", "copy-selection-and-cancel"),
+];
+
+const COPY_G_DEFAULTS: &[(&str, &str)] = &[
+    ("g", "history-top"),
+    ("e", "previous-word-end"),
+    ("E", "previous-space-end"),
 ];
 
 const ROOT_DEFAULTS: &[(&str, &str)] = &[
