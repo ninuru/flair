@@ -673,3 +673,65 @@ fn previews_of_the_watched_session_stay_fresh_while_the_group_is_selected() {
     assert_eq!(tree.key(&char('k')), TreeOutcome::Pending);
     assert_eq!(strip(&tree).1, Some(SessionId(3)));
 }
+
+fn mainless_tree() -> SessionTree {
+    SessionTree::new(
+        vec![
+            node(2, "notes", vec![window(20, 1, "notes", true)]),
+            temp(4, "1"),
+            node(3, "work", vec![window(30, 1, "a", true)]),
+        ],
+        SessionId(2),
+        preview(2),
+    )
+}
+
+#[test]
+fn without_main_numbers_start_at_one_and_zero_recreates_main() {
+    let mut tree = mainless_tree();
+    let rows: Vec<_> = tree
+        .sheet()
+        .rows
+        .iter()
+        .map(|row| (row.number, row.name.clone()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            (Some(1), "notes".to_owned()),
+            (Some(2), "work".to_owned()),
+            (None, "Temporary".to_owned()),
+        ]
+    );
+    assert_eq!(
+        tree.key(&char('0')),
+        TreeOutcome::Run(Command::Switch(Target::Main))
+    );
+    assert_eq!(tree.key(&char('1')), TreeOutcome::Close);
+    assert_eq!(tree.key(&char('2')), switch("work"));
+    assert_eq!(tree.key(&char('3')), TreeOutcome::Ignored);
+}
+
+#[test]
+fn zero_closes_when_main_is_current() {
+    let mut tree = temp_tree(1);
+    assert_eq!(tree.key(&char('0')), TreeOutcome::Close);
+    assert_eq!(tree.key(&char('1')), switch("notes"));
+}
+
+#[test]
+fn a_temporary_session_named_main_is_not_zero() {
+    let mut tree = SessionTree::new(
+        vec![
+            node(2, "notes", vec![window(20, 1, "notes", true)]),
+            temp(4, "main"),
+        ],
+        SessionId(2),
+        preview(2),
+    );
+    assert_eq!(tree.sheet().rows[0].number, Some(1));
+    assert_eq!(
+        tree.key(&char('0')),
+        TreeOutcome::Run(Command::Switch(Target::Main))
+    );
+}

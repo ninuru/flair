@@ -21,6 +21,7 @@ fn real_splits_inherit_live_cwd_and_new_windows_use_session_root() {
     let mut config = ServerConfig::from_config(&Config::default());
     config.program = "/bin/sh".into();
     config.cwd = root.clone();
+    config.home = root.clone();
     config.args = vec!["-c".into(), "printf 'CWD:%s\\r\\n' \"$PWD\"; while IFS= read -r line; do case \"$line\" in move) cd child; printf 'MOVED\\r\\n';; esac; done".into()];
     let (client, server) = channel_pair();
     let handle = spawn_in_process(config, server).unwrap();
