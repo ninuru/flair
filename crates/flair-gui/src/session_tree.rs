@@ -286,8 +286,9 @@ impl SessionTree {
             }
             Key::Char(digit @ '0'..='9') => {
                 let number = digit.to_digit(10).map_or(0, |digit| digit as usize);
-                match self.regular().get(number) {
-                    Some(index) => self.switch(*index),
+                match self.numbers().get(number) {
+                    Some(Some(index)) => self.switch(*index),
+                    Some(None) => TreeOutcome::Run(Command::Switch(Target::Main)),
                     None => TreeOutcome::Ignored,
                 }
             }
@@ -436,6 +437,24 @@ impl SessionTree {
         self.indices(false)
     }
 
+    fn main(&self) -> Option<usize> {
+        self.sessions
+            .iter()
+            .position(|session| !session.temporary && session.name == "main")
+    }
+
+    fn numbers(&self) -> Vec<Option<usize>> {
+        let main = self.main();
+        std::iter::once(main)
+            .chain(
+                self.regular()
+                    .into_iter()
+                    .filter(|index| Some(*index) != main)
+                    .map(Some),
+            )
+            .collect()
+    }
+
     fn temporaries(&self) -> Vec<usize> {
         self.indices(true)
     }
@@ -506,9 +525,9 @@ impl SessionTree {
             count => format!("{count} windows"),
         };
         let number = self
-            .regular()
+            .numbers()
             .iter()
-            .position(|regular| *regular == index)
+            .position(|numbered| *numbered == Some(index))
             .map(|number| u16::try_from(number).unwrap_or(u16::MAX));
         Row {
             number,

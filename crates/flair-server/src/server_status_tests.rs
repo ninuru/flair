@@ -414,6 +414,7 @@ fn reload_keeps_the_socket_variable_and_working_directory() {
         .env
         .push(("FLAIR".into(), "/run/flair.sock,1".into()));
     config.cwd = "/srv".into();
+    config.home = "/home/user".into();
     let next = config.reloaded(&Config::default());
     assert!(
         next.env
@@ -421,6 +422,7 @@ fn reload_keeps_the_socket_variable_and_working_directory() {
             .any(|(key, value)| key == "FLAIR" && value == "/run/flair.sock,1")
     );
     assert_eq!(next.cwd, std::path::Path::new("/srv"));
+    assert_eq!(next.home, std::path::Path::new("/home/user"));
 }
 
 #[test]

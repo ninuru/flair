@@ -9,6 +9,7 @@ pub struct ServerConfig {
     pub program: String,
     pub args: Vec<String>,
     pub cwd: PathBuf,
+    pub home: PathBuf,
     pub env: Vec<(String, String)>,
     pub scrollback: usize,
     pub keys: KeysConfig,
@@ -30,10 +31,16 @@ impl ServerConfig {
             "FLAIR_PROMPT_SEPARATOR".into(),
             config.prompt.separator.name().into(),
         ));
+        let cwd = env::current_dir().unwrap_or_else(|_| PathBuf::from("/"));
+        let home = env::var_os("HOME")
+            .map(PathBuf::from)
+            .filter(|home| home.is_absolute())
+            .unwrap_or_else(|| cwd.clone());
         ServerConfig {
             program: config.shell.program.clone(),
             args: config.shell.args.clone(),
-            cwd: env::current_dir().unwrap_or_else(|_| PathBuf::from("/")),
+            cwd,
+            home,
             env,
             scrollback: config.scrollback.lines,
             keys: config.keys.clone(),
@@ -46,6 +53,7 @@ impl ServerConfig {
     pub fn reloaded(&self, config: &Config) -> ServerConfig {
         let mut next = ServerConfig::from_config(config);
         next.cwd = self.cwd.clone();
+        next.home = self.home.clone();
         next.path = self.path.clone();
         next.env
             .extend(self.env.iter().filter(|(key, _)| key == "FLAIR").cloned());

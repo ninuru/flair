@@ -774,6 +774,7 @@ pub fn run(
     let mut server_config = ServerConfig::from_config(&server_source);
     server_config.path = config_path.clone();
     server_config.cwd = scenario.cwd.clone().unwrap_or_else(|| home.0.clone());
+    server_config.home = server_config.cwd.clone();
     server_config.env.extend([
         ("HOME".into(), home.0.to_string_lossy().into_owned()),
         (

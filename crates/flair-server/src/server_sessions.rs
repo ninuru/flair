@@ -14,7 +14,7 @@ impl Server {
     ) -> Result<SessionId, String> {
         let temporary = target == Target::Temp;
         let (name, root, create_only) = match target {
-            Target::Main => ("main".into(), self.config.cwd.clone(), false),
+            Target::Main => ("main".into(), self.config.home.clone(), false),
             Target::Name(name) => {
                 return self
                     .tree
@@ -110,10 +110,17 @@ impl Server {
         number.to_string()
     }
 
-    pub(super) fn session_infos(&self) -> Vec<SessionInfo> {
-        self.tree
-            .sessions
+    fn listed(&self) -> impl Iterator<Item = &Session> {
+        let main = |session: &&Session| !session.temporary && session.name == "main";
+        let sessions = &self.tree.sessions;
+        sessions
             .iter()
+            .filter(main)
+            .chain(sessions.iter().filter(move |session| !main(session)))
+    }
+
+    pub(super) fn session_infos(&self) -> Vec<SessionInfo> {
+        self.listed()
             .map(|session| SessionInfo {
                 name: session.name.clone(),
                 root: session.root.clone(),
@@ -125,9 +132,7 @@ impl Server {
 
     pub(super) fn session_nodes(&self, id: ClientId) -> Vec<SessionNode> {
         let view = &self.clients[&id].view;
-        self.tree
-            .sessions
-            .iter()
+        self.listed()
             .map(|session| SessionNode {
                 id: session.id,
                 name: session.name.clone(),

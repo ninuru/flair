@@ -482,3 +482,60 @@ fn path_targets_do_not_reuse_a_temp_session_with_the_same_root() {
     assert!(!session.temporary);
     assert!(server.tree.session(temp).is_some());
 }
+
+fn homed() -> Server {
+    let mut config = ServerConfig::from_config(&Config::default());
+    config.cwd = "/srv/daemon".into();
+    config.home = "/home/user".into();
+    Server::new(config)
+}
+
+#[test]
+fn the_main_session_is_rooted_in_home() {
+    let mut server = homed();
+    attach(&mut server, 0, 1, Target::Main);
+    let main = session_named(&server, "main").unwrap();
+    assert_eq!(
+        server.tree.session(main).unwrap().root,
+        PathBuf::from("/home/user")
+    );
+}
+
+#[test]
+fn switching_to_main_creates_it_in_home_when_missing() {
+    let mut server = homed();
+    attach(&mut server, 0, 1, Target::Path("/tmp/project".into()));
+    assert_eq!(session_named(&server, "main"), None);
+    command(&mut server, 1, Command::Switch(Target::Main));
+    let main = session_named(&server, "main").unwrap();
+    assert_eq!(server.clients[&ClientId(1)].view.session, main);
+    assert_eq!(
+        server.tree.session(main).unwrap().root,
+        PathBuf::from("/home/user")
+    );
+}
+
+#[test]
+fn main_is_listed_first_even_when_created_behind_other_sessions() {
+    let mut server = homed();
+    attach(&mut server, 0, 1, Target::Path("/tmp/project".into()));
+    attach(&mut server, 1, 2, Target::Temp);
+    command(
+        &mut server,
+        2,
+        Command::Switch(Target::Path("/tmp/other".into())),
+    );
+    command(&mut server, 3, Command::Switch(Target::Main));
+    let nodes: Vec<_> = server
+        .session_nodes(ClientId(1))
+        .into_iter()
+        .map(|node| node.name)
+        .collect();
+    assert_eq!(nodes, ["main", "project", "1", "other"]);
+    let infos: Vec<_> = server
+        .session_infos()
+        .into_iter()
+        .map(|info| info.name)
+        .collect();
+    assert_eq!(infos, ["main", "project", "1", "other"]);
+}
