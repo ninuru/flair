@@ -209,3 +209,19 @@ fn display_matches_follow_the_home_shortening_and_dropped_control_characters() {
         ("~".to_owned(), vec![])
     );
 }
+
+#[test]
+fn a_temporary_last_session_is_not_the_empty_enter_shortcut() {
+    let picker = Picker::new(
+        vec![SessionInfo {
+            name: "3".into(),
+            root: "/home/u".into(),
+            windows: 1,
+            temporary: true,
+        }],
+        "main",
+        Some(Target::Name("3".into())),
+        Vec::new(),
+    );
+    assert_eq!(picker.accept(), None);
+}

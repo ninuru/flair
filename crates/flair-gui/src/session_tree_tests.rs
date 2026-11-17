@@ -661,3 +661,15 @@ fn clicking_the_group_toggles_it() {
     assert_eq!(tree.choose(3), TreeOutcome::Pending);
     assert_eq!(names(&tree).len(), 4);
 }
+
+#[test]
+fn previews_of_the_watched_session_stay_fresh_while_the_group_is_selected() {
+    let mut tree = temp_tree(1);
+    tree.key(&char('j'));
+    assert_eq!(tree.key(&char('j')), watch(3));
+    tree.key(&char('j'));
+    assert_eq!(selected(&tree), "Temporary");
+    assert!(tree.set_preview(preview(3)));
+    assert_eq!(tree.key(&char('k')), TreeOutcome::Pending);
+    assert_eq!(strip(&tree).1, Some(SessionId(3)));
+}

@@ -30,6 +30,14 @@ impl Picker {
         last: Option<Target>,
         directories: Vec<PathBuf>,
     ) -> Self {
+        let last = last.filter(|target| match target {
+            Target::Name(name) => !sessions
+                .iter()
+                .any(|session| session.temporary && session.name == *name),
+            Target::Main | Target::New | Target::Temp | Target::Path(_) | Target::Create { .. } => {
+                true
+            }
+        });
         Self {
             query: TextCursor::new(""),
             entries: sessionizer::candidates(&sessions, current, directories),

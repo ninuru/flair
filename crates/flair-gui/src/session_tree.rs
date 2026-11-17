@@ -75,7 +75,10 @@ impl SessionTree {
     }
 
     pub fn set_preview(&mut self, preview: SessionPreview) -> bool {
-        let fresh = self.focus().map(|index| self.sessions[index].id) == Some(preview.session);
+        let fresh = self
+            .focus()
+            .map_or(self.watched, |index| self.sessions[index].id)
+            == preview.session;
         if fresh {
             self.preview = Some(preview);
         }
