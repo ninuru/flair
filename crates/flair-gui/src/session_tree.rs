@@ -14,13 +14,14 @@ use crate::{
     preview_layout::Strip,
     process_icon::process_icon,
     t3_style::SEARCH_ICON,
-    ui::{ENTER_KEY, ESCAPE_KEY, MOVE_KEY, SEARCH_KEY},
+    ui::{CHEVRON_DOWN, CHEVRON_RIGHT, ENTER_KEY, ESCAPE_KEY, MOVE_KEY, SEARCH_KEY},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Spot {
     Session(usize),
     Window(usize, usize),
+    Group,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +34,7 @@ pub struct SessionTree {
     sessions: Vec<SessionNode>,
     current: SessionId,
     expanded: BTreeSet<SessionId>,
+    group_open: bool,
     cursor: Spot,
     search: Option<Search>,
     watched: SessionId,
@@ -60,6 +62,7 @@ impl SessionTree {
             .unwrap_or(0);
         let mut tree = SessionTree {
             expanded: BTreeSet::new(),
+            group_open: sessions.get(index).is_some_and(|session| session.temporary),
             sessions,
             current,
             cursor: Spot::Session(index),
@@ -125,6 +128,7 @@ impl SessionTree {
             Some(search) => self.matches().get(search.selected).map(|(index, _)| *index),
             None => match self.cursor {
                 Spot::Session(index) | Spot::Window(index, _) => Some(index),
+                Spot::Group => None,
             },
         }
     }
@@ -265,6 +269,11 @@ impl SessionTree {
             Key::Char('/') => {
                 let selected = match self.cursor {
                     Spot::Session(index) | Spot::Window(index, _) => index,
+                    Spot::Group => self
+                        .sessions
+                        .iter()
+                        .position(|session| session.temporary)
+                        .unwrap_or(0),
                 };
                 self.search = Some(Search {
                     query: TextCursor::new(""),
@@ -273,10 +282,10 @@ impl SessionTree {
                 TreeOutcome::Pending
             }
             Key::Char(digit @ '0'..='9') => {
-                let index = digit.to_digit(10).map_or(0, |digit| digit as usize);
-                match index < self.sessions.len() {
-                    true => self.switch(index),
-                    false => TreeOutcome::Ignored,
+                let number = digit.to_digit(10).map_or(0, |digit| digit as usize);
+                match self.regular().get(number) {
+                    Some(index) => self.switch(*index),
+                    None => TreeOutcome::Ignored,
                 }
             }
             Key::Char(_) | Key::Named(_) => TreeOutcome::Ignored,
@@ -289,6 +298,7 @@ impl SessionTree {
                 let selected = self.matches().get(self.selected()).map(|(index, _)| *index);
                 if let Some(index) = selected {
                     self.cursor = Spot::Session(index);
+                    self.group_open |= self.sessions[index].temporary;
                 }
                 self.search = None;
                 TreeOutcome::Pending
@@ -323,6 +333,14 @@ impl SessionTree {
         let index = match self.cursor {
             Spot::Session(index) => index,
             Spot::Window(_, _) => return TreeOutcome::Ignored,
+            Spot::Group if !self.group_open => return self.toggle(),
+            Spot::Group => {
+                let first = self.temporaries().into_iter().next();
+                if let Some(index) = first {
+                    self.cursor = Spot::Session(index);
+                }
+                return TreeOutcome::Pending;
+            }
         };
         let session = &self.sessions[index];
         match self.expanded.insert(session.id) {
@@ -343,13 +361,25 @@ impl SessionTree {
             }
             Spot::Session(index) => match self.expanded.remove(&self.sessions[index].id) {
                 true => TreeOutcome::Pending,
+                false if self.sessions[index].temporary => {
+                    self.cursor = Spot::Group;
+                    TreeOutcome::Pending
+                }
                 false => TreeOutcome::Ignored,
             },
+            Spot::Group if self.group_open => self.toggle(),
+            Spot::Group => TreeOutcome::Ignored,
         }
     }
 
-    fn enter(&self) -> TreeOutcome {
+    fn toggle(&mut self) -> TreeOutcome {
+        self.group_open = !self.group_open;
+        TreeOutcome::Pending
+    }
+
+    fn enter(&mut self) -> TreeOutcome {
         match self.cursor {
+            Spot::Group => self.toggle(),
             Spot::Session(index) => self.switch(index),
             Spot::Window(index, window) => self.sessions[index]
                 .windows
@@ -369,10 +399,26 @@ impl SessionTree {
     }
 
     fn visible(&self) -> Vec<Spot> {
-        self.sessions
+        let temporaries = self.temporaries();
+        let group = match (temporaries.is_empty(), self.group_open) {
+            (true, _) => Vec::new(),
+            (false, false) => vec![Spot::Group],
+            (false, true) => std::iter::once(Spot::Group)
+                .chain(self.branch(&temporaries))
+                .collect(),
+        };
+        self.branch(&self.regular())
+            .into_iter()
+            .chain(group)
+            .collect()
+    }
+
+    fn branch(&self, indices: &[usize]) -> Vec<Spot> {
+        indices
             .iter()
-            .enumerate()
-            .flat_map(|(index, session)| {
+            .flat_map(|index| {
+                let index = *index;
+                let session = &self.sessions[index];
                 let windows = match self.expanded.contains(&session.id) {
                     true => session.windows.len(),
                     false => 0,
@@ -380,6 +426,23 @@ impl SessionTree {
                 std::iter::once(Spot::Session(index))
                     .chain((0..windows).map(move |window| Spot::Window(index, window)))
             })
+            .collect()
+    }
+
+    fn regular(&self) -> Vec<usize> {
+        self.indices(false)
+    }
+
+    fn temporaries(&self) -> Vec<usize> {
+        self.indices(true)
+    }
+
+    fn indices(&self, temporary: bool) -> Vec<usize> {
+        self.sessions
+            .iter()
+            .enumerate()
+            .filter(|(_, session)| session.temporary == temporary)
+            .map(|(index, _)| index)
             .collect()
     }
 
@@ -401,11 +464,15 @@ impl SessionTree {
 
     fn row(&self, spot: Spot) -> Row {
         match spot {
-            Spot::Session(index) => self.session_row(index),
+            Spot::Session(index) => Row {
+                depth: u8::from(self.sessions[index].temporary),
+                ..self.session_row(index)
+            },
             Spot::Window(index, window) => {
+                let depth = 1 + u8::from(self.sessions[index].temporary);
                 let window = &self.sessions[index].windows[window];
                 Row {
-                    depth: 1,
+                    depth,
                     number: Some(window.index),
                     icon: process_icon(&window.program),
                     name: window.name.clone(),
@@ -413,6 +480,19 @@ impl SessionTree {
                     ..Row::default()
                 }
             }
+            Spot::Group => Row {
+                icon: Some(match self.group_open {
+                    true => CHEVRON_DOWN,
+                    false => CHEVRON_RIGHT,
+                }),
+                name: "Temporary".to_owned(),
+                detail: Some(match self.temporaries().len() {
+                    1 => "1 session".to_owned(),
+                    count => format!("{count} sessions"),
+                }),
+                muted: true,
+                ..Row::default()
+            },
         }
     }
 
@@ -422,12 +502,17 @@ impl SessionTree {
             1 => "1 window".to_owned(),
             count => format!("{count} windows"),
         };
+        let number = self
+            .regular()
+            .iter()
+            .position(|regular| *regular == index)
+            .map(|number| u16::try_from(number).unwrap_or(u16::MAX));
         Row {
-            number: Some(u16::try_from(index).unwrap_or(u16::MAX)),
+            number,
             name: session.name.clone(),
             detail: Some(windows),
             current: session.id == self.current,
-            monogram: true,
+            monogram: !session.temporary,
             ..Row::default()
         }
     }

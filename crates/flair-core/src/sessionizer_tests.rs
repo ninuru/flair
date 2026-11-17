@@ -6,7 +6,26 @@ fn session(name: &str, root: &str) -> SessionInfo {
         name: name.into(),
         root: root.into(),
         windows: 1,
+        temporary: false,
     }
+}
+
+#[test]
+fn temporary_sessions_are_not_candidates() {
+    let items = candidates(
+        &[
+            session("main", "/home/me"),
+            SessionInfo {
+                temporary: true,
+                ..session("1", "/home/me")
+            },
+            session("work", "/home/me/work"),
+        ],
+        "main",
+        Vec::new(),
+    );
+    let names: Vec<_> = items.iter().map(|item| item.name.as_str()).collect();
+    assert_eq!(names, ["work"]);
 }
 
 #[test]

@@ -319,6 +319,25 @@ fn temp_hello_creates_a_new_temporary_numbered_session_beside_main() {
 }
 
 #[test]
+fn session_nodes_and_infos_carry_the_temporary_flag() {
+    let mut server = Server::new(ServerConfig::from_config(&Config::default()));
+    attach(&mut server, 0, 2, Target::Main);
+    attach(&mut server, 1, 1, Target::Temp);
+    let nodes: Vec<_> = server
+        .session_nodes(ClientId(1))
+        .into_iter()
+        .map(|node| (node.name, node.temporary))
+        .collect();
+    assert_eq!(nodes, [("main".to_owned(), false), ("1".to_owned(), true)]);
+    let infos: Vec<_> = server
+        .session_infos()
+        .into_iter()
+        .map(|info| (info.name, info.temporary))
+        .collect();
+    assert_eq!(infos, [("main".to_owned(), false), ("1".to_owned(), true)]);
+}
+
+#[test]
 fn the_last_client_leaving_a_temp_session_kills_its_panes_and_removes_it() {
     let leaves: [fn(&mut Server) -> Vec<Effect>; 3] = [
         |server| {

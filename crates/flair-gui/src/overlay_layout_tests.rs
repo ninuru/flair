@@ -267,6 +267,19 @@ fn titled_sheets_show_a_group_label_and_numbers_as_right_shortcuts() {
 }
 
 #[test]
+fn rows_without_a_number_reserve_the_number_column_when_others_have_one() {
+    let numbered = Row {
+        number: Some(1),
+        ..row("main", Some("xx"), None)
+    };
+    let sheet = sessions(vec![numbered, row("1", Some("yy"), None)], 0);
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let numbered = text(&scene, "xx").unwrap().x;
+    assert_eq!(text(&scene, "yy").unwrap().x, numbered);
+    assert_eq!(numbered, (1072.0_f32 - 3.5 - 8.0 - 7.0).round());
+}
+
+#[test]
 fn session_rows_lead_with_a_monogram() {
     let mut sheet = three();
     for row in &mut sheet.rows {
@@ -532,4 +545,26 @@ fn a_short_window_budgets_the_empty_message_and_the_footer_inside_the_panel() {
     let short = run(&many(0, 0), (800, 200), 1.0, None);
     assert!(text(&short, "No matching sessions.").is_some());
     assert!(text(&short, "Navigate").is_none());
+}
+
+#[test]
+fn without_icons_keeps_fold_chevrons() {
+    let sheet = sessions(
+        vec![
+            Row {
+                icon: Some('x'),
+                ..row("shell", None, None)
+            },
+            Row {
+                icon: Some(CHEVRON_RIGHT),
+                ..row("Temporary", None, None)
+            },
+        ],
+        0,
+    )
+    .without_icons();
+    assert_eq!(
+        sheet.rows.iter().map(|row| row.icon).collect::<Vec<_>>(),
+        [None, Some(CHEVRON_RIGHT)]
+    );
 }

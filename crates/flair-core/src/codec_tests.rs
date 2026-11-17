@@ -405,6 +405,7 @@ fn server_messages() -> Vec<ServerMsg> {
                     activity: false,
                     bell: true,
                 }],
+                temporary: true,
             }],
             current: SessionId(3),
             preview: preview(),

@@ -167,6 +167,7 @@ fn sessions() -> ServerMsg {
                     activity: false,
                     bell: false,
                 }],
+                temporary: false,
             })
             .collect(),
         current: flair_core::ids::SessionId(1),
@@ -272,6 +273,45 @@ fn clicking_a_session_row_switches_to_it() {
         OverlayEvent::Send(vec![ClientMsg::Preview(None)])
     );
     assert!(!overlays.is_open());
+}
+
+#[test]
+fn clicking_the_temporary_group_toggles_it_without_switching() {
+    let ServerMsg::ChooseSession {
+        sessions,
+        current,
+        preview,
+    } = sessions()
+    else {
+        unreachable!()
+    };
+    let sessions = sessions
+        .into_iter()
+        .map(|session| flair_core::proto::SessionNode {
+            temporary: session.name == "notes",
+            ..session
+        })
+        .collect();
+    let mut overlays = Overlays::default();
+    open(
+        &mut overlays,
+        ServerMsg::ChooseSession {
+            sessions,
+            current,
+            preview,
+        },
+    );
+    assert_eq!(tree_rows(&overlays).0, ["main", "work", "Temporary"]);
+    let group = overlays.sheet(true).unwrap().rows[2].detail.clone();
+    assert_eq!(group.as_deref(), Some("1 session"));
+    assert_eq!(overlays.click(OverlayHit::Row(2)), OverlayEvent::Redraw);
+    assert!(overlays.is_open());
+    assert_eq!(
+        tree_rows(&overlays).0,
+        ["main", "work", "Temporary", "notes"]
+    );
+    assert_eq!(overlays.click(OverlayHit::Row(2)), OverlayEvent::Redraw);
+    assert_eq!(tree_rows(&overlays).0, ["main", "work", "Temporary"]);
 }
 
 #[test]

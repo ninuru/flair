@@ -15,7 +15,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 21;
+pub const PROTOCOL: u32 = 22;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -274,6 +274,7 @@ pub struct SessionInfo {
     pub name: String,
     pub root: PathBuf,
     pub windows: usize,
+    pub temporary: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -282,6 +283,7 @@ pub struct SessionNode {
     pub name: String,
     pub root: PathBuf,
     pub windows: Vec<StatusWindow>,
+    pub temporary: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
