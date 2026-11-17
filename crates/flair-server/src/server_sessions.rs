@@ -118,6 +118,7 @@ impl Server {
                 name: session.name.clone(),
                 root: session.root.clone(),
                 windows: session.windows.len(),
+                temporary: session.temporary,
             })
             .collect()
     }
@@ -135,6 +136,7 @@ impl Server {
                     true => self.window_entries(id, session, view.window, view.last_window),
                     false => self.window_entries(id, session, session.last_window, None),
                 },
+                temporary: session.temporary,
             })
             .collect()
     }

@@ -7,6 +7,7 @@ fn picker() -> Picker {
             name: "flair".into(),
             root: "/projects/flair".into(),
             windows: 1,
+            temporary: false,
         }],
         "main",
         Some(Target::Name("previous".into())),
@@ -21,11 +22,13 @@ fn sessionizer() -> Picker {
                 name: "main".into(),
                 root: "/home/u".into(),
                 windows: 1,
+                temporary: false,
             },
             SessionInfo {
                 name: "work".into(),
                 root: "/home/u/work".into(),
                 windows: 2,
+                temporary: false,
             },
         ],
         "main",
@@ -205,4 +208,20 @@ fn display_matches_follow_the_home_shortening_and_dropped_control_characters() {
         display_matches(Path::new("/home/u"), home, &[0, 1]),
         ("~".to_owned(), vec![])
     );
+}
+
+#[test]
+fn a_temporary_last_session_is_not_the_empty_enter_shortcut() {
+    let picker = Picker::new(
+        vec![SessionInfo {
+            name: "3".into(),
+            root: "/home/u".into(),
+            windows: 1,
+            temporary: true,
+        }],
+        "main",
+        Some(Target::Name("3".into())),
+        Vec::new(),
+    );
+    assert_eq!(picker.accept(), None);
 }

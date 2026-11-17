@@ -54,7 +54,7 @@ pub fn candidates(
         }
     }
     for session in sessions {
-        if session.name != current {
+        if session.name != current && !session.temporary {
             entries.insert(
                 session.name.clone(),
                 Candidate {

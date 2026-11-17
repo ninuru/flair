@@ -596,6 +596,7 @@ fn overlay_messages() -> [ServerMsg; 3] {
                             bell: false,
                         })
                         .collect(),
+                    temporary: false,
                 })
                 .collect(),
             current: SessionId(1),

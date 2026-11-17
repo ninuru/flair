@@ -11,6 +11,7 @@ use crate::{
         PANEL_RADIUS as T3_PANEL_RADIUS, SHADOW, SHADOW_DROP, SHADOW_LAYERS, SHADOW_SPREAD,
     },
     ui::{CAP_HEIGHT, CAP_PAD, CAP_RADIUS, FOOTER_GAP, ITEM_GAP, LINE, px},
+    ui::{CHEVRON_DOWN, CHEVRON_RIGHT},
 };
 
 pub struct OverlayInput<'a> {
@@ -41,6 +42,7 @@ pub struct Row {
     pub label: Option<&'static str>,
     pub current: bool,
     pub monogram: bool,
+    pub muted: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,7 +72,12 @@ impl Sheet {
             rows: self
                 .rows
                 .into_iter()
-                .map(|row| Row { icon: None, ..row })
+                .map(|row| Row {
+                    icon: row
+                        .icon
+                        .filter(|icon| [CHEVRON_RIGHT, CHEVRON_DOWN].contains(icon)),
+                    ..row
+                })
                 .collect(),
             ..self
         }

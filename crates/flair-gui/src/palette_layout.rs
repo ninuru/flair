@@ -357,6 +357,12 @@ fn list(
         .filter(|row| row.icon.is_some() || row.monogram)
         .map(|row| row.depth)
         .collect();
+    let column = sheet
+        .rows
+        .iter()
+        .filter_map(|row| row.number)
+        .map(|number| measure(&number.to_string(), false) * input.ui.small)
+        .fold(0.0, f32::max);
     let row_height = px(ITEM_ROW, scale);
     for (offset, row) in sheet.rows.iter().skip(first).take(capacity).enumerate() {
         let index = first + offset;
@@ -369,7 +375,7 @@ fn list(
         entry(
             row,
             index == sheet.selected,
-            gutters.contains(&row.depth),
+            (gutters.contains(&row.depth), column),
             rect,
             input,
             scene,

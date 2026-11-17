@@ -1,4 +1,8 @@
 use super::*;
+use crate::{
+    overlay_layout::Sheet,
+    ui::{CHEVRON_DOWN, CHEVRON_RIGHT},
+};
 use flair_core::{
     ids::WindowId,
     key::{Locks, Mods},
@@ -51,6 +55,7 @@ fn node(id: u32, name: &str, windows: Vec<StatusWindow>) -> SessionNode {
         name: name.into(),
         root: format!("/srv/{name}").into(),
         windows,
+        temporary: false,
     }
 }
 
@@ -491,4 +496,180 @@ fn window_rows_carry_the_process_icon_and_session_rows_none() {
     tree.key(&char('l'));
     let icons: Vec<Option<char>> = tree.sheet().rows.iter().map(|row| row.icon).collect();
     assert_eq!(icons, [None, Some('\u{e62b}'), None]);
+}
+
+fn temp(id: u32, name: &str) -> SessionNode {
+    SessionNode {
+        temporary: true,
+        ..node(id, name, vec![window(id * 10, 1, "zsh", true)])
+    }
+}
+
+fn temp_tree(current: u32) -> SessionTree {
+    SessionTree::new(
+        vec![
+            node(1, "main", vec![window(10, 1, "zsh", true)]),
+            temp(4, "1"),
+            node(2, "notes", vec![window(20, 1, "notes", true)]),
+            temp(5, "2"),
+            node(3, "work", vec![window(30, 1, "a", true)]),
+            temp(6, "4"),
+        ],
+        SessionId(current),
+        preview(current),
+    )
+}
+
+type Shape<'a> = (
+    u8,
+    Option<u16>,
+    Option<char>,
+    &'a str,
+    Option<&'a str>,
+    bool,
+    bool,
+);
+
+fn shapes(sheet: &Sheet) -> Vec<Shape<'_>> {
+    sheet
+        .rows
+        .iter()
+        .map(|row| {
+            (
+                row.depth,
+                row.number,
+                row.icon,
+                row.name.as_str(),
+                row.detail.as_deref(),
+                row.monogram,
+                row.muted,
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn temporary_sessions_fold_into_one_collapsed_group_at_the_bottom() {
+    let tree = temp_tree(1);
+    let sheet = tree.sheet();
+    assert_eq!(
+        shapes(&sheet),
+        [
+            (0, Some(0), None, "main", Some("1 window"), true, false),
+            (0, Some(1), None, "notes", Some("1 window"), true, false),
+            (0, Some(2), None, "work", Some("1 window"), true, false),
+            (
+                0,
+                None,
+                Some(CHEVRON_RIGHT),
+                "Temporary",
+                Some("3 sessions"),
+                false,
+                true
+            ),
+        ]
+    );
+    assert_eq!(sheet.selected, 0);
+    assert!(!sheet.rows[3].current);
+}
+
+#[test]
+fn the_group_expands_with_l_enter_and_collapses_with_h() {
+    let mut tree = temp_tree(1);
+    for _ in 0..3 {
+        tree.key(&char('j'));
+    }
+    assert_eq!(selected(&tree), "Temporary");
+    assert_eq!(strip(&tree), (vec![], None));
+    assert_eq!(tree.key(&char('l')), TreeOutcome::Pending);
+    assert_eq!(
+        names(&tree),
+        ["main", "notes", "work", "Temporary", "1", "2", "4"]
+    );
+    assert_eq!(tree.sheet().rows[3].icon, Some(CHEVRON_DOWN));
+    assert_eq!(selected(&tree), "Temporary");
+    assert_eq!(tree.key(&named(NamedKey::Left)), TreeOutcome::Pending);
+    assert_eq!(names(&tree), ["main", "notes", "work", "Temporary"]);
+    assert_eq!(tree.key(&char('h')), TreeOutcome::Ignored);
+    assert_eq!(tree.key(&named(NamedKey::Enter)), TreeOutcome::Pending);
+    assert_eq!(names(&tree).len(), 7);
+    assert_eq!(tree.key(&named(NamedKey::Right)), watch(4));
+    assert_eq!(selected(&tree), "1");
+    assert_eq!(tree.key(&char('l')), TreeOutcome::Pending);
+    let sheet = tree.sheet();
+    assert_eq!(
+        shapes(&sheet)[4..6],
+        [
+            (1, None, None, "1", Some("1 window"), false, false),
+            (2, Some(1), None, "zsh", None, false, false),
+        ]
+    );
+    assert_eq!(tree.key(&char('h')), TreeOutcome::Pending);
+    assert_eq!(names(&tree).len(), 7);
+    assert_eq!(tree.key(&char('h')), TreeOutcome::Pending);
+    assert_eq!(selected(&tree), "Temporary");
+    assert_eq!(tree.key(&char('k')), watch(3));
+}
+
+#[test]
+fn a_current_temporary_session_opens_the_group_on_it() {
+    let tree = temp_tree(5);
+    let sheet = tree.sheet();
+    assert_eq!(
+        names(&tree),
+        ["main", "notes", "work", "Temporary", "1", "2", "4"]
+    );
+    assert_eq!(sheet.selected, 5);
+    assert!(sheet.rows[5].current);
+    assert_eq!(strip(&tree), (vec![WindowId(50)], Some(SessionId(5))));
+}
+
+#[test]
+fn digits_jump_only_among_regular_sessions() {
+    let mut tree = temp_tree(5);
+    assert_eq!(tree.key(&char('0')), switch("main"));
+    assert_eq!(tree.key(&char('1')), switch("notes"));
+    assert_eq!(tree.key(&char('2')), switch("work"));
+    assert_eq!(tree.key(&char('3')), TreeOutcome::Ignored);
+    assert_eq!(tree.key(&char('4')), TreeOutcome::Ignored);
+}
+
+#[test]
+fn search_lists_temporary_sessions_flat() {
+    let mut tree = temp_tree(1);
+    tree.key(&char('/'));
+    assert_eq!(names(&tree), ["main", "1", "notes", "2", "work", "4"]);
+    assert_eq!(tree.insert("4"), watch(6));
+    let sheet = tree.sheet();
+    assert_eq!(
+        shapes(&sheet),
+        [(0, None, None, "4", Some("1 window"), false, false)]
+    );
+    assert_eq!(tree.key(&named(NamedKey::Escape)), TreeOutcome::Pending);
+    assert_eq!(selected(&tree), "4");
+    assert_eq!(names(&tree).len(), 7);
+    tree.key(&char('/'));
+    tree.insert("2");
+    assert_eq!(tree.key(&named(NamedKey::Enter)), switch("2"));
+}
+
+#[test]
+fn clicking_the_group_toggles_it() {
+    let mut tree = temp_tree(1);
+    assert_eq!(tree.choose(3), TreeOutcome::Pending);
+    assert_eq!(names(&tree).len(), 7);
+    assert_eq!(tree.choose(3), TreeOutcome::Pending);
+    assert_eq!(names(&tree).len(), 4);
+}
+
+#[test]
+fn previews_of_the_watched_session_stay_fresh_while_the_group_is_selected() {
+    let mut tree = temp_tree(1);
+    tree.key(&char('j'));
+    assert_eq!(tree.key(&char('j')), watch(3));
+    tree.key(&char('j'));
+    assert_eq!(selected(&tree), "Temporary");
+    assert!(tree.set_preview(preview(3)));
+    assert_eq!(tree.key(&char('k')), TreeOutcome::Pending);
+    assert_eq!(strip(&tree).1, Some(SessionId(3)));
 }

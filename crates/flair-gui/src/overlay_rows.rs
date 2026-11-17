@@ -13,12 +13,13 @@ use crate::{
 pub(crate) fn entry(
     row: &Row,
     selected: bool,
-    gutter: bool,
+    columns: (bool, f32),
     rect: PxRect,
     input: &OverlayInput,
     scene: &mut OverlayScene,
     measure: &mut impl FnMut(&str, bool) -> f32,
 ) {
+    let (gutter, column) = columns;
     let scale = input.scale;
     let hovered = input.hover.is_some_and(|point| inside(rect, point));
     let background = match (selected || hovered, row.current) {
@@ -49,14 +50,18 @@ pub(crate) fn entry(
         x += size + gap;
     }
     let mut end = rect.x + rect.w - pad;
-    if let Some(number) = row.number {
-        let text = number.to_string();
-        let width = measure(&text, false) * input.ui.small;
-        end -= width;
-        scene
-            .text
-            .push(small_text(end.round(), rect, text, QUIET, input.ui));
-        end -= gap;
+    match row.number {
+        Some(number) => {
+            let text = number.to_string();
+            let width = measure(&text, false) * input.ui.small;
+            end -= width;
+            scene
+                .text
+                .push(small_text(end.round(), rect, text, QUIET, input.ui));
+            end -= gap;
+        }
+        None if column > 0.0 => end -= column + gap,
+        None => {}
     }
     let label = row
         .label
@@ -67,12 +72,16 @@ pub(crate) fn entry(
         Some(_) => room.min(px(NAME_MAX, scale)),
         None => room,
     };
+    let color = match row.muted {
+        true => MUTED,
+        false => FOREGROUND,
+    };
     let name = segments(&marked(&row.name, &row.name_matches), name_room, measure);
     for (text, matched) in name {
         let width = measure(&text, matched);
         scene
             .text
-            .push(ui_text(x.round(), line, text, FOREGROUND, matched));
+            .push(ui_text(x.round(), line, text, color, matched));
         x += width;
     }
     let detail_room = (end - x - gap - reserved).max(0.0);

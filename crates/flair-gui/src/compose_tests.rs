@@ -651,14 +651,35 @@ fn split_frame(size: GridSize) -> (Mirror, WindowLayout) {
     (mirror, layout)
 }
 
+fn chooser(sessions: &[(&str, bool)], current: u32) -> ServerMsg {
+    ServerMsg::ChooseSession {
+        sessions: sessions
+            .iter()
+            .zip(1..)
+            .map(|((name, temporary), id)| SessionNode {
+                id: SessionId(id),
+                name: (*name).into(),
+                root: format!("/tmp/{name}").into(),
+                windows: Vec::new(),
+                temporary: *temporary,
+            })
+            .collect(),
+        current: SessionId(current),
+        preview: flair_core::proto::SessionPreview {
+            session: SessionId(current),
+            windows: Vec::new(),
+        },
+    }
+}
+
 fn draw_chrome_frame(
-    picker: bool,
+    picker: Option<ServerMsg>,
     paint: Option<(Rgb, Rgb)>,
     name: &str,
+    height: u32,
 ) -> Option<(Frame, ChromeLayout, CellMetrics)> {
     const W: u32 = 800;
-    const H: u32 = 300;
-    let (ctx, gl) = match HeadlessContext::new((W, H)) {
+    let (ctx, gl) = match HeadlessContext::new((W, height)) {
         Ok(pair) => pair,
         Err(error) => {
             if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
@@ -677,7 +698,7 @@ fn draw_chrome_frame(
         f32::from(config.window.padding_y),
     );
     let size = grid_size(
-        &chrome_layout::frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        &chrome_layout::frame((W, height), 1.0, false, padding, metrics, Dock::default()),
         padding,
         metrics,
     );
@@ -701,35 +722,17 @@ fn draw_chrome_frame(
         }
     }
     let mut overlays = Overlays::default();
-    if picker {
-        assert!(
-            overlays.open(
-                &ServerMsg::ChooseSession {
-                    sessions: ["main", "notes", "work"]
-                        .into_iter()
-                        .zip(1..)
-                        .map(|(name, id)| SessionNode {
-                            id: SessionId(id),
-                            name: name.into(),
-                            root: format!("/tmp/{name}").into(),
-                            windows: Vec::new(),
-                        })
-                        .collect(),
-                    current: SessionId(1),
-                    preview: flair_core::proto::SessionPreview {
-                        session: SessionId(1),
-                        windows: Vec::new(),
-                    },
-                },
-                &StatusLine::default(),
-                &config,
-                Path::new("/nonexistent/flair.toml"),
-            )
-        );
+    if let Some(message) = picker {
+        assert!(overlays.open(
+            &message,
+            &StatusLine::default(),
+            &config,
+            Path::new("/nonexistent/flair.toml"),
+        ));
     }
     let parts = status_parts(&chrome_status());
     let input = ChromeInput {
-        px: (W, H),
+        px: (W, height),
         scale: 1.0,
         padding,
         zen: false,
@@ -743,18 +746,18 @@ fn draw_chrome_frame(
         overlays: Some(&overlays),
         notice: None,
         isles: None,
-        frame: chrome_layout::frame((W, H), 1.0, false, padding, metrics, Dock::default()),
+        frame: chrome_layout::frame((W, height), 1.0, false, padding, metrics, Dock::default()),
         panels: None,
     };
     let chrome = chrome_layout::layout(&input, |text, bold| fonts.ui_width(text, bold));
     let mut renderer = Renderer::new(gl, metrics).unwrap();
-    renderer.resize((W, H));
+    renderer.resize((W, height));
     renderer
         .draw_frame(&grid, &chrome.chrome, &mut fonts, theme.background)
         .unwrap();
     let frame = Frame {
         width: W as usize,
-        height: H as usize,
+        height: height as usize,
         pixels: renderer.read_pixels(),
     };
     drop(renderer);
@@ -764,7 +767,7 @@ fn draw_chrome_frame(
 
 #[test]
 fn gpu_frame_draws_bar_border_active_separator_and_grid_below_the_bar() {
-    let Some((frame, chrome, metrics)) = draw_chrome_frame(false, None, "chrome") else {
+    let Some((frame, chrome, metrics)) = draw_chrome_frame(None, None, "chrome", 300) else {
         return;
     };
     frame.dump("FLAIR_FRAME_PPM");
@@ -861,7 +864,8 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
         g: 0x10,
         b: 0x11,
     };
-    let Some((frame, chrome, metrics)) = draw_chrome_frame(false, Some((first, rest)), "extend")
+    let Some((frame, chrome, metrics)) =
+        draw_chrome_frame(None, Some((first, rest)), "extend", 300)
     else {
         return;
     };
@@ -905,7 +909,15 @@ fn gpu_frame_extends_edge_cell_colours_into_the_padding() {
 
 #[test]
 fn gpu_frame_draws_a_picker_as_a_palette_over_a_dim() {
-    let Some((frame, chrome, _)) = draw_chrome_frame(true, None, "modal") else {
+    let Some((frame, chrome, _)) = draw_chrome_frame(
+        Some(chooser(
+            &[("main", false), ("notes", false), ("work", false)],
+            1,
+        )),
+        None,
+        "modal",
+        300,
+    ) else {
         return;
     };
     frame.dump("FLAIR_MODAL_PPM");
@@ -931,6 +943,31 @@ fn gpu_frame_draws_a_picker_as_a_palette_over_a_dim() {
         frame.at(row.x + 2.0, row.y + row.h - 3.0),
         rgb(PALETTE_HIGHLIGHT)
     );
+}
+
+#[test]
+fn gpu_frame_folds_temporary_sessions_into_one_group_row() {
+    let sessions = [
+        ("main", false),
+        ("1", true),
+        ("notes", false),
+        ("2", true),
+        ("work", false),
+        ("4", true),
+    ];
+    for (current, rows, var) in [
+        (1, 4, "FLAIR_TEMP_TREE_PPM"),
+        (4, 7, "FLAIR_TEMP_TREE_OPEN_PPM"),
+    ] {
+        let Some((frame, chrome, _)) =
+            draw_chrome_frame(Some(chooser(&sessions, current)), None, "temp tree", 420)
+        else {
+            return;
+        };
+        frame.dump(var);
+        let hits = chrome.overlay.as_ref().unwrap();
+        assert_eq!(hits.rows.len(), rows, "{var}");
+    }
 }
 
 #[test]
