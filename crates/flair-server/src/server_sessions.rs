@@ -12,6 +12,7 @@ impl Server {
         env: &[(String, String)],
         out: &mut Vec<Effect>,
     ) -> Result<SessionId, String> {
+        let temporary = target == Target::Temp;
         let (name, root, create_only) = match target {
             Target::Main => ("main".into(), self.config.cwd.clone(), false),
             Target::Name(name) => {
@@ -23,7 +24,7 @@ impl Server {
                     .map(|session| session.id)
                     .ok_or_else(|| format!("no session named {name}"));
             }
-            Target::New => (self.numeric_name(), self.config.cwd.clone(), true),
+            Target::New | Target::Temp => (self.numeric_name(), self.config.cwd.clone(), true),
             Target::Create { name, root } => {
                 (name.unwrap_or_else(|| self.numeric_name()), root, true)
             }
@@ -32,7 +33,7 @@ impl Server {
                     .tree
                     .sessions
                     .iter()
-                    .find(|session| session.root == root)
+                    .find(|session| !session.temporary && session.root == root)
                 {
                     return Ok(session.id);
                 }
@@ -90,6 +91,7 @@ impl Server {
             root,
             last_window: window,
             windows: vec![Window::new(window, pane_id, size)],
+            temporary,
         });
         out.push(Effect::Spawn(pane_id, spec));
         Ok(session)

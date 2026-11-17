@@ -232,6 +232,7 @@ pub enum ClientKind {
 pub enum Target {
     Main,
     New,
+    Temp,
     Name(String),
     Path(PathBuf),
     Create { name: Option<String>, root: PathBuf },

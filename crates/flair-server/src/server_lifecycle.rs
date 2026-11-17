@@ -39,6 +39,25 @@ impl Server {
         }
     }
 
+    pub(super) fn end_unviewed_temporaries(&mut self, now: Millis, out: &mut Vec<Effect>) {
+        let windows: Vec<_> = self
+            .tree
+            .sessions
+            .iter()
+            .filter(|session| {
+                session.temporary
+                    && self.clients.values().all(|client| {
+                        client.view.session != session.id
+                            && client.view.last_session != Some(session.id)
+                    })
+            })
+            .flat_map(|session| session.windows.iter().map(|window| window.id))
+            .collect();
+        for window in windows {
+            self.close_window(now, window, out);
+        }
+    }
+
     pub(super) fn destroy_pane(&mut self, now: Millis, pane: PaneId, out: &mut Vec<Effect>) {
         let window = self.tree.sessions.iter().find_map(|session| {
             session

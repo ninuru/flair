@@ -47,6 +47,14 @@ fn client_messages() -> Vec<ClientMsg> {
             env: Vec::new(),
             target: Target::Path(PathBuf::from("/home/u/project")),
         },
+        ClientMsg::Hello {
+            protocol: PROTOCOL,
+            kind: ClientKind::Gui,
+            size: size(),
+            palette: Config::default().theme(),
+            env: Vec::new(),
+            target: Target::Temp,
+        },
         ClientMsg::Resize(size()),
         ClientMsg::Input(InputEvent::Key(KeyInput {
             key: Key::Char('a'),
