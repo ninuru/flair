@@ -48,7 +48,7 @@ fn main() -> ExitCode {
     match args {
         Args::Help => {
             println!(
-                "flair [--config PATH] [--standalone]\nflair server [--config PATH]\nflair new [-d] [-s NAME] [-c DIR]\nflair attach -t NAME\nflair switch PATH|NAME\nflair open FILE\nflair ls\nflair kill-server\nflair test-headless --scenario PATH --output DIR [--timeout-ms 5000] [--config PATH] [--pixels WxH] [--scale S]"
+                "flair [--config PATH] [--standalone|--temp]\nflair server [--config PATH]\nflair new [-d] [-s NAME] [-c DIR]\nflair attach -t NAME\nflair switch PATH|NAME\nflair open FILE\nflair ls\nflair kill-server\nflair test-headless --scenario PATH --output DIR [--timeout-ms 5000] [--config PATH] [--pixels WxH] [--scale S]"
             );
             ExitCode::SUCCESS
         }

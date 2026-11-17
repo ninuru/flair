@@ -147,6 +147,7 @@ impl Server {
         }
         if !self.stopping {
             self.reap_sessions(now, out);
+            self.end_unviewed_temporaries(now, out);
             let changed = self.refresh_panes();
             let ready = self.flush_frames(out);
             self.flush_previews(now, &changed, out);

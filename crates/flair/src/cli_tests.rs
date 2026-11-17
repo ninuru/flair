@@ -101,3 +101,26 @@ fn open_takes_exactly_one_file_made_absolute() {
     assert!(Args::parse_from(["open", "a", "b"]).is_err());
     assert!(Args::parse_from(["open", "--config", "c.toml", "a"]).is_err());
 }
+
+#[test]
+fn temp_opens_the_gui_on_a_temporary_session() {
+    assert_eq!(
+        Args::parse_from(["--temp"]).unwrap(),
+        Args::Gui {
+            config: None,
+            target: Target::Temp,
+            standalone: false,
+        }
+    );
+    assert_eq!(
+        Args::parse_from(["--temp", "--config", "c.toml"]).unwrap(),
+        Args::Gui {
+            config: Some("c.toml".into()),
+            target: Target::Temp,
+            standalone: false,
+        }
+    );
+    assert!(Args::parse_from(["--temp", "--standalone"]).is_err());
+    assert!(Args::parse_from(["--temp", "ls"]).is_err());
+    assert!(Args::parse_from(["new", "--temp"]).is_err());
+}

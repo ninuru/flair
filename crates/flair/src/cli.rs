@@ -45,6 +45,7 @@ impl Args {
         let mut pixels = None;
         let mut scale: f64 = 1.0;
         let mut standalone = false;
+        let mut temp = false;
         let mut detached = false;
         let mut name = None;
         let mut root = None;
@@ -56,6 +57,7 @@ impl Args {
                 Arg::Long("version") | Arg::Short('V') => return Ok(Self::Version),
                 Arg::Long("config") => config = Some(PathBuf::from(parser.value()?)),
                 Arg::Long("standalone") => standalone = true,
+                Arg::Long("temp") => temp = true,
                 Arg::Short('d') if command.as_deref() == Some("new") => detached = true,
                 Arg::Short('s') if command.as_deref() == Some("new") => {
                     name = Some(parser.value()?.string()?)
@@ -129,10 +131,19 @@ impl Args {
         if standalone && command.is_some() {
             return Err("--standalone cannot be combined with a command".into());
         }
+        if temp && command.is_some() {
+            return Err("--temp cannot be combined with a command".into());
+        }
+        if temp && standalone {
+            return Err("--temp cannot be combined with --standalone".into());
+        }
         match command.as_deref() {
             None => Ok(Self::Gui {
                 config,
-                target: Target::Main,
+                target: match temp {
+                    true => Target::Temp,
+                    false => Target::Main,
+                },
                 standalone,
             }),
             Some("server") => Ok(Self::Server { config }),

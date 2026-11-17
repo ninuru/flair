@@ -19,6 +19,7 @@ pub struct Session {
     pub root: PathBuf,
     pub windows: Vec<Window>,
     pub last_window: WindowId,
+    pub temporary: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -53,6 +54,7 @@ impl Tree {
                 root,
                 last_window: window,
                 windows: vec![Window::new(window, pane, GridSize { cols: 80, rows: 24 })],
+                temporary: false,
             }],
         }
     }
