@@ -65,6 +65,16 @@ impl App {
                     ));
                 }
             }
+            PromptAction::CopyBlock(Some(text)) => {
+                if let Some(surface) = &self.surface {
+                    surface.clipboard.store(text, false);
+                }
+                self.overlays.set_notice(Notice::info("Copied block"));
+            }
+            PromptAction::CopyBlock(None) => {
+                self.overlays
+                    .set_notice(Notice::error("No command block here"));
+            }
             PromptAction::DockerContext(name) => {
                 let proxy = self.proxy.clone();
                 thread::spawn(move || {
@@ -74,6 +84,30 @@ impl App {
             }
         }
         self.request_redraw();
+    }
+
+    fn open_context_menu(&mut self, point: CellPoint) -> bool {
+        let Some((pane, row)) = pane_row(self.layout.as_ref(), self.pane, point) else {
+            return false;
+        };
+        if !self.mods.shift_key()
+            && self
+                .mirror
+                .pane(pane)
+                .is_none_or(|pane| pane.flags.mouse_reporting)
+        {
+            return false;
+        }
+        let anchor = PxRect {
+            x: self.pointer.x as f32,
+            y: self.pointer.y as f32,
+            w: 0.0,
+            h: 0.0,
+        };
+        self.overlays.open_prompt(PromptMenu::context(pane, anchor));
+        self.send(ClientMsg::RequestBlock { pane, row });
+        self.request_redraw();
+        true
     }
 
     pub(super) fn prompt_action_finished(&mut self, result: Result<(), String>) {
@@ -96,6 +130,15 @@ impl App {
             && let Some(target @ HitTarget::Prompt { .. }) =
                 chrome_layout::hit_test(&self.hits, (self.pointer.x, self.pointer.y))
             && self.open_prompt_actions(target)
+        {
+            self.capture = Capture::Overlay;
+            return;
+        }
+        if self.capture == Capture::Idle
+            && button == MouseButton::Right
+            && action == MouseAction::Press
+            && !self.in_chrome()
+            && self.open_context_menu(point)
         {
             self.capture = Capture::Overlay;
             return;

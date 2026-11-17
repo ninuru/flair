@@ -74,6 +74,7 @@ fn wait_text(client: &flair_core::link::ClientLink, text: &str) {
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::ChooseSession { .. }
             | ServerMsg::Preview(_)
+            | ServerMsg::BlockText(_)
             | ServerMsg::PaneProcesses(_)
             | ServerMsg::Sessions(_)
             | ServerMsg::Layout(_)
@@ -301,6 +302,7 @@ fn a_prompt_in_a_repository_reports_its_branch() {
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::ChooseSession { .. }
             | ServerMsg::Preview(_)
+            | ServerMsg::BlockText(_)
             | ServerMsg::PaneProcesses(_)
             | ServerMsg::Sessions(_)
             | ServerMsg::Layout(_)

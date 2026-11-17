@@ -274,6 +274,44 @@ fn a_primary_paste_lands_only_in_pane_content_never_on_its_band() {
 }
 
 #[test]
+fn a_context_click_maps_to_the_pane_and_its_own_row() {
+    let at = |row, col| CellPoint { row, col };
+    let layout = WindowLayout {
+        window: WindowId(1),
+        area: CellRect {
+            origin: at(0, 0),
+            size: GridSize { cols: 20, rows: 10 },
+        },
+        panes: vec![PanePlacement {
+            pane: PaneId(4),
+            rect: CellRect {
+                origin: at(2, 5),
+                size: GridSize { cols: 15, rows: 8 },
+            },
+            band: 1,
+        }],
+        separators: vec![],
+        active: PaneId(4),
+        zoomed: false,
+    };
+    assert_eq!(pane_row(Some(&layout), None, at(1, 6)), None);
+    assert_eq!(pane_row(Some(&layout), None, at(2, 4)), None);
+    assert_eq!(
+        pane_row(Some(&layout), None, at(2, 5)),
+        Some((PaneId(4), 0))
+    );
+    assert_eq!(
+        pane_row(Some(&layout), None, at(9, 19)),
+        Some((PaneId(4), 7))
+    );
+    assert_eq!(
+        pane_row(None, Some(PaneId(3)), at(6, 0)),
+        Some((PaneId(3), 6))
+    );
+    assert_eq!(pane_row(None, None, at(6, 0)), None);
+}
+
+#[test]
 fn a_panel_gesture_never_reaches_the_server() {
     assert_eq!(
         route_mouse(true, MouseButton::Left, MouseAction::Press, Capture::Idle),

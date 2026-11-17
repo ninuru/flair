@@ -821,3 +821,41 @@ fn reentering_copy_mode_drops_pending_keys() {
     press(&mut server, Key::Char('q'));
     assert!(!copy_mode(&server));
 }
+
+fn block_text(out: &[Effect]) -> Vec<Option<&str>> {
+    out.iter()
+        .filter_map(|effect| {
+            let Effect::Send(ClientId(1), ServerMsg::BlockText(text)) = effect else {
+                return None;
+            };
+            Some(text.as_deref())
+        })
+        .collect()
+}
+
+#[test]
+fn copy_block_replies_with_the_block_and_keeps_copy_mode() {
+    let mut server = setup();
+    output(
+        &mut server,
+        b"\r\n\x1b]6973;prompt\x07\r\n> ls\r\n\x1b]133;C\x07a\r\nb\r\n\x1b]133;D;0\x07",
+    );
+    enter(&mut server);
+    let out = send(
+        &mut server,
+        ClientMsg::RequestBlock {
+            pane: PaneId(1),
+            row: 3,
+        },
+    );
+    assert_eq!(block_text(&out), vec![Some("> ls\na\nb")]);
+    assert!(copy_mode(&server));
+    let out = send(
+        &mut server,
+        ClientMsg::RequestBlock {
+            pane: PaneId(9),
+            row: 0,
+        },
+    );
+    assert_eq!(block_text(&out), vec![None]);
+}

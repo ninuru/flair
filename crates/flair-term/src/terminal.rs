@@ -384,6 +384,52 @@ impl Terminal {
         }
         Some(text).filter(|text| !text.is_empty())
     }
+    pub fn block_text(&self, row: u16) -> Option<String> {
+        if self.modes().alt_screen {
+            return None;
+        }
+        let grid = self.term.grid();
+        let top = self.term.topmost_line();
+        let bottom = self.term.bottommost_line();
+        let anchor = |line: Line| prompt_id(&grid[Point::new(line, Column(0))]).is_some();
+        let line = self.selection_point(CellPoint { col: 0, row }).line;
+        let line = match line < bottom && !anchor(line) && self.chrome_line(line) {
+            true => line + 1,
+            false => line,
+        };
+        let start = (top.0..=line.0)
+            .rev()
+            .map(Line)
+            .find(|line| anchor(*line))?;
+        if Some(start) == self.live_prompt_line() {
+            return None;
+        }
+        let end = (start.0 + 1..=bottom.0)
+            .map(Line)
+            .find(|line| anchor(*line))
+            .map_or(bottom, |next| next - 1);
+        let mut parts = Vec::new();
+        let mut line = start;
+        while line <= end {
+            if self.chrome_line(line) {
+                line += 1;
+                continue;
+            }
+            let first = line;
+            while line < end && !self.chrome_line(line + 1) {
+                line += 1;
+            }
+            parts.push(self.term.bounds_to_string(
+                Point::new(first, Column(0)),
+                Point::new(line, self.term.last_column()),
+            ));
+            line += 1;
+        }
+        let text = parts.join("\n");
+        let lines: Vec<_> = text.lines().map(str::trim_end).collect();
+        let used = lines.iter().rposition(|line| !line.is_empty())? + 1;
+        Some(lines[..used].join("\n"))
+    }
     pub fn clear_selection(&mut self) {
         self.term.selection = None;
     }

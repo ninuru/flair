@@ -18,6 +18,7 @@ pub enum PromptAction {
     Copy(String),
     Insert { pane: PaneId, text: String },
     DockerContext(String),
+    CopyBlock(Option<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,7 +31,7 @@ pub enum MenuOutcome {
 pub struct PromptMenu {
     pub(crate) pane: PaneId,
     pub(crate) anchor: PxRect,
-    pub(crate) chip: Chip,
+    pub(crate) chip: Option<Chip>,
     pub(crate) query: String,
     pub(crate) selected: usize,
     pub(crate) items: Vec<MenuItem>,
@@ -50,7 +51,7 @@ impl PromptMenu {
         let mut menu = Self {
             pane,
             anchor,
-            chip,
+            chip: Some(chip),
             query: String::new(),
             selected: 0,
             items: Vec::new(),
@@ -96,6 +97,28 @@ impl PromptMenu {
         menu
     }
 
+    pub fn context(pane: PaneId, anchor: PxRect) -> Self {
+        let mut menu = Self {
+            pane,
+            anchor,
+            chip: None,
+            query: String::new(),
+            selected: 0,
+            items: Vec::new(),
+            loading: false,
+            error: None,
+            current: String::new(),
+        };
+        menu.add("Copy block", PromptAction::CopyBlock(None));
+        menu
+    }
+
+    pub fn set_block(&mut self, text: Option<String>) {
+        for item in &mut self.items {
+            item.action = PromptAction::CopyBlock(text.clone());
+        }
+    }
+
     pub fn contexts(&mut self, result: Result<Vec<String>, String>) {
         self.loading = false;
         self.error = result.as_ref().err().cloned();
@@ -118,6 +141,9 @@ impl PromptMenu {
     }
 
     pub fn insert(&mut self, text: &str) {
+        if self.chip.is_none() {
+            return;
+        }
         self.query.extend(
             text.chars()
                 .filter(|c| !c.is_control())

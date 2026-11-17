@@ -194,6 +194,10 @@ fn client_messages() -> Vec<ClientMsg> {
         }),
         ClientMsg::Preview(Some(SessionId(3))),
         ClientMsg::Preview(None),
+        ClientMsg::RequestBlock {
+            pane: PaneId(7),
+            row: 12,
+        },
     ]
 }
 
@@ -476,6 +480,8 @@ fn server_messages() -> Vec<ServerMsg> {
             session: SessionId(4),
             windows: vec![],
         }),
+        ServerMsg::BlockText(Some("> ls\nfile".to_owned())),
+        ServerMsg::BlockText(None),
     ]
 }
 

@@ -99,13 +99,21 @@ pub(crate) fn paste_target(
     active: Option<PaneId>,
     point: CellPoint,
 ) -> Option<PaneId> {
+    pane_row(layout, active, point).map(|(pane, _)| pane)
+}
+
+pub(crate) fn pane_row(
+    layout: Option<&WindowLayout>,
+    active: Option<PaneId>,
+    point: CellPoint,
+) -> Option<(PaneId, u16)> {
     match layout {
         Some(layout) => layout
             .panes
             .iter()
             .find(|placement| placement.rect.contains(point))
-            .map(|placement| placement.pane),
-        None => active,
+            .map(|placement| (placement.pane, point.row - placement.rect.origin.row)),
+        None => active.map(|pane| (pane, point.row)),
     }
 }
 

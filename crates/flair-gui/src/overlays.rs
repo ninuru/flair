@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     fs, io,
     path::{Path, PathBuf},
 };
@@ -30,6 +31,7 @@ use crate::{
 pub struct Overlays {
     prompt_menu: Option<PromptMenu>,
     prompt_generation: u64,
+    block_requests: VecDeque<u64>,
     picker: Option<Picker>,
     tree: Option<SessionTree>,
     prompt: Option<Prompt>,
@@ -162,6 +164,7 @@ impl Overlays {
             | ServerMsg::PromptInfo { .. }
             | ServerMsg::PromptHistory { .. }
             | ServerMsg::PaneProcesses(_)
+            | ServerMsg::BlockText(_)
             | ServerMsg::Done
             | ServerMsg::Error(_)
             | ServerMsg::Exit(_) => return false,
@@ -191,10 +194,30 @@ impl Overlays {
             || self.theme_picker.is_some()
     }
 
+    pub fn menu_open(&self) -> bool {
+        self.prompt_menu.is_some()
+    }
+
     pub fn open_prompt(&mut self, menu: PromptMenu) -> u64 {
         self.prompt_generation = self.prompt_generation.wrapping_add(1);
+        if menu.chip.is_none() {
+            self.block_requests.push_back(self.prompt_generation);
+        }
         self.prompt_menu = Some(menu);
         self.prompt_generation
+    }
+
+    pub fn block_text(&mut self, text: Option<String>) -> bool {
+        let Some(generation) = self.block_requests.pop_front() else {
+            return false;
+        };
+        match &mut self.prompt_menu {
+            Some(menu) if generation == self.prompt_generation && menu.chip.is_none() => {
+                menu.set_block(text);
+                true
+            }
+            Some(_) | None => false,
+        }
     }
 
     pub fn prompt_contexts(
