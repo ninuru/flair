@@ -1,6 +1,6 @@
 use flair_core::{
     command::{Command, WindowRef},
-    geom::CellPoint,
+    geom::{CellPoint, CellRect, GridSize},
     ids::PaneId,
     key::{MouseAction, MouseButton},
     proto::WindowLayout,
@@ -114,6 +114,34 @@ pub(crate) fn pane_row(
             .find(|placement| placement.rect.contains(point))
             .map(|placement| (placement.pane, point.row - placement.rect.origin.row)),
         None => active.map(|pane| (pane, point.row)),
+    }
+}
+
+pub(crate) fn pane_cell(
+    layout: Option<&WindowLayout>,
+    active: Option<PaneId>,
+    size: GridSize,
+    point: CellPoint,
+) -> Option<(PaneId, CellPoint, CellRect)> {
+    match layout {
+        Some(layout) => layout
+            .panes
+            .iter()
+            .find(|placement| placement.rect.contains(point))
+            .map(|placement| {
+                let local = CellPoint {
+                    col: point.col - placement.rect.origin.col,
+                    row: point.row - placement.rect.origin.row,
+                };
+                (placement.pane, local, placement.rect)
+            }),
+        None => active.map(|pane| {
+            let rect = CellRect {
+                origin: CellPoint { col: 0, row: 0 },
+                size,
+            };
+            (pane, point, rect)
+        }),
     }
 }
 

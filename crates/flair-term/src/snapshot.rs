@@ -64,6 +64,7 @@ impl Terminal {
                             (Flags::STRIKEOUT, CellFlags::STRIKE),
                             (Flags::WIDE_CHAR, CellFlags::WIDE),
                             (Flags::WIDE_CHAR_SPACER, CellFlags::WIDE_SPACER),
+                            (Flags::WRAPLINE, CellFlags::WRAP),
                         ] {
                             if c.flags.intersects(from) {
                                 flags |= to;
@@ -158,3 +159,7 @@ fn color(color: AnsiColor) -> Color {
         },
     }
 }
+
+#[cfg(test)]
+#[path = "snapshot_tests.rs"]
+mod tests;

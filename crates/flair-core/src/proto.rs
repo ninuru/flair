@@ -15,7 +15,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 20;
+pub const PROTOCOL: u32 = 21;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -158,6 +158,7 @@ impl CellFlags {
     pub const HIDDEN: CellFlags = CellFlags(1 << 6);
     pub const WIDE: CellFlags = CellFlags(1 << 7);
     pub const WIDE_SPACER: CellFlags = CellFlags(1 << 8);
+    pub const WRAP: CellFlags = CellFlags(1 << 9);
 
     pub const fn empty() -> CellFlags {
         CellFlags(0)
