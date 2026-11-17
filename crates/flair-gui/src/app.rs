@@ -62,6 +62,8 @@ mod agents_app;
 mod config;
 #[path = "app_explorer.rs"]
 mod explorer_app;
+#[path = "app_links.rs"]
+mod links_app;
 #[path = "app_panel.rs"]
 mod panel;
 #[path = "app_prompt_actions.rs"]
@@ -124,7 +126,8 @@ struct App {
     home: Option<PathBuf>,
     zen: Zen,
     panels: Panels,
-    resize_cursor: bool,
+    cursor: panel::CursorKind,
+    hover_link: Option<crate::links::Link>,
     fs: Option<FsWorker>,
 }
 
@@ -192,6 +195,7 @@ impl App {
             (None, Some(pane)) => compose(&self.mirror, pane, &theme, true),
             (None, None) => return,
         };
+        self.underline_link(&mut grid);
         let (Some(scale), Some(frame)) = (
             self.surface.as_ref().map(|s| s.window.scale_factor()),
             self.frame(),
@@ -564,7 +568,10 @@ impl ApplicationHandler<UserEvent> for App {
                     Err(error) => self.fail(error, event_loop),
                 }
             }
-            WindowEvent::ModifiersChanged(mods) => self.mods = mods.state(),
+            WindowEvent::ModifiersChanged(mods) => {
+                self.mods = mods.state();
+                self.update_link_hover();
+            }
             WindowEvent::Focused(focused) => self.send(ClientMsg::Focus(focused)),
             WindowEvent::Ime(Ime::Preedit(text, _)) => self.set_ime(!text.is_empty()),
             WindowEvent::Ime(Ime::Commit(text)) => self.text(text),
@@ -594,7 +601,7 @@ impl ApplicationHandler<UserEvent> for App {
                 if target(self, (position.x, position.y)) != before {
                     self.request_redraw();
                 }
-                self.update_cursor();
+                self.update_link_hover();
                 if overlay_takes_mouse(self.overlays.is_open(), self.capture) {
                     return;
                 }
@@ -779,7 +786,8 @@ pub fn run_target(
         home: env::var_os("HOME").map(PathBuf::from),
         zen: Zen::default(),
         panels: Panels::default(),
-        resize_cursor: false,
+        cursor: panel::CursorKind::Default,
+        hover_link: None,
         fs: None,
     };
     if let Some(notice) = notice {

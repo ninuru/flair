@@ -14,6 +14,7 @@ mod explorer_layout;
 mod font;
 pub mod input;
 pub mod isles;
+mod links;
 pub mod mirror;
 pub mod mouse;
 mod mouse_route;

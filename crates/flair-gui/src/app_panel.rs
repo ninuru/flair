@@ -9,6 +9,13 @@ use crate::{
     panels::Drag,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CursorKind {
+    Default,
+    Resize,
+    Pointer,
+}
+
 impl App {
     pub(super) fn padding(&self, scale: f64) -> (f32, f32) {
         chrome_layout::padding(&self.effective().window, scale, self.zen.on())
@@ -308,14 +315,20 @@ impl App {
         let edge = matches!(self.panels.drag, Some(Drag::Edge { .. }))
             || (!self.overlays.is_open()
                 && matches!(self.panel_target(), Some(HitTarget::Edge(_))));
-        if edge == self.resize_cursor {
+        let kind = match (edge, self.hover_link.is_some()) {
+            (true, _) => CursorKind::Resize,
+            (false, true) => CursorKind::Pointer,
+            (false, false) => CursorKind::Default,
+        };
+        if kind == self.cursor {
             return;
         }
-        self.resize_cursor = edge;
+        self.cursor = kind;
         if let Some(surface) = &self.surface {
-            surface.window.set_cursor(match edge {
-                true => CursorIcon::EwResize,
-                false => CursorIcon::Default,
+            surface.window.set_cursor(match kind {
+                CursorKind::Default => CursorIcon::Default,
+                CursorKind::Resize => CursorIcon::EwResize,
+                CursorKind::Pointer => CursorIcon::Pointer,
             });
         }
     }

@@ -312,6 +312,49 @@ fn a_context_click_maps_to_the_pane_and_its_own_row() {
 }
 
 #[test]
+fn a_link_point_maps_to_the_pane_its_local_cell_and_its_rect() {
+    let at = |row, col| CellPoint { row, col };
+    let rect = CellRect {
+        origin: at(2, 5),
+        size: GridSize { cols: 15, rows: 8 },
+    };
+    let layout = WindowLayout {
+        window: WindowId(1),
+        area: CellRect {
+            origin: at(0, 0),
+            size: GridSize { cols: 20, rows: 10 },
+        },
+        panes: vec![PanePlacement {
+            pane: PaneId(4),
+            rect,
+            band: 1,
+        }],
+        separators: vec![],
+        active: PaneId(4),
+        zoomed: false,
+    };
+    let size = GridSize { cols: 20, rows: 10 };
+    assert_eq!(pane_cell(Some(&layout), None, size, at(1, 6)), None);
+    assert_eq!(pane_cell(Some(&layout), None, size, at(2, 4)), None);
+    assert_eq!(
+        pane_cell(Some(&layout), None, size, at(3, 9)),
+        Some((PaneId(4), at(1, 4), rect))
+    );
+    assert_eq!(
+        pane_cell(None, Some(PaneId(3)), size, at(6, 2)),
+        Some((
+            PaneId(3),
+            at(6, 2),
+            CellRect {
+                origin: at(0, 0),
+                size
+            }
+        ))
+    );
+    assert_eq!(pane_cell(None, None, size, at(6, 0)), None);
+}
+
+#[test]
 fn a_panel_gesture_never_reaches_the_server() {
     assert_eq!(
         route_mouse(true, MouseButton::Left, MouseAction::Press, Capture::Idle),

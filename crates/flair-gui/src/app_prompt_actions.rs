@@ -143,6 +143,10 @@ impl App {
             self.capture = Capture::Overlay;
             return;
         }
+        if button == MouseButton::Left && action == MouseAction::Press && self.open_link() {
+            self.capture = Capture::Overlay;
+            return;
+        }
         let route = route_mouse(self.in_chrome(), button, action, self.capture);
         self.capture = capture_after(self.capture, button, action, route);
         match route {
