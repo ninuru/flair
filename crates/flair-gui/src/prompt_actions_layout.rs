@@ -25,24 +25,28 @@ impl PromptMenu {
         let row_h = px(28.0, scale)
             .max(input.ui.height + px(8.0, scale))
             .max(input.metrics.height + px(4.0, scale));
-        let field_h = row_h;
+        let (field_h, foot, gap) = match self.chip {
+            Some(_) => (row_h, 0.0, px(4.0, scale)),
+            None => (px(POPUP_PAD, scale), px(POPUP_PAD, scale), 0.0),
+        };
         let rows = self.filtered();
         let top = bar_height(scale) + inset;
         let available = (input.px.1 as f32 - top - inset).max(0.0);
-        let capacity = (((available - field_h) / row_h).floor().max(0.0) as usize).min(8);
+        let capacity = (((available - field_h - foot) / row_h).floor().max(0.0) as usize).min(8);
         let count = rows.len().max(1).min(capacity);
-        let height = (field_h + count as f32 * row_h).min(available);
-        let width = px(360.0, scale).min((input.px.0 as f32 - inset * 2.0).max(0.0));
+        let height = (field_h + count as f32 * row_h + foot).min(available);
+        let width = px(if self.chip.is_some() { 360.0 } else { 220.0 }, scale)
+            .min((input.px.0 as f32 - inset * 2.0).max(0.0));
         let left = self
             .anchor
             .x
             .min(input.px.0 as f32 - inset - width)
             .max(inset);
-        let below = self.anchor.y + self.anchor.h + px(4.0, scale);
+        let below = self.anchor.y + self.anchor.h + gap;
         let y = if below + height <= input.px.1 as f32 - inset {
             below
         } else {
-            (self.anchor.y - px(4.0, scale) - height).max(top)
+            (self.anchor.y - gap - height).max(top)
         };
         let panel = PxRect {
             x: left,
@@ -61,31 +65,33 @@ impl PromptMenu {
         if height < field_h || width <= inset * 2.0 {
             return scene;
         }
-        let field = PxRect {
-            h: field_h,
-            ..panel
-        };
-        let placeholder = if self.chip == flair_core::isles::Chip::Docker {
-            "Search Docker contexts…"
-        } else {
-            "Search actions…"
-        };
-        let text = if self.query.is_empty() {
-            self.error.as_deref().unwrap_or(placeholder)
-        } else {
-            &self.query
-        };
-        scene.text.push(ui_text(
-            left + inset,
-            baseline(field, input.ui),
-            ellipsize(text, width - inset * 2.0, false, measure),
-            if self.query.is_empty() {
-                MUTED
+        if self.chip.is_some() {
+            let field = PxRect {
+                h: field_h,
+                ..panel
+            };
+            let placeholder = if self.chip == Some(flair_core::isles::Chip::Docker) {
+                "Search Docker contexts…"
             } else {
-                FOREGROUND
-            },
-            false,
-        ));
+                "Search actions…"
+            };
+            let text = if self.query.is_empty() {
+                self.error.as_deref().unwrap_or(placeholder)
+            } else {
+                &self.query
+            };
+            scene.text.push(ui_text(
+                left + inset,
+                baseline(field, input.ui),
+                ellipsize(text, width - inset * 2.0, false, measure),
+                if self.query.is_empty() {
+                    MUTED
+                } else {
+                    FOREGROUND
+                },
+                false,
+            ));
+        }
         let first = self.selected.saturating_sub(capacity.saturating_sub(1));
         for (offset, item) in rows.iter().skip(first).take(count).enumerate() {
             let index = first + offset;
@@ -116,7 +122,7 @@ impl PromptMenu {
                     scale,
                 ));
             }
-            if self.chip == flair_core::isles::Chip::Docker {
+            if self.chip == Some(flair_core::isles::Chip::Docker) {
                 scene.text.push(TextRun {
                     x: left + inset,
                     baseline: (rect.y
@@ -138,10 +144,11 @@ impl PromptMenu {
                     false,
                 ));
             }
+            let label = px(if self.chip.is_some() { 28.0 } else { 16.0 }, scale);
             scene.text.push(ui_text(
-                left + px(28.0, scale),
+                left + label,
                 baseline(rect, input.ui),
-                ellipsize(&item.name, width - px(56.0, scale), false, measure),
+                ellipsize(&item.name, width - label * 2.0, false, measure),
                 FOREGROUND,
                 false,
             ));

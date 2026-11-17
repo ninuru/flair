@@ -287,6 +287,7 @@ impl Server {
             }
             ClientMsg::Palette(palette) => self.set_palette(palette),
             ClientMsg::Preview(session) => self.watch_preview(now, id, session, out),
+            ClientMsg::RequestBlock { pane, row } => self.copy_block(id, pane, row, out),
             ClientMsg::Detach => {
                 self.remove_client(id, out);
                 out.push(Effect::Send(id, ServerMsg::Exit(ExitReason::Detached)));

@@ -8,6 +8,17 @@ use flair_core::{
 const COUNT_LIMIT: u32 = 9999;
 
 impl Server {
+    pub(super) fn copy_block(&self, id: ClientId, pane: PaneId, row: u16, out: &mut Vec<Effect>) {
+        let window = self.clients[&id].view.window;
+        let text = self
+            .tree
+            .window(window)
+            .filter(|window| window.panes.contains(&pane))
+            .and_then(|_| self.panes.get(&pane))
+            .and_then(|pane| pane.terminal.block_text(row));
+        out.push(Effect::Send(id, ServerMsg::BlockText(text)));
+    }
+
     pub(super) fn copy_pane(&self, id: ClientId) -> Option<PaneId> {
         self.client_pane(id).filter(|pane| {
             self.panes

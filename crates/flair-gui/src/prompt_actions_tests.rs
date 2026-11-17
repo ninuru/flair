@@ -1,5 +1,5 @@
 use super::*;
-use crate::t3_style::{FOREGROUND, POPUP_SELECTED};
+use crate::t3_style::{FOREGROUND, POPUP_PAD, POPUP_SELECTED};
 use flair_core::key::{Locks, Mods};
 
 fn menu(chip: Chip) -> PromptMenu {
@@ -281,4 +281,63 @@ fn docker_context_rows_use_brand_icons_and_a_tinted_selection() {
             .iter()
             .any(|run| run.text == "prod" && run.color == FOREGROUND)
     );
+}
+
+fn context_menu(x: f32, y: f32) -> PromptMenu {
+    PromptMenu::context(
+        PaneId(2),
+        PxRect {
+            x,
+            y,
+            w: 0.0,
+            h: 0.0,
+        },
+    )
+}
+
+#[test]
+fn context_menu_copies_the_block_and_ignores_typing() {
+    let mut menu = context_menu(100.0, 100.0);
+    menu.insert("zzz");
+    let mut typed = key(Key::Char('x'));
+    typed.text = Some("x".into());
+    assert_eq!(menu.key(&typed), MenuOutcome::Pending);
+    assert!(menu.query.is_empty());
+    assert_eq!(menu.filtered().len(), 1);
+    assert_eq!(
+        menu.choose(0),
+        MenuOutcome::Action(PromptAction::CopyBlock(None))
+    );
+    menu.set_block(Some("> ls\na".into()));
+    let copy = MenuOutcome::Action(PromptAction::CopyBlock(Some("> ls\na".into())));
+    assert_eq!(
+        menu.key(&key(Key::Named(NamedKey::Down))),
+        MenuOutcome::Pending
+    );
+    assert_eq!(menu.key(&key(Key::Named(NamedKey::Enter))), copy);
+    assert_eq!(menu.choose(0), copy);
+    assert_eq!(
+        menu.key(&key(Key::Named(NamedKey::Escape))),
+        MenuOutcome::Close
+    );
+}
+
+#[test]
+fn context_menu_opens_at_the_pointer_without_a_search_row() {
+    let theme = flair_core::config::Config::default().theme();
+    let measure = &mut |text: &str, _| text.len() as f32 * 8.0;
+    let scene = context_menu(100.0, 120.0).layout(&input((800, 600), &theme), measure);
+    let panel = scene.hits.panel;
+    assert_eq!((panel.x, panel.y, panel.w), (100.0, 120.0, 220.0));
+    assert_eq!(scene.hits.rows.len(), 1);
+    let (index, row) = scene.hits.rows[0];
+    assert_eq!(index, 0);
+    assert_eq!(row.y, panel.y + POPUP_PAD);
+    assert_eq!(row.y + row.h + POPUP_PAD, panel.y + panel.h);
+    assert!(scene.text.iter().all(|run| !run.text.contains("Search")));
+    assert!(scene.text.iter().any(|run| run.text == "Copy block"));
+    let scene = context_menu(790.0, 595.0).layout(&input((800, 600), &theme), measure);
+    let panel = scene.hits.panel;
+    assert!(panel.x + panel.w <= 800.0 && panel.y + panel.h <= 595.0);
+    assert!(panel.x >= 0.0 && panel.y >= 0.0);
 }

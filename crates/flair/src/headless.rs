@@ -203,6 +203,7 @@ impl Capture {
             | ServerMsg::Sessionizer { .. }
             | ServerMsg::ChooseSession { .. }
             | ServerMsg::Preview(_)
+            | ServerMsg::BlockText(_)
             | ServerMsg::Sessions(_)
             | ServerMsg::ChooseWindow
             | ServerMsg::ChooseTheme

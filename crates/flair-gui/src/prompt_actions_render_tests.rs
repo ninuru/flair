@@ -227,3 +227,170 @@ fn gpu_prompt_menu_is_anchored_bounded_and_does_not_dim_the_terminal() {
         drop(ctx);
     }
 }
+
+#[test]
+fn gpu_context_menu_opens_at_the_pointer_and_stays_inside_the_window() {
+    for (width, height, scale, pointer) in [
+        (800, 480, 1.0, (200.0, 160.0)),
+        (360, 240, 1.0, (340.0, 230.0)),
+        (1200, 720, 1.5, (600.0, 300.0)),
+    ] {
+        let (ctx, gl) = match HeadlessContext::new((width, height)) {
+            Ok(pair) => pair,
+            Err(error) => {
+                if std::env::var_os("FLAIR_REQUIRE_EGL").is_some() {
+                    panic!("required EGL unavailable: {error}");
+                }
+                eprintln!("skipping context menu GPU test: {error}");
+                return;
+            }
+        };
+        let mut config = Config::default();
+        config.font.family = "JetBrainsMono Nerd Font Mono".into();
+        let theme = config.theme();
+        let mut fonts = Fonts::load(&config.font, f64::from(scale)).unwrap();
+        let metrics = fonts.metrics();
+        let padding = (8.0 * scale, 4.0 * scale);
+        let dock = frame(
+            (width, height),
+            scale,
+            false,
+            padding,
+            metrics,
+            Dock::default(),
+        );
+        let size = chrome_layout::grid_size(&dock, padding, metrics);
+        let text = ["> cargo test", "running 3 tests", "test result: ok"];
+        let rows = text
+            .iter()
+            .enumerate()
+            .map(|(row, line)| {
+                let cells = line
+                    .chars()
+                    .map(|c| flair_core::proto::Cell {
+                        c,
+                        ..Default::default()
+                    })
+                    .collect();
+                (row as u16 + 1, cells)
+            })
+            .collect();
+        let mut mirror = Mirror::default();
+        mirror.apply(&[PaneUpdate {
+            pane: PaneId(1),
+            size,
+            full: true,
+            rows,
+            cursor: Cursor {
+                point: CellPoint { col: 0, row: 4 },
+                shape: CursorShape::Block,
+                visible: true,
+            },
+            flags: PaneFlags::default(),
+            selection: Vec::new(),
+        }]);
+        let layout = WindowLayout {
+            window: WindowId(1),
+            area: CellRect {
+                origin: CellPoint { col: 0, row: 0 },
+                size,
+            },
+            panes: vec![PanePlacement {
+                pane: PaneId(1),
+                rect: CellRect {
+                    origin: CellPoint { col: 0, row: 0 },
+                    size,
+                },
+                band: 0,
+            }],
+            separators: Vec::new(),
+            active: PaneId(1),
+            zoomed: false,
+        };
+        let status = status_parts(&StatusLine::default());
+        let mut overlays = Overlays::default();
+        overlays.open_prompt(PromptMenu::context(
+            PaneId(1),
+            PxRect {
+                x: pointer.0 * scale,
+                y: pointer.1 * scale,
+                w: 0.0,
+                h: 0.0,
+            },
+        ));
+        let chrome = chrome_layout::layout(
+            &ChromeInput {
+                px: (width, height),
+                scale,
+                padding,
+                zen: false,
+                metrics,
+                ui: fonts.ui_metrics(),
+                theme: &theme,
+                status: &status,
+                prompt: None,
+                layout: Some(&layout),
+                hover: None,
+                overlays: Some(&overlays),
+                notice: None,
+                isles: None,
+                frame: dock,
+                panels: None,
+            },
+            |text, bold| fonts.ui_width(text, bold),
+        );
+        let hits = chrome.overlay.as_ref().unwrap();
+        let panel = hits.panel;
+        assert!(panel.x >= 0.0 && panel.x + panel.w <= width as f32);
+        assert!(panel.y >= 0.0 && panel.y + panel.h <= height as f32);
+        assert!((panel.w - 220.0 * scale).abs() < 1.0);
+        assert_eq!(hits.rows.len(), 1);
+        assert!((hits.rows[0].1.y - panel.y - 4.0 * scale).abs() < 0.01);
+        if width == 800 {
+            assert_eq!((panel.x, panel.y), (pointer.0, pointer.1));
+        }
+        let mut renderer = Renderer::new(gl, metrics).unwrap();
+        renderer.resize((width, height));
+        renderer
+            .draw_frame(
+                &compose_frame(
+                    &mirror,
+                    &layout,
+                    size,
+                    &theme,
+                    PanesConfig::default(),
+                    true,
+                    false,
+                ),
+                &chrome.chrome,
+                &mut fonts,
+                theme.background,
+            )
+            .unwrap();
+        let pixels = renderer.read_pixels();
+        let at = |x: u32, y: u32| {
+            let index = ((height - 1 - y) * width + x) as usize * 4;
+            [pixels[index], pixels[index + 1], pixels[index + 2]]
+        };
+        let bg = theme.background;
+        let inside = at(
+            (panel.x + panel.w / 2.0) as u32,
+            (panel.y + panel.h - 3.0) as u32,
+        );
+        assert_ne!(inside, [bg.r, bg.g, bg.b]);
+        if let Some(path) = std::env::var_os("FLAIR_CONTEXT_MENU_CAPTURE") {
+            fs::create_dir_all(&path).unwrap();
+            let mut file =
+                fs::File::create(Path::new(&path).join(format!("context-menu-{width}.ppm")))
+                    .unwrap();
+            write!(file, "P6\n{width} {height}\n255\n").unwrap();
+            for y in 0..height {
+                for x in 0..width {
+                    file.write_all(&at(x, y)).unwrap();
+                }
+            }
+        }
+        drop(renderer);
+        drop(ctx);
+    }
+}

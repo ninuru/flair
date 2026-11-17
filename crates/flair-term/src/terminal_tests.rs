@@ -581,3 +581,70 @@ fn agent_reports_and_reset_surface_as_events() {
         ]
     );
 }
+
+fn block_terminal() -> Terminal {
+    let mut term = Terminal::new(GridSize { cols: 20, rows: 6 }, 100);
+    term.advance(b"\x1b]6973;prompt\x07\r\n> seq 8\r\n\x1b]133;C\x07");
+    for n in 1..=8 {
+        term.advance(format!("{n}   \r\n").as_bytes());
+    }
+    term.advance(b"\x1b]133;D;0\x07\x1b]6973;gap\x07\x1b]6973;prompt\x07\r\n> echo hi\r\n");
+    term.advance(
+        b"\x1b]133;C\x07hi\r\n\x1b]133;D;0\x07\x1b]6973;gap\x07\x1b]6973;prompt\x07\r\n> ",
+    );
+    term
+}
+
+fn screen(term: &mut Terminal) -> Vec<String> {
+    term.snapshot(PaneId(1), true)
+        .unwrap()
+        .rows
+        .iter()
+        .map(|(_, cells)| cells.iter().map(|cell| cell.c).collect::<String>())
+        .map(|row| row.trim_end().to_owned())
+        .collect()
+}
+
+fn row_of(term: &mut Terminal, text: &str) -> u16 {
+    screen(term).iter().position(|row| row == text).unwrap() as u16
+}
+
+#[test]
+fn block_text_spans_scrollback_from_any_row_of_the_block() {
+    let mut term = block_terminal();
+    term.scroll(6);
+    let rows = screen(&mut term);
+    assert!(!rows.iter().any(|row| row == "> seq 8"));
+    let row = row_of(&mut term, "6");
+    assert_eq!(
+        term.block_text(row).as_deref(),
+        Some("> seq 8\n1\n2\n3\n4\n5\n6\n7\n8")
+    );
+    term.scroll_to_bottom();
+    let row = row_of(&mut term, "hi");
+    assert_eq!(term.block_text(row).as_deref(), Some("> echo hi\nhi"));
+}
+
+#[test]
+fn block_text_on_chrome_rows_picks_the_block_below() {
+    let mut term = block_terminal();
+    term.scroll(2);
+    let command = row_of(&mut term, "> echo hi");
+    assert!(command >= 2);
+    for row in [command - 2, command - 1, command] {
+        assert_eq!(term.block_text(row).as_deref(), Some("> echo hi\nhi"));
+    }
+}
+
+#[test]
+fn block_text_skips_the_live_prompt_and_terminals_without_blocks() {
+    let mut term = block_terminal();
+    let live = row_of(&mut term, ">");
+    assert_eq!(term.block_text(live), None);
+    assert_eq!(term.block_text(live - 1), None);
+    let mut plain = Terminal::new(GridSize { cols: 20, rows: 5 }, 100);
+    plain.advance(b"no prompts here\r\n");
+    assert_eq!(plain.block_text(0), None);
+    term.advance(b"\x1b[?1049hfull screen");
+    assert_eq!(term.block_text(0), None);
+}

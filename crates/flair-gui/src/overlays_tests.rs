@@ -670,6 +670,65 @@ fn prompt_menu_dismisses_outside_and_ignores_stale_context_results() {
 }
 
 #[test]
+fn context_menu_takes_no_text_and_closes_on_outside_or_escape() {
+    use crate::{
+        prompt_actions::{PromptAction, PromptMenu},
+        renderer::PxRect,
+    };
+    use flair_core::ids::PaneId;
+    let mut overlays = Overlays::default();
+    let open = |overlays: &mut Overlays| {
+        overlays.open_prompt(PromptMenu::context(PaneId(1), PxRect::default()));
+        assert!(overlays.menu_open());
+    };
+    open(&mut overlays);
+    assert_eq!(overlays.text("copy"), Some(OverlayEvent::Redraw));
+    assert_eq!(overlays.click(OverlayHit::Panel), OverlayEvent::Redraw);
+    assert!(overlays.is_open());
+    assert_eq!(overlays.click(OverlayHit::Outside), OverlayEvent::Redraw);
+    assert!(!overlays.is_open());
+    open(&mut overlays);
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::Escape)), || None),
+        Some(OverlayEvent::Redraw)
+    );
+    assert!(!overlays.menu_open());
+    open(&mut overlays);
+    assert_eq!(
+        overlays.key(&paste(), || Some("text".to_owned())),
+        Some(OverlayEvent::Redraw)
+    );
+    assert_eq!(
+        overlays.click(OverlayHit::Row(0)),
+        OverlayEvent::Prompt(PromptAction::CopyBlock(None))
+    );
+    assert!(!overlays.is_open());
+}
+
+#[test]
+fn context_menu_copies_the_block_answered_for_its_own_opening() {
+    use crate::{
+        prompt_actions::{PromptAction, PromptMenu},
+        renderer::PxRect,
+    };
+    use flair_core::ids::PaneId;
+    let mut overlays = Overlays::default();
+    let menu = || PromptMenu::context(PaneId(1), PxRect::default());
+    assert!(!overlays.block_text(Some("unsolicited".into())));
+    overlays.open_prompt(menu());
+    overlays.click(OverlayHit::Outside);
+    overlays.open_prompt(menu());
+    assert!(!overlays.block_text(Some("stale".into())));
+    assert!(overlays.block_text(Some("> ls\na".into())));
+    assert!(!overlays.block_text(Some("later".into())));
+    assert_eq!(
+        overlays.click(OverlayHit::Row(0)),
+        OverlayEvent::Prompt(PromptAction::CopyBlock(Some("> ls\na".into())))
+    );
+    assert!(!overlays.block_text(None));
+}
+
+#[test]
 fn the_session_tree_takes_keys_and_text_only_in_search() {
     let mut overlays = Overlays::default();
     open(&mut overlays, sessions());

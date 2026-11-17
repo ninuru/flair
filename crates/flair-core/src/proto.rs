@@ -15,7 +15,7 @@ use crate::{
     theme::Theme,
 };
 
-pub const PROTOCOL: u32 = 19;
+pub const PROTOCOL: u32 = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ClientMsg {
@@ -38,6 +38,10 @@ pub enum ClientMsg {
     Detach,
     Control(Control),
     Preview(Option<SessionId>),
+    RequestBlock {
+        pane: PaneId,
+        row: u16,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -98,6 +102,7 @@ pub enum ServerMsg {
     },
     PaneProcesses(Vec<u32>),
     Preview(SessionPreview),
+    BlockText(Option<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
