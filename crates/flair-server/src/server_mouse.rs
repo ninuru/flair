@@ -79,11 +79,19 @@ impl Server {
         mouse.point = local_point(mouse.point, placement);
         let copy = self.panes[&pane].terminal.copy_mode();
         let wheel = matches!(mouse.button, MouseButton::WheelUp | MouseButton::WheelDown);
-        if copy && mouse.action == MouseAction::Press && is_button(mouse.button) {
+        let copy_click =
+            copy && mouse.action == MouseAction::Press && mouse.button == MouseButton::Left;
+        if copy_click {
+            self.panes
+                .get_mut(&pane)
+                .unwrap()
+                .terminal
+                .copy_goto_point(mouse.point);
+        } else if copy && mouse.action == MouseAction::Press && is_button(mouse.button) {
             self.exit_copy_mode(pane);
         }
         let modes = self.panes[&pane].terminal.modes();
-        if modes.mouse != MouseMode::Off && !mouse.mods.shift && !(copy && wheel) {
+        if modes.mouse != MouseMode::Off && !mouse.mods.shift && !(copy && wheel) && !copy_click {
             if mouse.action == MouseAction::Press && is_button(mouse.button) {
                 self.clients.get_mut(&id).unwrap().mouse =
                     Some(MouseCapture::Reporting { pane, input: mouse });

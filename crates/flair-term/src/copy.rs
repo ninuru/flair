@@ -6,7 +6,10 @@ use alacritty_terminal::{
     term::search::RegexSearch,
     vi_mode::ViMotion,
 };
-use flair_core::command::{CopyMotion, JumpKind, SelectionKind};
+use flair_core::{
+    command::{CopyMotion, JumpKind, SelectionKind},
+    geom::CellPoint,
+};
 
 const BRACKETS: &str = "()[]{}";
 
@@ -60,6 +63,14 @@ impl Terminal {
             .min(self.term.bottommost_line());
         self.jump_to_line(line);
         self.settle_copy_cursor(from);
+    }
+
+    pub fn copy_goto_point(&mut self, point: CellPoint) {
+        if !self.copy_mode() {
+            return;
+        }
+        let point = self.selection_point(point);
+        self.term.vi_goto_point(point);
     }
 
     pub fn copy_jump(&mut self, kind: JumpKind, ch: char, count: u16) {

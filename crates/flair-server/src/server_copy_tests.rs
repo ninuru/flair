@@ -233,33 +233,74 @@ fn text_and_paste_leave_copy_mode_and_reach_the_pty() {
     }
 }
 
-#[test]
-fn click_leaves_copy_mode_and_still_starts_a_selection() {
-    let mut server = setup();
-    enter(&mut server);
-    wheel(&mut server, MouseButton::WheelUp);
-    assert!(offset(&server) > 0);
-    let out = mouse(&mut server, 3, MouseButton::Left, MouseAction::Press);
-    assert!(!copy_mode(&server));
-    assert!(!status(&out).unwrap().copy);
-    assert_eq!(offset(&server), 0);
+fn drag(server: &mut Server, col: u16, row: u16, action: MouseAction) -> Vec<Effect> {
     send(
-        &mut server,
+        server,
         ClientMsg::Input(InputEvent::Mouse(MouseInput {
-            point: CellPoint { col: 4, row: 3 },
+            point: CellPoint { col, row },
             button: MouseButton::Left,
-            action: MouseAction::Release,
+            action,
             mods: Mods::default(),
         })),
     )
-    .iter()
-    .find(|effect| matches!(effect, Effect::Send(ClientId(1), ServerMsg::SetClipboard { text, .. }) if text == "hello"))
-    .unwrap();
+}
+
+#[test]
+fn click_in_scrolled_history_keeps_the_view_and_selects_there() {
+    let mut server = setup();
+    wheel(&mut server, MouseButton::WheelUp);
+    assert_eq!(offset(&server), 3);
+    let out = mouse(&mut server, 1, MouseButton::Left, MouseAction::Press);
+    assert!(copy_mode(&server));
+    assert!(status(&out).is_none_or(|line| line.copy));
+    assert_eq!(offset(&server), 3);
+    assert_eq!(cursor(&server), CellPoint { col: 0, row: 1 });
+    assert_eq!(
+        clipboard(&drag(&mut server, 4, 2, MouseAction::Motion)),
+        None
+    );
+    let out = drag(&mut server, 4, 2, MouseAction::Release);
+    assert_eq!(clipboard(&out), Some(("5\n6", true)));
+    assert_eq!(offset(&server), 3);
+    assert!(copy_mode(&server));
+    assert_eq!(selection(&server).as_deref(), Some("5\n6"));
+    wheel(&mut server, MouseButton::WheelDown);
+    assert!(!copy_mode(&server));
+    assert_eq!(offset(&server), 0);
+}
+
+#[test]
+fn click_in_prefix_copy_mode_stays_and_middle_or_right_click_leaves() {
+    let mut server = setup();
+    enter(&mut server);
+    wheel(&mut server, MouseButton::WheelUp);
+    assert_eq!(offset(&server), 3);
+    mouse(&mut server, 3, MouseButton::Left, MouseAction::Press);
+    assert!(copy_mode(&server));
+    assert_eq!(offset(&server), 3);
+    let out = drag(&mut server, 4, 3, MouseAction::Release);
+    assert_eq!(clipboard(&out), Some(("7", true)));
     for button in [MouseButton::Middle, MouseButton::Right] {
         enter(&mut server);
-        mouse(&mut server, 0, button, MouseAction::Press);
+        wheel(&mut server, MouseButton::WheelUp);
+        let out = mouse(&mut server, 0, button, MouseAction::Press);
         assert!(!copy_mode(&server));
+        assert!(!status(&out).unwrap().copy);
+        assert_eq!(offset(&server), 0);
     }
+}
+
+#[test]
+fn click_in_copy_mode_selects_instead_of_reporting() {
+    let mut server = setup();
+    output(&mut server, b"\x1b[?1000h\x1b[?1006h");
+    enter(&mut server);
+    let out = mouse(&mut server, 3, MouseButton::Left, MouseAction::Press);
+    assert!(writes(&out).is_empty());
+    assert!(copy_mode(&server));
+    let out = drag(&mut server, 4, 3, MouseAction::Release);
+    assert!(writes(&out).is_empty());
+    assert_eq!(clipboard(&out), Some(("hello", true)));
 }
 
 #[test]
@@ -539,11 +580,11 @@ fn ctrl_shift_c_copies_the_vi_selection_and_stays_in_copy_mode() {
 }
 
 #[test]
-fn drag_after_the_exiting_click_selects_for_primary_and_ctrl_shift_c() {
+fn drag_after_a_click_in_copy_mode_selects_for_primary_and_ctrl_shift_c() {
     let mut server = setup();
     enter(&mut server);
     mouse(&mut server, 3, MouseButton::Left, MouseAction::Press);
-    assert!(!copy_mode(&server));
+    assert!(copy_mode(&server));
     let out = send(
         &mut server,
         ClientMsg::Input(InputEvent::Mouse(MouseInput {

@@ -527,3 +527,26 @@ fn goto_line_counts_from_the_top_of_the_history() {
     assert_eq!(cursor(&mut term), at(0, 3));
     assert_eq!(offset(&mut term), 0);
 }
+
+#[test]
+fn goto_point_moves_the_cursor_to_the_cell_in_the_scrolled_view() {
+    let mut term = term(10, 4, &numbered(10));
+    term.scroll(3);
+    term.copy_goto_point(at(2, 1));
+    assert_eq!(cursor(&mut term), at(2, 1));
+    assert_eq!(offset(&mut term), 3);
+    term.copy_select(SelectionKind::Simple);
+    term.copy_move(CopyMotion::EndOfLine);
+    assert_eq!(term.selection_text().as_deref(), Some("ne4"));
+    term.copy_goto_point(at(50, 9));
+    assert_eq!(cursor(&mut term), at(9, 3));
+    assert_eq!(offset(&mut term), 3);
+}
+
+#[test]
+fn goto_point_does_nothing_outside_copy_mode() {
+    let mut term = term(10, 4, &numbered(10));
+    term.exit_copy_mode();
+    term.copy_goto_point(at(0, 0));
+    assert_eq!(cursor(&mut term), at(5, 3));
+}
