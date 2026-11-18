@@ -433,7 +433,7 @@ impl Terminal {
     pub fn clear_selection(&mut self) {
         self.term.selection = None;
     }
-    fn selection_point(&self, point: CellPoint) -> Point {
+    pub(crate) fn selection_point(&self, point: CellPoint) -> Point {
         Point::new(
             Line(
                 i32::from(point.row.min(self.size.rows - 1))
