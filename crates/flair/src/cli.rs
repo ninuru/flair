@@ -14,6 +14,9 @@ pub enum Args {
     Server {
         config: Option<PathBuf>,
     },
+    Attach {
+        config: Option<PathBuf>,
+    },
     List,
     KillServer,
     Switch(Target),
@@ -161,11 +164,14 @@ impl Args {
                     })
                 }
             }
-            Some("attach") => Ok(Self::Gui {
-                config,
-                target: target.ok_or("attach requires -t NAME")?,
-                standalone: false,
-            }),
+            Some("attach") => match target {
+                Some(target) => Ok(Self::Gui {
+                    config,
+                    target,
+                    standalone: false,
+                }),
+                None => Ok(Self::Attach { config }),
+            },
             Some("switch") => {
                 if config.is_some() {
                     return Err("switch does not accept --config".into());

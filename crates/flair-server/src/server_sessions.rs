@@ -289,6 +289,34 @@ impl Server {
                     Err(error) => out.push(Effect::Send(id, ServerMsg::Error(error))),
                 }
             }
+            Control::Attach { pane, env } => {
+                let Some(client) = self.chosen_gui(Some(pane)) else {
+                    out.push(Effect::Send(
+                        id,
+                        ServerMsg::Error("no flair window shows this pane".into()),
+                    ));
+                    return;
+                };
+                let size = self.clients[&client].size;
+                match self.resolve_target(Target::Main, size, &env, out) {
+                    Ok(main) => {
+                        let view = self.clients[&client].view;
+                        if view.session != main {
+                            self.switch_to(now, client, main, None, out);
+                            if self
+                                .tree
+                                .session(view.session)
+                                .is_some_and(|session| session.temporary)
+                            {
+                                self.clients.get_mut(&client).unwrap().view.last_session =
+                                    view.last_session.filter(|last| *last != main);
+                            }
+                        }
+                        out.push(Effect::Send(id, ServerMsg::Done));
+                    }
+                    Err(error) => out.push(Effect::Send(id, ServerMsg::Error(error))),
+                }
+            }
             Control::PaneProcesses { pane } => {
                 let window = self
                     .chosen_gui(pane)

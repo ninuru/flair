@@ -647,3 +647,107 @@ fn killing_an_unknown_session_changes_nothing() {
     assert!(chooser(&out).is_none());
     assert_eq!(server.tree.sessions.len(), 2);
 }
+
+fn control_attach(server: &mut Server, at: u64, client: u32) -> Vec<Effect> {
+    let pane = server.client_pane(ClientId(client)).unwrap();
+    let mut out = Vec::new();
+    server.handle(
+        Millis(at),
+        Event::Client(
+            ClientId(99),
+            ClientMsg::Control(Control::Attach {
+                pane,
+                env: Vec::new(),
+            }),
+        ),
+        &mut out,
+    );
+    out
+}
+
+fn done(out: &[Effect]) -> bool {
+    out.iter()
+        .any(|effect| matches!(effect, Effect::Send(ClientId(99), ServerMsg::Done)))
+}
+
+#[test]
+fn control_attach_from_a_temp_session_moves_to_main_and_ends_the_temp() {
+    let (mut server, temp, panes) = temp_beside_main();
+    let out = control_attach(&mut server, 10, 1);
+    let main = session_named(&server, "main").unwrap();
+    assert_eq!(server.clients[&ClientId(1)].view.session, main);
+    assert_eq!(server.clients[&ClientId(1)].view.last_session, None);
+    assert!(server.tree.session(temp).is_none());
+    let mut gone = killed(&out);
+    gone.sort();
+    assert_eq!(gone, panes);
+    assert!(done(&out));
+}
+
+#[test]
+fn control_attach_keeps_a_temp_session_another_client_views() {
+    let (mut server, temp, _) = temp_beside_main();
+    attach(&mut server, 10, 3, Target::Name("1".into()));
+    server.handle(
+        Millis(10),
+        Event::Client(ClientId(1), ClientMsg::Focus(true)),
+        &mut Vec::new(),
+    );
+    let out = control_attach(&mut server, 11, 1);
+    let main = session_named(&server, "main").unwrap();
+    assert_eq!(server.clients[&ClientId(1)].view.session, main);
+    assert!(killed(&out).is_empty());
+    assert!(server.tree.session(temp).is_some());
+    assert_eq!(server.clients[&ClientId(3)].view.session, temp);
+}
+
+#[test]
+fn control_attach_from_a_regular_session_is_a_plain_switch_to_main() {
+    let mut server = homed();
+    attach(&mut server, 0, 1, Target::Path("/tmp/project".into()));
+    let project = server.clients[&ClientId(1)].view.session;
+    let out = control_attach(&mut server, 1, 1);
+    let main = session_named(&server, "main").unwrap();
+    assert_eq!(server.clients[&ClientId(1)].view.session, main);
+    assert_eq!(
+        server.clients[&ClientId(1)].view.last_session,
+        Some(project)
+    );
+    assert!(server.tree.session(project).is_some());
+    assert_eq!(
+        server.tree.session(main).unwrap().root,
+        PathBuf::from("/home/user")
+    );
+    assert!(done(&out));
+}
+
+#[test]
+fn control_attach_inside_main_changes_nothing() {
+    let mut server = two_sessions();
+    command(&mut server, 10, Command::Switch(Target::Main));
+    let before = server.clients[&ClientId(1)].view;
+    let out = control_attach(&mut server, 11, 1);
+    assert_eq!(server.clients[&ClientId(1)].view, before);
+    assert!(done(&out));
+}
+
+#[test]
+fn control_attach_for_a_pane_no_gui_shows_is_an_error() {
+    let mut server = two_sessions();
+    let mut out = Vec::new();
+    server.handle(
+        Millis(10),
+        Event::Client(
+            ClientId(99),
+            ClientMsg::Control(Control::Attach {
+                pane: PaneId(999),
+                env: Vec::new(),
+            }),
+        ),
+        &mut out,
+    );
+    assert!(
+        out.iter()
+            .any(|effect| matches!(effect, Effect::Send(ClientId(99), ServerMsg::Error(_))))
+    );
+}
