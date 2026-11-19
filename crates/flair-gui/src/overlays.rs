@@ -597,6 +597,7 @@ impl Overlays {
                 self.tree = None;
                 OverlayEvent::Send(vec![ClientMsg::Preview(None), ClientMsg::Command(command)])
             }
+            TreeOutcome::Send(command) => OverlayEvent::Send(vec![ClientMsg::Command(command)]),
             TreeOutcome::Watch(session) => {
                 OverlayEvent::Send(vec![ClientMsg::Preview(Some(session))])
             }

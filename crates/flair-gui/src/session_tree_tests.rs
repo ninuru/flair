@@ -163,6 +163,7 @@ fn opens_on_the_current_session_with_every_session_collapsed() {
             ("h l", "Fold"),
             ("0-9", "Jump"),
             (SEARCH_KEY, "Search"),
+            ("x", "Kill"),
             (ESCAPE_KEY, "Close"),
         ]
     );
@@ -268,7 +269,6 @@ fn every_other_key_is_ignored_and_changes_nothing() {
     let mut tree = tree();
     let before = tree.sheet();
     for key in [
-        char('x'),
         char('a'),
         char('J'),
         char('9'),
@@ -734,4 +734,97 @@ fn a_temporary_session_named_main_is_not_zero() {
         tree.key(&char('0')),
         TreeOutcome::Run(Command::Switch(Target::Main))
     );
+}
+
+fn keys(tree: &SessionTree) -> Vec<(&'static str, String)> {
+    tree.sheet().keys
+}
+
+fn kill(id: u32) -> TreeOutcome {
+    TreeOutcome::Send(Command::KillSession(SessionId(id)))
+}
+
+#[test]
+fn x_arms_a_confirmation_and_y_kills_the_focused_session() {
+    let mut tree = tree();
+    let before = tree.sheet();
+    assert_eq!(tree.key(&char('x')), TreeOutcome::Pending);
+    assert_eq!(
+        keys(&tree),
+        [
+            ("y", "Kill notes".to_owned()),
+            (ESCAPE_KEY, "Cancel".to_owned())
+        ]
+    );
+    assert_eq!(tree.sheet().rows, before.rows);
+    assert_eq!(tree.key(&char('y')), kill(2));
+    assert_eq!(tree.sheet(), before);
+}
+
+#[test]
+fn y_without_x_is_ignored() {
+    let mut tree = tree();
+    assert_eq!(tree.key(&char('y')), TreeOutcome::Ignored);
+}
+
+#[test]
+fn any_other_key_cancels_the_confirmation_and_does_nothing_else() {
+    let mut tree = tree();
+    let before = tree.sheet();
+    for key in [
+        named(NamedKey::Escape),
+        char('q'),
+        char('j'),
+        named(NamedKey::Enter),
+        char('x'),
+        KeyInput {
+            mods: Mods {
+                ctrl: true,
+                ..Mods::default()
+            },
+            ..char('y')
+        },
+        KeyInput {
+            mods: Mods {
+                alt: true,
+                ..Mods::default()
+            },
+            ..char('y')
+        },
+    ] {
+        assert_eq!(tree.key(&char('x')), TreeOutcome::Pending, "{key:?}");
+        assert_eq!(tree.key(&key), TreeOutcome::Pending, "{key:?}");
+        assert_eq!(tree.sheet(), before, "{key:?}");
+    }
+    assert_eq!(tree.key(&char('y')), TreeOutcome::Ignored);
+}
+
+#[test]
+fn x_on_a_window_row_kills_its_session() {
+    let mut tree = tree();
+    tree.key(&char('j'));
+    tree.key(&char('l'));
+    tree.key(&char('l'));
+    tree.key(&char('j'));
+    assert_eq!(selected(&tree), "b");
+    tree.key(&char('x'));
+    assert_eq!(keys(&tree)[0], ("y", "Kill work".to_owned()));
+    assert_eq!(tree.key(&char('y')), kill(3));
+}
+
+#[test]
+fn x_is_ignored_on_the_group_row_and_typed_in_search() {
+    let mut grouped = temp_tree(1);
+    grouped.key(&char('j'));
+    grouped.key(&char('j'));
+    grouped.key(&char('j'));
+    assert_eq!(selected(&grouped), "Temporary");
+    assert_eq!(grouped.key(&char('x')), TreeOutcome::Ignored);
+    assert_eq!(grouped.key(&char('y')), TreeOutcome::Ignored);
+    let mut tree = tree();
+    tree.key(&char('/'));
+    tree.key(&char('x'));
+    tree.key(&char('y'));
+    let field = tree.sheet().field.unwrap();
+    assert_eq!(field.text, "xy");
 }

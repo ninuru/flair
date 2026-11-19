@@ -153,6 +153,7 @@ fn client_messages() -> Vec<ClientMsg> {
             index: 2,
         }),
         ClientMsg::Command(Command::KillWindow(WindowId(6))),
+        ClientMsg::Command(Command::KillSession(SessionId(7))),
         ClientMsg::Command(Command::Explorer),
         ClientMsg::Command(Command::Agents),
         ClientMsg::Command(Command::SplitRun {

@@ -39,6 +39,7 @@ pub struct SessionTree {
     search: Option<Search>,
     watched: SessionId,
     preview: Option<SessionPreview>,
+    armed: Option<SessionId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +48,7 @@ pub enum TreeOutcome {
     Ignored,
     Close,
     Run(Command),
+    Send(Command),
     Watch(SessionId),
 }
 
@@ -69,6 +71,7 @@ impl SessionTree {
             search: None,
             watched: current,
             preview: None,
+            armed: None,
         };
         tree.set_preview(preview);
         tree
@@ -93,6 +96,14 @@ impl SessionTree {
         if key.action == KeyAction::Release {
             return TreeOutcome::Ignored;
         }
+        if let Some(session) = self.armed.take() {
+            return match key.key {
+                Key::Char('y') if !(key.mods.ctrl || key.mods.alt || key.mods.super_) => {
+                    TreeOutcome::Send(Command::KillSession(session))
+                }
+                Key::Char(_) | Key::Named(_) => TreeOutcome::Pending,
+            };
+        }
         let outcome = match self.search {
             Some(_) => self.search_key(key),
             None if key.mods.ctrl || key.mods.alt || key.mods.super_ => TreeOutcome::Ignored,
@@ -111,6 +122,7 @@ impl SessionTree {
     }
 
     pub fn step(&mut self, delta: isize) -> TreeOutcome {
+        self.armed = None;
         let outcome = self.move_by(delta);
         self.settle(outcome)
     }
@@ -163,6 +175,7 @@ impl SessionTree {
     }
 
     pub fn choose(&mut self, index: usize) -> TreeOutcome {
+        self.armed = None;
         let matches = self.matches();
         let rows = self.visible();
         match &mut self.search {
@@ -228,19 +241,33 @@ impl SessionTree {
                         .iter()
                         .position(|spot| *spot == self.cursor)
                         .unwrap_or(0),
-                    keys: vec![
-                        ("j k", "Navigate".to_owned()),
-                        (ENTER_KEY, "Switch".to_owned()),
-                        ("h l", "Fold".to_owned()),
-                        ("0-9", "Jump".to_owned()),
-                        (SEARCH_KEY, "Search".to_owned()),
-                        (ESCAPE_KEY, "Close".to_owned()),
-                    ],
+                    keys: self.tree_keys(),
                     strip: Some(self.strip()),
                     empty: Some("No sessions."),
                     glyph: SEARCH_ICON,
                 }
             }
+        }
+    }
+
+    fn tree_keys(&self) -> Vec<(&'static str, String)> {
+        match self
+            .armed
+            .and_then(|armed| self.sessions.iter().find(|session| session.id == armed))
+        {
+            Some(session) => vec![
+                ("y", format!("Kill {}", session.name)),
+                (ESCAPE_KEY, "Cancel".to_owned()),
+            ],
+            None => vec![
+                ("j k", "Navigate".to_owned()),
+                (ENTER_KEY, "Switch".to_owned()),
+                ("h l", "Fold".to_owned()),
+                ("0-9", "Jump".to_owned()),
+                (SEARCH_KEY, "Search".to_owned()),
+                ("x", "Kill".to_owned()),
+                (ESCAPE_KEY, "Close".to_owned()),
+            ],
         }
     }
 
@@ -284,6 +311,13 @@ impl SessionTree {
                 });
                 TreeOutcome::Pending
             }
+            Key::Char('x') => match self.focus() {
+                Some(index) => {
+                    self.armed = Some(self.sessions[index].id);
+                    TreeOutcome::Pending
+                }
+                None => TreeOutcome::Ignored,
+            },
             Key::Char(digit @ '0'..='9') => {
                 let number = digit.to_digit(10).map_or(0, |digit| digit as usize);
                 match self.numbers().get(number) {

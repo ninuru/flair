@@ -773,7 +773,7 @@ fn the_session_tree_takes_keys_and_text_only_in_search() {
     let mut overlays = Overlays::default();
     open(&mut overlays, sessions());
     assert_eq!(
-        overlays.key(&press(Key::Char('x')), || None),
+        overlays.key(&press(Key::Char('a')), || None),
         Some(OverlayEvent::Ignored)
     );
     assert_eq!(overlays.text("work"), Some(OverlayEvent::Ignored));
@@ -820,6 +820,41 @@ fn the_session_tree_digit_switches_and_q_closes() {
     open(&mut overlays, sessions());
     assert_eq!(
         overlays.key(&press(Key::Char('q')), || None),
+        Some(OverlayEvent::Send(vec![ClientMsg::Preview(None)]))
+    );
+    assert!(!overlays.is_open());
+}
+
+#[test]
+fn the_session_tree_kills_a_session_after_confirmation_and_stays_open() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, sessions());
+    assert_eq!(
+        overlays.key(&press(Key::Char('x')), || None),
+        Some(OverlayEvent::Redraw)
+    );
+    assert_eq!(
+        overlays.key(&press(Key::Char('y')), || None),
+        Some(OverlayEvent::Send(vec![ClientMsg::Command(
+            Command::KillSession(flair_core::ids::SessionId(1))
+        )]))
+    );
+    assert!(overlays.is_open());
+    assert_eq!(tree_rows(&overlays).0, ["main", "notes", "work"]);
+}
+
+#[test]
+fn escape_cancels_a_session_kill_without_closing_the_tree() {
+    let mut overlays = Overlays::default();
+    open(&mut overlays, sessions());
+    overlays.key(&press(Key::Char('x')), || None);
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::Escape)), || None),
+        Some(OverlayEvent::Redraw)
+    );
+    assert!(overlays.is_open());
+    assert_eq!(
+        overlays.key(&press(Key::Named(NamedKey::Escape)), || None),
         Some(OverlayEvent::Send(vec![ClientMsg::Preview(None)]))
     );
     assert!(!overlays.is_open());
