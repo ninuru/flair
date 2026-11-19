@@ -193,6 +193,10 @@ fn client_messages() -> Vec<ClientMsg> {
         ClientMsg::Control(Control::PaneProcesses {
             pane: Some(PaneId(7)),
         }),
+        ClientMsg::Control(Control::Attach {
+            pane: PaneId(7),
+            env: vec![("HOME".to_owned(), "/home/user".to_owned())],
+        }),
         ClientMsg::Preview(Some(SessionId(3))),
         ClientMsg::Preview(None),
         ClientMsg::RequestBlock {

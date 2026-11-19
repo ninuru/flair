@@ -15,7 +15,7 @@ use flair_server::{ServerConfig, runtime::spawn_in_process};
 use scenario::{Scenario, Step, key_input};
 use std::{
     env,
-    path::Path,
+    path::{Path, PathBuf},
     process::ExitCode,
     time::{Duration, Instant},
 };
@@ -48,7 +48,7 @@ fn main() -> ExitCode {
     match args {
         Args::Help => {
             println!(
-                "flair [--config PATH] [--standalone|--temp]\nflair server [--config PATH]\nflair new [-d] [-s NAME] [-c DIR]\nflair attach -t NAME\nflair switch PATH|NAME\nflair open FILE\nflair ls\nflair kill-server\nflair test-headless --scenario PATH --output DIR [--timeout-ms 5000] [--config PATH] [--pixels WxH] [--scale S]"
+                "flair [--config PATH] [--standalone|--temp]\nflair server [--config PATH]\nflair new [-d] [-s NAME] [-c DIR]\nflair attach [-t NAME]\nflair switch PATH|NAME\nflair open FILE\nflair ls\nflair kill-server\nflair test-headless --scenario PATH --output DIR [--timeout-ms 5000] [--config PATH] [--pixels WxH] [--scale S]"
             );
             ExitCode::SUCCESS
         }
@@ -169,72 +169,97 @@ fn main() -> ExitCode {
             Ok(())
         })()),
         Args::Gui {
-            config: path,
+            config,
             target,
             standalone,
-        } => {
-            let config_path = path.clone().unwrap_or_else(Config::default_path);
-            let (config, error) = Config::load(&config_path);
-            if let Some(error) = error {
-                log::warn!("{error}; using defaults");
-            }
-            let drive = match env::var_os("FLAIR_UI_SCRIPT") {
-                Some(script) => match ui_script(Path::new(&script)) {
-                    Ok(drive) => drive,
-                    Err(error) => {
-                        eprintln!("flair: {error}");
-                        return ExitCode::from(2);
-                    }
-                },
-                None => Vec::new(),
-            };
-            if env::var_os("FLAIR_STARTUP_PROBE").is_some() {
-                eprintln!("probe config {:.1}", start.elapsed().as_secs_f64() * 1000.0);
-            }
-            let (client, worker) = if standalone {
-                let (client, server) = channel_pair();
-                let mut server_config = ServerConfig::from_config(&config);
-                if let Some(path) = &path {
-                    server_config.path.clone_from(path);
-                }
-                match spawn_in_process(server_config, server) {
-                    Ok(worker) => (client, Some(worker)),
-                    Err(error) => {
-                        eprintln!("flair: {error}");
-                        return ExitCode::FAILURE;
-                    }
-                }
-            } else {
-                match daemon::connect(path.as_deref(), true) {
-                    Ok(client) => (client, None),
-                    Err(error) => {
-                        eprintln!("flair: {error}");
-                        return ExitCode::FAILURE;
-                    }
-                }
-            };
-            let result = flair_gui::run_target(
-                config,
-                config_path,
-                client,
-                env::var_os("FLAIR_STARTUP_PROBE").map(|_| start),
-                target,
-                daemon::environment(),
-                drive,
-            );
-            if let Some(worker) = worker
-                && worker.join().is_err()
-            {
-                eprintln!("flair: server thread panicked");
-                return ExitCode::FAILURE;
-            }
-            match result {
-                Ok(()) => ExitCode::SUCCESS,
+        } => gui(config, target, standalone, start),
+        Args::Attach { config } => {
+            let socket = match flair_server::socket::socket_path() {
+                Ok(socket) => socket,
                 Err(error) => {
                     eprintln!("flair: {error}");
-                    ExitCode::FAILURE
+                    return ExitCode::FAILURE;
                 }
+            };
+            match daemon::pane_for_socket(&socket) {
+                Some(pane) => finish((|| {
+                    let link = daemon::connect(config.as_deref(), true)?;
+                    daemon::control(
+                        &link,
+                        Control::Attach {
+                            pane,
+                            env: daemon::environment(),
+                        },
+                    )?;
+                    Ok(())
+                })()),
+                None => gui(config, Target::Main, false, start),
             }
+        }
+    }
+}
+
+fn gui(path: Option<PathBuf>, target: Target, standalone: bool, start: Instant) -> ExitCode {
+    let config_path = path.clone().unwrap_or_else(Config::default_path);
+    let (config, error) = Config::load(&config_path);
+    if let Some(error) = error {
+        log::warn!("{error}; using defaults");
+    }
+    let drive = match env::var_os("FLAIR_UI_SCRIPT") {
+        Some(script) => match ui_script(Path::new(&script)) {
+            Ok(drive) => drive,
+            Err(error) => {
+                eprintln!("flair: {error}");
+                return ExitCode::from(2);
+            }
+        },
+        None => Vec::new(),
+    };
+    if env::var_os("FLAIR_STARTUP_PROBE").is_some() {
+        eprintln!("probe config {:.1}", start.elapsed().as_secs_f64() * 1000.0);
+    }
+    let (client, worker) = if standalone {
+        let (client, server) = channel_pair();
+        let mut server_config = ServerConfig::from_config(&config);
+        if let Some(path) = &path {
+            server_config.path.clone_from(path);
+        }
+        match spawn_in_process(server_config, server) {
+            Ok(worker) => (client, Some(worker)),
+            Err(error) => {
+                eprintln!("flair: {error}");
+                return ExitCode::FAILURE;
+            }
+        }
+    } else {
+        match daemon::connect(path.as_deref(), true) {
+            Ok(client) => (client, None),
+            Err(error) => {
+                eprintln!("flair: {error}");
+                return ExitCode::FAILURE;
+            }
+        }
+    };
+    let result = flair_gui::run_target(
+        config,
+        config_path,
+        client,
+        env::var_os("FLAIR_STARTUP_PROBE").map(|_| start),
+        target,
+        daemon::environment(),
+        drive,
+    );
+    if let Some(worker) = worker
+        && worker.join().is_err()
+    {
+        eprintln!("flair: server thread panicked");
+        return ExitCode::FAILURE;
+    }
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(error) => {
+            eprintln!("flair: {error}");
+            ExitCode::FAILURE
         }
     }
 }

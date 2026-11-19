@@ -80,7 +80,16 @@ fn daemon_commands_parse_and_reject_missing_targets() {
     assert!(
         matches!(Args::parse_from(["attach", "-t", "main"]).unwrap(), Args::Gui { target: Target::Name(name), standalone: false, .. } if name == "main")
     );
-    assert!(Args::parse_from(["attach"]).is_err());
+    assert_eq!(
+        Args::parse_from(["attach"]).unwrap(),
+        Args::Attach { config: None }
+    );
+    assert_eq!(
+        Args::parse_from(["attach", "--config", "/tmp/c.toml"]).unwrap(),
+        Args::Attach {
+            config: Some("/tmp/c.toml".into())
+        }
+    );
     assert!(Args::parse_from(["switch"]).is_err());
     assert!(Args::parse_from(["--standalone", "new"]).is_err());
     assert!(Args::parse_from(["ls", "-d"]).is_err());
