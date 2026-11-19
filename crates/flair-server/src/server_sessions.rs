@@ -1,5 +1,6 @@
 use super::*;
 use flair_core::{
+    command::Command,
     proto::{SessionInfo, SessionNode},
     tree::{Session, Window},
 };
@@ -180,6 +181,50 @@ impl Server {
         self.resize_window(previous_window, out);
         self.touch(now, id, out);
         self.send_title(id, out);
+    }
+
+    pub(super) fn kill_session(
+        &mut self,
+        now: Millis,
+        id: ClientId,
+        session: SessionId,
+        out: &mut Vec<Effect>,
+    ) {
+        let Some(target) = self.tree.session(session) else {
+            return;
+        };
+        let windows: Vec<_> = target.windows.iter().map(|window| window.id).collect();
+        let viewers: Vec<_> = self
+            .clients
+            .iter()
+            .filter(|(_, client)| client.view.session == session)
+            .map(|(client, _)| *client)
+            .collect();
+        for viewer in viewers {
+            if let Some(fallback) = self.fallback(viewer, session) {
+                self.switch_to(now, viewer, fallback, None, out);
+            }
+        }
+        for window in windows {
+            self.close_window(now, window, out);
+        }
+        if !self.stopping && self.clients.contains_key(&id) {
+            self.command(now, id, Command::ChooseSession, out);
+        }
+    }
+
+    fn fallback(&self, client: ClientId, session: SessionId) -> Option<SessionId> {
+        let others = || self.listed().filter(|other| other.id != session);
+        self.clients[&client]
+            .view
+            .last_session
+            .filter(|last| *last != session && self.tree.session(*last).is_some())
+            .or_else(|| {
+                others()
+                    .find(|other| !other.temporary)
+                    .map(|other| other.id)
+            })
+            .or_else(|| others().next().map(|other| other.id))
     }
 
     pub(super) fn control(

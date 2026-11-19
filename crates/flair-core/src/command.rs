@@ -1,6 +1,6 @@
 use crate::{
     geom::{Axis, Direction},
-    ids::{PaneId, WindowId},
+    ids::{PaneId, SessionId, WindowId},
     proto::Target,
 };
 use serde::{Deserialize, Serialize};
@@ -33,6 +33,7 @@ pub enum Command {
     ToggleTabs,
     MoveWindow { window: WindowId, index: u16 },
     KillWindow(WindowId),
+    KillSession(SessionId),
     Explorer,
     Agents,
     SplitRun { argv: Vec<String>, cwd: PathBuf },

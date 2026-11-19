@@ -539,3 +539,111 @@ fn main_is_listed_first_even_when_created_behind_other_sessions() {
         .collect();
     assert_eq!(infos, ["main", "project", "1", "other"]);
 }
+
+fn exits(out: &[Effect]) -> Vec<ClientId> {
+    out.iter()
+        .filter_map(|effect| match effect {
+            Effect::Send(client, ServerMsg::Exit(_)) => Some(*client),
+            Effect::Send(_, _)
+            | Effect::Spawn(_, _)
+            | Effect::SpawnSplit(_, _, _)
+            | Effect::WritePty(_, _)
+            | Effect::ResizePty(_, _)
+            | Effect::KillPty(_)
+            | Effect::SetTimer(_, _)
+            | Effect::ReadConfig(_)
+            | Effect::ReadGit { .. }
+            | Effect::ReadContexts
+            | Effect::ReadProcess(_)
+            | Effect::PaneProcesses { .. }
+            | Effect::Notify { .. }
+            | Effect::Shutdown => None,
+        })
+        .collect()
+}
+
+#[test]
+fn killing_another_session_ends_its_panes_and_refreshes_the_chooser() {
+    let mut server = two_sessions();
+    let main = session_named(&server, "main").unwrap();
+    let project = session_named(&server, "project").unwrap();
+    let mut panes = session_panes(&server, main);
+    panes.sort();
+    let out = command(&mut server, 6, Command::KillSession(main));
+    let mut gone = killed(&out);
+    gone.sort();
+    assert_eq!(gone, panes);
+    assert!(server.tree.session(main).is_none());
+    assert_eq!(server.clients[&ClientId(1)].view.session, project);
+    let (sessions, current) = chooser(&out).expect("the chooser is refreshed");
+    assert_eq!(current, project);
+    let ids: Vec<_> = sessions.iter().map(|node| node.id).collect();
+    assert_eq!(ids, [project]);
+    assert!(exits(&out).is_empty());
+    assert!(!out.iter().any(|effect| matches!(effect, Effect::Shutdown)));
+}
+
+#[test]
+fn killing_the_current_session_moves_its_viewers_to_the_last_session() {
+    let mut server = two_sessions();
+    attach(&mut server, 6, 2, Target::Name("project".into()));
+    let main = session_named(&server, "main").unwrap();
+    let project = session_named(&server, "project").unwrap();
+    let out = command(&mut server, 7, Command::KillSession(project));
+    assert!(server.tree.session(project).is_none());
+    assert!(exits(&out).is_empty());
+    assert_eq!(server.clients[&ClientId(1)].view.session, main);
+    assert_eq!(server.clients[&ClientId(2)].view.session, main);
+    let (sessions, current) = chooser(&out).expect("the chooser is refreshed");
+    assert_eq!(current, main);
+    assert_eq!(sessions.len(), 1);
+}
+
+#[test]
+fn a_viewer_without_a_live_last_session_falls_back_to_main() {
+    let mut server = homed();
+    attach(&mut server, 0, 2, Target::Temp);
+    attach(&mut server, 1, 1, Target::Path("/tmp/project".into()));
+    command(&mut server, 2, Command::Switch(Target::Main));
+    command(
+        &mut server,
+        3,
+        Command::Switch(Target::Path("/tmp/other".into())),
+    );
+    command(
+        &mut server,
+        4,
+        Command::Switch(Target::Path("/tmp/third".into())),
+    );
+    let other = session_named(&server, "other").unwrap();
+    command(&mut server, 5, Command::KillSession(other));
+    let third = session_named(&server, "third").unwrap();
+    command(&mut server, 6, Command::KillSession(third));
+    let main = session_named(&server, "main").unwrap();
+    assert_eq!(server.clients[&ClientId(1)].view.session, main);
+}
+
+#[test]
+fn killing_the_only_session_exits_its_clients_and_stops_the_daemon() {
+    let mut server = Server::new(ServerConfig::from_config(&Config::default()));
+    attach(&mut server, 0, 1, Target::Main);
+    attach(&mut server, 1, 2, Target::Main);
+    command(&mut server, 2, Command::NewWindow);
+    let main = session_named(&server, "main").unwrap();
+    let out = command(&mut server, 3, Command::KillSession(main));
+    let mut exited = exits(&out);
+    exited.sort();
+    assert_eq!(exited, [ClientId(1), ClientId(2)]);
+    assert_eq!(killed(&out).len(), 2);
+    assert!(out.iter().any(|effect| matches!(effect, Effect::Shutdown)));
+    assert!(chooser(&out).is_none());
+}
+
+#[test]
+fn killing_an_unknown_session_changes_nothing() {
+    let mut server = two_sessions();
+    let out = command(&mut server, 6, Command::KillSession(SessionId(99)));
+    assert!(killed(&out).is_empty());
+    assert!(chooser(&out).is_none());
+    assert_eq!(server.tree.sessions.len(), 2);
+}

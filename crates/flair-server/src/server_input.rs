@@ -157,6 +157,7 @@ impl Server {
                     self.close_window(now, window, out);
                 }
             }
+            Command::KillSession(session) => self.kill_session(now, id, session, out),
             Command::Split(axis) => self.split(now, id, axis, None, out),
             Command::SelectPane(target) => {
                 self.touch(now, id, out);
@@ -215,6 +216,7 @@ impl Server {
                         | Command::SplitRun { .. }
                         | Command::MoveWindow { .. }
                         | Command::KillWindow(_)
+                        | Command::KillSession(_)
                         | Command::PasteClipboard
                         | Command::ReloadConfig
                         | Command::CopyMode
