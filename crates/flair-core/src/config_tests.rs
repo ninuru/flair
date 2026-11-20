@@ -863,3 +863,12 @@ fn tab_icons_default_on_after_the_name_and_read_from_the_tabs_table() {
     assert!(Config::from_toml("[tabs]\nicon_side = \"left\"\n").is_err());
     assert!(Config::from_toml("[tabs]\nicons = \"yes\"\n").is_err());
 }
+
+#[test]
+fn sessions_show_all_defaults_on_and_reads_from_the_sessions_table() {
+    assert!(Config::default().sessions.show_all);
+    let config = Config::from_toml("[sessions]\nshow_all = false\n").unwrap();
+    assert!(!config.sessions.show_all);
+    assert!(Config::from_toml("[sessions]\nshow_all = \"yes\"\n").is_err());
+    assert!(Config::from_toml("[sessions]\nall = true\n").is_err());
+}

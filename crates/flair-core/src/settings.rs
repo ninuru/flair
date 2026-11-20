@@ -439,6 +439,14 @@ pub const SETTINGS: &[Setting] = &[
         read: |config, _| Value::Text(config.explorer.editor.clone()),
     },
     Setting {
+        key: "sessions.show_all",
+        title: "Show all sessions",
+        section: Section::Panels,
+        kind: Kind::Toggle,
+        description: "Grows the session picker to fit every row.",
+        read: |config, _| Value::Bool(config.sessions.show_all),
+    },
+    Setting {
         key: "shell.program",
         title: "Shell",
         section: Section::Terminal,

@@ -68,7 +68,10 @@ pub(crate) fn layout(
             (
                 px(PALETTE_WIDTH, scale).min(width - side * 2.0),
                 top,
-                px(PALETTE_MAX_H, scale).min(height - top - side),
+                match sheet.grow {
+                    true => height - top - side,
+                    false => px(PALETTE_MAX_H, scale).min(height - top - side),
+                },
             )
         }
         Placement::Docked => (

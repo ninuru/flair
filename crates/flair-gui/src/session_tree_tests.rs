@@ -80,6 +80,7 @@ fn tree() -> SessionTree {
         ],
         SessionId(2),
         preview(2),
+        true,
     )
 }
 
@@ -459,6 +460,7 @@ fn search_orders_matches_by_score_and_keeps_their_numbers() {
         ],
         SessionId(1),
         preview(1),
+        true,
     );
     tree.key(&char('/'));
     tree.insert("abc");
@@ -491,6 +493,7 @@ fn window_rows_carry_the_process_icon_and_session_rows_none() {
         )],
         SessionId(1),
         preview(1),
+        true,
     );
     assert_eq!(tree.sheet().rows.len(), 1);
     tree.key(&char('l'));
@@ -517,6 +520,7 @@ fn temp_tree(current: u32) -> SessionTree {
         ],
         SessionId(current),
         preview(current),
+        true,
     )
 }
 
@@ -683,6 +687,7 @@ fn mainless_tree() -> SessionTree {
         ],
         SessionId(2),
         preview(2),
+        true,
     )
 }
 
@@ -728,6 +733,7 @@ fn a_temporary_session_named_main_is_not_zero() {
         ],
         SessionId(2),
         preview(2),
+        true,
     );
     assert_eq!(tree.sheet().rows[0].number, Some(1));
     assert_eq!(
@@ -827,4 +833,24 @@ fn x_is_ignored_on_the_group_row_and_typed_in_search() {
     tree.key(&char('y'));
     let field = tree.sheet().field.unwrap();
     assert_eq!(field.text, "xy");
+}
+
+#[test]
+fn the_sheet_grows_only_when_show_all_is_on() {
+    let build = |grow| {
+        SessionTree::new(
+            vec![node(1, "main", vec![window(10, 1, "zsh", true)])],
+            SessionId(1),
+            preview(1),
+            grow,
+        )
+    };
+    let mut on = build(true);
+    assert!(on.sheet().grow);
+    on.key(&char('/'));
+    assert!(on.sheet().grow);
+    let mut off = build(false);
+    assert!(!off.sheet().grow);
+    off.key(&char('/'));
+    assert!(!off.sheet().grow);
 }

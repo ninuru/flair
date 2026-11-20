@@ -1009,3 +1009,22 @@ fn session_tree_window_rows_drop_program_icons_when_tab_icons_are_off() {
     assert!(icons(true).iter().any(Option::is_some));
     assert!(icons(false).iter().all(Option::is_none));
 }
+
+#[test]
+fn only_the_session_tree_grows_and_only_when_show_all_is_on() {
+    let opened = |message: &ServerMsg, show_all| {
+        let mut config = Config::default();
+        config.sessions.show_all = show_all;
+        let mut overlays = Overlays::default();
+        assert!(overlays.open(
+            message,
+            &StatusLine::default(),
+            &config,
+            Path::new("/nonexistent/flair.toml"),
+        ));
+        overlays.sheet(true).unwrap().grow
+    };
+    assert!(opened(&sessions(), true));
+    assert!(!opened(&sessions(), false));
+    assert!(!opened(&ServerMsg::ChooseWindow, true));
+}

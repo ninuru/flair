@@ -103,6 +103,7 @@ impl Overlays {
                     sessions.clone(),
                     *current,
                     preview.clone(),
+                    config.sessions.show_all,
                 ));
             }
             ServerMsg::Preview(preview) => {

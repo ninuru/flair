@@ -64,6 +64,7 @@ pub struct Sheet {
     pub strip: Option<Strip>,
     pub empty: Option<&'static str>,
     pub glyph: char,
+    pub grow: bool,
 }
 
 impl Sheet {

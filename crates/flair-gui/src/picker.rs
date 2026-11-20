@@ -140,6 +140,7 @@ impl Picker {
             ],
             empty: Some("No matching projects."),
             glyph: SEARCH_ICON,
+            grow: false,
         }
     }
 }
