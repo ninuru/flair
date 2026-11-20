@@ -40,6 +40,7 @@ pub struct SessionTree {
     watched: SessionId,
     preview: Option<SessionPreview>,
     armed: Option<SessionId>,
+    grow: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +58,7 @@ impl SessionTree {
         sessions: Vec<SessionNode>,
         current: SessionId,
         preview: SessionPreview,
+        grow: bool,
     ) -> SessionTree {
         let index = sessions
             .iter()
@@ -72,6 +74,7 @@ impl SessionTree {
             watched: current,
             preview: None,
             armed: None,
+            grow,
         };
         tree.set_preview(preview);
         tree
@@ -227,6 +230,7 @@ impl SessionTree {
                     strip: Some(self.strip()),
                     empty: Some("No matching sessions."),
                     glyph: SEARCH_ICON,
+                    grow: self.grow,
                 }
             }
             None => {
@@ -245,6 +249,7 @@ impl SessionTree {
                     strip: Some(self.strip()),
                     empty: Some("No sessions."),
                     glyph: SEARCH_ICON,
+                    grow: self.grow,
                 }
             }
         }

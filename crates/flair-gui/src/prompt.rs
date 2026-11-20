@@ -163,6 +163,7 @@ impl Prompt {
                 ],
                 empty: Some("No windows."),
                 glyph: SEARCH_ICON,
+                grow: false,
             }),
             Prompt::Rename { field } => Some(Sheet {
                 strip: None,
@@ -182,6 +183,7 @@ impl Prompt {
                 ],
                 empty: None,
                 glyph: EDIT_ICON,
+                grow: false,
             }),
             Prompt::Search { .. } => None,
         }

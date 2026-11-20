@@ -78,6 +78,7 @@ fn sessions(rows: Vec<Row>, selected: usize) -> Sheet {
         ],
         empty: Some("No matching sessions."),
         glyph: SEARCH_ICON,
+        grow: false,
     }
 }
 
@@ -391,6 +392,33 @@ fn many_rows_cap_the_panel_and_scroll_to_the_selection() {
     assert_eq!(scene.hits.rows.len(), 9);
     assert_eq!(scene.hits.rows.last().unwrap().0, 40);
     assert!(scene.hits.panel.h <= 420.0);
+}
+
+#[test]
+fn a_growing_sheet_shows_every_row_past_the_palette_cap() {
+    let sheet = Sheet {
+        grow: true,
+        ..many(12, 0)
+    };
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let shown: Vec<usize> = scene.hits.rows.iter().map(|(index, _)| *index).collect();
+    assert_eq!(shown, (0..12).collect::<Vec<_>>());
+    assert!(scene.hits.panel.h > 420.0);
+}
+
+#[test]
+fn a_growing_sheet_stops_at_the_window_and_scrolls_to_the_selection() {
+    let sheet = Sheet {
+        grow: true,
+        ..many(200, 150)
+    };
+    let scene = run(&sheet, (1600, 1000), 1.0, None);
+    let panel = scene.hits.panel;
+    assert!(panel.h > 420.0);
+    assert!(panel.y + panel.h <= 1000.0 - 16.0);
+    assert!(scene.hits.rows.len() > 9);
+    assert!(scene.hits.rows.len() < 200);
+    assert_eq!(scene.hits.rows.last().unwrap().0, 150);
 }
 
 #[test]

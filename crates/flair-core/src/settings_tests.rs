@@ -66,6 +66,7 @@ fn the_table_lists_every_editable_key_in_display_order() {
             "explorer.width",
             "explorer.show_hidden",
             "explorer.editor",
+            "sessions.show_all",
             "shell.program",
             "shell.args",
             "scrollback.lines",
@@ -754,4 +755,17 @@ fn the_panels_section_switches_tab_icons_and_picks_their_side() {
     assert!(file.contains("icon_side = \"before\""));
     assert_eq!(config.tabs.icon_side, IconSide::Before);
     assert_eq!(icons.value(&config, &config.theme()), Value::Bool(false));
+}
+
+#[test]
+fn the_panels_section_switches_the_growing_session_picker() {
+    let show_all = setting("sessions.show_all");
+    assert_eq!(show_all.section, Section::Panels);
+    assert_eq!(show_all.title, "Show all sessions");
+    assert_eq!(show_all.kind, Kind::Toggle);
+    assert_eq!(default_value(show_all), Value::Bool(true));
+    let (file, config) = apply("", "sessions.show_all", Some(&Value::Bool(false))).unwrap();
+    assert!(file.contains("show_all = false"));
+    assert!(!config.sessions.show_all);
+    assert_eq!(show_all.value(&config, &config.theme()), Value::Bool(false));
 }

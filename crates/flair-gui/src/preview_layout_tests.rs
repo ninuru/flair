@@ -359,6 +359,7 @@ fn tree_sheet(rows: usize) -> Sheet {
         }),
         empty: Some("No sessions."),
         glyph: SEARCH_ICON,
+        grow: false,
     }
 }
 

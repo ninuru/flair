@@ -123,6 +123,7 @@ impl ThemePicker {
             ],
             empty: Some("No matching themes."),
             glyph: SEARCH_ICON,
+            grow: false,
         }
     }
 

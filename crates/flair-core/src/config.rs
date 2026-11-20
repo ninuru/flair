@@ -38,6 +38,7 @@ pub struct Config {
     pub panes: PanesConfig,
     pub tabs: TabsConfig,
     pub explorer: ExplorerConfig,
+    pub sessions: SessionsConfig,
     pub scrollback: ScrollbackConfig,
     pub cursor: CursorConfig,
     pub bell: BellConfig,
@@ -94,6 +95,12 @@ pub struct ExplorerConfig {
     pub width: u16,
     pub show_hidden: bool,
     pub editor: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct SessionsConfig {
+    pub show_all: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -453,6 +460,7 @@ impl Default for Config {
             panes: PanesConfig::default(),
             tabs: TabsConfig::default(),
             explorer: ExplorerConfig::default(),
+            sessions: SessionsConfig::default(),
             scrollback: ScrollbackConfig::default(),
             cursor: CursorConfig::default(),
             bell: BellConfig::default(),
@@ -522,6 +530,12 @@ impl Default for ExplorerConfig {
             show_hidden: true,
             editor: String::new(),
         }
+    }
+}
+
+impl Default for SessionsConfig {
+    fn default() -> SessionsConfig {
+        SessionsConfig { show_all: true }
     }
 }
 
