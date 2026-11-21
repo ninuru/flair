@@ -449,18 +449,21 @@ impl Panels {
 
 impl Panels {
     pub fn agents_command(&mut self, agents: &[AgentParts]) -> Vec<PathBuf> {
-        match (self.open, self.agents_focused()) {
+        match (self.open, self.shown == PanelView::Agents) {
             (true, true) => {
                 self.close();
                 Vec::new()
             }
             (true, false) => {
+                let focused = self.focused;
                 self.show_agents(agents);
+                self.focused = focused;
                 Vec::new()
             }
             (false, _) => {
                 let dirs = self.open_explorer();
                 self.show_agents(agents);
+                self.focused = false;
                 dirs
             }
         }

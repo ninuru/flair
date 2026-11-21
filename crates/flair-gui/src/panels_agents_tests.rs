@@ -61,6 +61,8 @@ fn opened() -> Panels {
         at_prompt: true,
     }));
     assert_eq!(panels.agents_command(&agents()), vec![PathBuf::from("/p")]);
+    assert!(panels.open && !panels.focused);
+    panels.focused = true;
     panels
 }
 
@@ -75,13 +77,14 @@ fn key(panels: &mut Panels, key: Key, agents: &[AgentParts]) -> Option<AgentsOut
 }
 
 #[test]
-fn the_agents_command_opens_focuses_and_closes_the_side_panel() {
+fn the_agents_command_opens_and_closes_the_side_panel_without_taking_focus() {
     let mut panels = opened();
-    assert!(panels.open && panels.focused);
     assert_eq!(panels.shown, PanelView::Agents);
-    panels.focused = false;
     assert!(panels.agents_command(&agents()).is_empty());
-    assert!(panels.open && panels.focused);
+    assert!(!panels.open && !panels.focused);
+    panels.agents_command(&agents());
+    assert!(panels.open && !panels.focused);
+    assert_eq!(panels.shown, PanelView::Agents);
     assert!(panels.agents_command(&agents()).is_empty());
     assert!(!panels.open && !panels.focused);
 }

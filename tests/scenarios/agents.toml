@@ -21,9 +21,6 @@ text = "no agents"
 action = "capture"
 name = "empty"
 [[steps]]
-action = "key"
-key = "Escape"
-[[steps]]
 action = "text"
 text = "printf '\\033]7501;state=blocked:kind=permission:app=claude:title=Rml4IGxvZ2luIGJ1Zw==\\007'\r"
 [[steps]]
