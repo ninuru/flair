@@ -141,7 +141,6 @@ pub(crate) const POPUP_ROWS: usize = 10;
 pub(crate) const PALETTE: Rgb = rgb(0x0a0a0a);
 pub(crate) const PALETTE_SHINE: Rgb = rgb(0x141414);
 pub(crate) const PALETTE_HIGHLIGHT: Rgb = rgb(0x1f1f1f);
-pub(crate) const PALETTE_CURRENT: Rgb = rgb(0x181818);
 pub(crate) const PALETTE_FOOTER: Rgb = rgb(0x101010);
 pub(crate) const PALETTE_FOOTER_BORDER: Rgb = rgb(0x1a1a1a);
 pub(crate) const PALETTE_KEYCAP: Rgb = rgb(0x1e1e1e);

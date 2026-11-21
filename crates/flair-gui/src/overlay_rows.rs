@@ -1,13 +1,13 @@
 use crate::{
-    chrome_bar::{baseline, rounded, small_text, ui_text},
+    chrome_bar::{baseline, fill, rounded, small_text, ui_text},
     overlay_layout::{OverlayInput, OverlayScene, Row, inside},
     renderer::PxRect,
     settings_rows::glyph,
     t3_style::{
         FOREGROUND, ICON_BOX, ITEM_GAP, ITEM_INDENT, ITEM_PAD_X, ITEM_RADIUS, MONOGRAM, MUTED,
-        NAME_MAX, PALETTE_CURRENT, PALETTE_HIGHLIGHT, QUIET,
+        NAME_MAX, PALETTE_HIGHLIGHT, QUIET,
     },
-    ui::{ELLIPSIS, px},
+    ui::{ELLIPSIS, SELECT_BAR, SELECT_INSET, px},
 };
 
 pub(crate) fn entry(
@@ -22,13 +22,22 @@ pub(crate) fn entry(
     let (gutter, column) = columns;
     let scale = input.scale;
     let hovered = input.hover.is_some_and(|point| inside(rect, point));
-    let background = match (selected || hovered, row.current) {
-        (true, _) => Some(PALETTE_HIGHLIGHT),
-        (false, true) => Some(PALETTE_CURRENT),
-        (false, false) => None,
-    };
-    if let Some(color) = background {
-        scene.quads.push(rounded(rect, color, ITEM_RADIUS, scale));
+    if selected || hovered {
+        scene
+            .quads
+            .push(rounded(rect, PALETTE_HIGHLIGHT, ITEM_RADIUS, scale));
+    }
+    if row.current {
+        let inset = px(SELECT_INSET, scale);
+        scene.quads.push(fill(
+            PxRect {
+                x: rect.x,
+                y: rect.y + inset,
+                w: px(SELECT_BAR, scale),
+                h: (rect.h - inset * 2.0).max(0.0),
+            },
+            input.theme.accent,
+        ));
     }
     let pad = px(ITEM_PAD_X, scale);
     let gap = px(ITEM_GAP, scale);

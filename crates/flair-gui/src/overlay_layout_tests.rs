@@ -3,8 +3,8 @@ use crate::{
     CellMetrics,
     renderer::TextFace,
     t3_style::{
-        DIM, EDIT_ICON, FOREGROUND, MONOGRAM, MUTED, PALETTE, PALETTE_CURRENT, PALETTE_FOOTER,
-        PALETTE_HIGHLIGHT, PALETTE_KEYCAP, PANEL_BORDER, QUIET, SEARCH_ICON,
+        DIM, EDIT_ICON, FOREGROUND, MONOGRAM, MUTED, PALETTE, PALETTE_FOOTER, PALETTE_HIGHLIGHT,
+        PALETTE_KEYCAP, PANEL_BORDER, QUIET, SEARCH_ICON,
     },
     ui::{ELLIPSIS, ENTER_KEY, ESCAPE_KEY, MOVE_KEY},
 };
@@ -234,18 +234,40 @@ fn rows_are_32_tall_with_a_highlight_for_the_selection_and_hover() {
 }
 
 #[test]
-fn the_current_item_is_tinted_quieter_than_the_highlight() {
+fn the_current_item_has_no_fill_but_an_accent_bar_at_its_left_edge() {
+    let theme = Config::default().theme();
     let scene = run(&windows(), (1600, 1000), 1.0, None);
     let first = scene.hits.rows[0].1;
-    assert_eq!(
-        quad_at(&scene, first).unwrap().color,
-        colour(PALETTE_CURRENT)
-    );
+    assert!(quad_at(&scene, first).is_none());
+    let bar = quad_at(&scene, rect(first.x, first.y + 7.0, 2.0, 18.0)).unwrap();
+    assert_eq!(bar.color, colour(theme.accent));
     let second = scene.hits.rows[1].1;
     assert_eq!(
         quad_at(&scene, second).unwrap().color,
         colour(PALETTE_HIGHLIGHT)
     );
+    assert!(quad_at(&scene, rect(second.x, second.y + 7.0, 2.0, 18.0)).is_none());
+}
+
+#[test]
+fn a_selected_current_item_has_the_highlight_and_the_accent_bar() {
+    let theme = Config::default().theme();
+    let scene = run(
+        &Sheet {
+            selected: 0,
+            ..windows()
+        },
+        (1600, 1000),
+        1.0,
+        None,
+    );
+    let first = scene.hits.rows[0].1;
+    assert_eq!(
+        quad_at(&scene, first).unwrap().color,
+        colour(PALETTE_HIGHLIGHT)
+    );
+    let bar = quad_at(&scene, rect(first.x, first.y + 7.0, 2.0, 18.0)).unwrap();
+    assert_eq!(bar.color, colour(theme.accent));
 }
 
 #[test]
